@@ -91,8 +91,8 @@ describe('auth API', { skip: !available && 'local test Postgres not running' }, 
     assert.deepEqual(unknown.body, wrong.body, 'same answer whether or not the email exists');
     for (let i = 0; i < 4; i++) await call('POST', '/v1/auth/login', { email: 'lock@example.com', password: 'wrong password!' });
     const locked = await call('POST', '/v1/auth/login', { email: 'lock@example.com', password: 'correct horse battery' });
-    assert.equal(locked.status, 429);
-    assert.equal(locked.body.error.code, 'locked');
+    assert.equal(locked.status, 401, 'even the right password is refused while locked');
+    assert.deepEqual(locked.body, unknown.body, 'a locked account looks like a wrong password (no enumeration)');
   });
 
   test('login works and a successful login resets the counter', async () => {
@@ -131,6 +131,39 @@ describe('auth API', { skip: !available && 'local test Postgres not running' }, 
     assert.equal(stored.rows[0]!.n, 0, 'tokens are stored only as hashes');
   });
 
+  test('concurrent use of one refresh token: exactly one wins, the rest trigger reuse detection', async () => {
+    const s = await signup('race@example.com');
+    const results = await Promise.all(Array.from({ length: 4 }, () => call('POST', '/v1/auth/refresh', { refreshToken: s.body.refreshToken })));
+    assert.equal(results.filter((r) => r.status === 200).length, 1);
+    const winner = results.find((r) => r.status === 200)!;
+    assert.equal((await call('POST', '/v1/auth/refresh', { refreshToken: winner.body.refreshToken })).status, 401, 'reuse detection revoked the winner too');
+  });
+
+  test('parallel wrong passwords cannot get past the lock', async () => {
+    await signup('burst@example.com');
+    await Promise.all(Array.from({ length: 12 }, () => call('POST', '/v1/auth/login', { email: 'burst@example.com', password: 'wrong password!' })));
+    const n = await db.owner.query<{ failed_logins: number }>(`SELECT failed_logins FROM users WHERE email = 'burst@example.com'`);
+    assert.ok(n.rows[0]!.failed_logins <= 5, `only attempts before the lock are checked, got ${n.rows[0]!.failed_logins}`);
+  });
+
+  test('overlong passwords are refused before any hashing', async () => {
+    const r = await call('POST', '/v1/auth/login', { email: 'ok@example.com', password: 'x'.repeat(10_000) });
+    assert.equal(r.status, 401);
+  });
+
+  test('a forged X-Forwarded-For does not get around the login limit', async () => {
+    const strict = new ApiServer({
+      appPool: db.app, connections: conns, queue: new PgJobQueue(db.worker, db.app), killSwitches: new PgKillSwitchStore(db.worker), tokenSecret: SECRET,
+      modules: [authModule({ keys: new TenantKeys(new MasterKey('mk-y', MasterKey.generateB64()), db.worker), loginLimiter: new WindowLimiter(2, 60_000) })],
+    });
+    await strict.listen();
+    const post = (i: number) => fetch(`${strict.url}/v1/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json', 'x-forwarded-for': `10.0.0.${i}` }, body: JSON.stringify({ email: 'a@b.co', password: 'x' }) });
+    const statuses = [];
+    for (let i = 0; i < 4; i++) statuses.push((await post(i)).status);
+    assert.equal(statuses.filter((s) => s === 429).length, 2);
+    await strict.close();
+  });
+
   test('logout revokes the refresh token', async () => {
     const s = await signup('logout@example.com');
     await call('POST', '/v1/auth/logout', { refreshToken: s.body.refreshToken }, bearer(s.body.accessToken));
@@ -142,8 +175,8 @@ describe('auth API', { skip: !available && 'local test Postgres not running' }, 
     const t = s.body.tenantId;
     await withTenant(db.app, t, (c) => c.query(`INSERT INTO wa_accounts (tenant_id, label) VALUES ($1, 'x')`, [t]));
     await withTenant(db.app, t, (c) => c.query(`INSERT INTO templates (tenant_id, name, body) VALUES ($1, 'x', '{content}')`, [t]));
-    assert.equal((await call('DELETE', '/v1/account', undefined, { ...bearer(s.body.accessToken), 'x-confirm-password': 'nope' })).status, 403);
-    const del = await call('DELETE', '/v1/account', undefined, { ...bearer(s.body.accessToken), 'x-confirm-password': 'correct horse battery' });
+    assert.equal((await call('POST', '/v1/account/delete', { password: 'nope' }, bearer(s.body.accessToken))).status, 403);
+    const del = await call('POST', '/v1/account/delete', { password: 'correct horse battery' }, bearer(s.body.accessToken));
     assert.equal(del.status, 200);
     for (const table of ['wa_accounts', 'templates', 'users', 'refresh_tokens']) {
       const n = await db.owner.query<{ n: number }>(`SELECT count(*)::int AS n FROM ${table} WHERE tenant_id = $1`, [t]);
@@ -153,6 +186,9 @@ describe('auth API', { skip: !available && 'local test Postgres not running' }, 
     assert.equal(tenant.rows[0]!.status, 'deleted');
     assert.equal((await call('POST', '/v1/auth/login', { email: 'delete@example.com', password: 'correct horse battery' })).status, 401);
     assert.equal((await call('POST', '/v1/auth/refresh', { refreshToken: s.body.refreshToken })).status, 401);
+    // The old access token is dead immediately — it can't create anything in the deleted tenant.
+    const zombie = await call('GET', '/v1/me', undefined, bearer(s.body.accessToken));
+    assert.equal(zombie.status, 401);
     // The email can be used again for a new account.
     assert.equal((await signup('delete@example.com')).status, 200);
   });
@@ -161,7 +197,7 @@ describe('auth API', { skip: !available && 'local test Postgres not running' }, 
     const s = await signup('roles@example.com');
     const { signToken } = await import('../src/api/auth.js');
     const editor = signToken({ tenantId: s.body.tenantId, userId: s.body.userId, role: 'editor' }, SECRET);
-    const r = await call('DELETE', '/v1/account', undefined, { ...bearer(editor), 'x-confirm-password': 'correct horse battery' });
+    const r = await call('POST', '/v1/account/delete', { password: 'correct horse battery' }, bearer(editor));
     assert.equal(r.status, 403);
     assert.equal(r.body.error.code, 'forbidden_role');
   });

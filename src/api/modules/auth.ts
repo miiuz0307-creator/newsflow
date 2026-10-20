@@ -13,7 +13,8 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { PgError } from '../../db/pg.js';
 import { withTenant, type TenantKeys } from '../../db/pgStores.js';
-import { DUMMY_HASH, checkPassword, hashPassword, verifyPassword } from '../../auth/password.js';
+import { DUMMY_HASH, MAX_PASSWORD_LENGTH, PasswordBusyError, checkPassword, hashPassword, verifyPassword } from '../../auth/password.js';
+import type { TelegramRuntime } from '../../telegram/runtime.js';
 import { signToken, type TokenClaims } from '../auth.js';
 import { HttpError, type ApiServer } from '../server.js';
 
@@ -42,8 +43,20 @@ export class WindowLimiter {
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 
+async function busy<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof PasswordBusyError) throw new HttpError(503, 'busy', 'השרת עמוס; נסה שוב בעוד רגע');
+    throw e;
+  }
+}
+
 export interface AuthModuleOptions {
   keys: TenantKeys;
+  /** Needed so account deletion also stops the tenant's Telegram bots. */
+  telegram?: TelegramRuntime;
+  onRoutesChanged?: () => void;
   loginLimiter?: WindowLimiter;
   signupLimiter?: WindowLimiter;
 }
@@ -76,7 +89,7 @@ export function authModule(opts: AuthModuleOptions) {
       const problem = checkPassword(password, email);
       if (problem) throw new HttpError(400, problem.code, problem.message);
       if (body.acceptTerms !== true) throw new HttpError(400, 'terms_required', 'יש לאשר את תנאי השימוש ומדיניות הפרטיות');
-      const hash = await hashPassword(password);
+      const hash = await busy(() => hashPassword(password));
       let tenantId: string;
       try {
         tenantId = await opts.keys.provision(pool, businessName, 'trial', email, hash);
@@ -94,22 +107,22 @@ export function authModule(opts: AuthModuleOptions) {
 
     api.on('POST', '/v1/auth/login', false, async ({ body, ip, req }) => {
       if (!loginLimiter.take(ip)) throw new HttpError(429, 'too_many', 'יותר מדי ניסיונות; נסה שוב בעוד דקה');
-      const email = String(body.email ?? '').trim().toLowerCase();
+      const email = String(body.email ?? '').trim().toLowerCase().slice(0, 320);
       const password = String(body.password ?? '');
-      const r = await pool.query<{ user_id: string; tenant_id: string; password_hash: string; role: TokenClaims['role']; failed_logins: number; locked_until: Date | null; tenant_status: string }>(
-        'SELECT * FROM auth_lookup($1)', [email]);
-      const u = r.rows[0];
       const generic = new HttpError(401, 'bad_credentials', 'האימייל או הסיסמה שגויים');
+      if (password.length > MAX_PASSWORD_LENGTH) throw generic;
+      // The attempt is counted first, atomically; a locked or unknown account returns no row.
+      // Both cases answer exactly like a wrong password, after the same amount of work.
+      const r = await pool.query<{ user_id: string; tenant_id: string; password_hash: string; role: TokenClaims['role']; tenant_status: string }>(
+        'SELECT * FROM auth_begin_attempt($1)', [email]);
+      const u = r.rows[0];
       if (!u) {
-        await verifyPassword(password, DUMMY_HASH); // same time as a real check
+        await busy(() => verifyPassword(password, DUMMY_HASH));
         throw generic;
       }
-      if (u.locked_until && u.locked_until.getTime() > Date.now()) {
-        throw new HttpError(429, 'locked', 'החשבון ננעל זמנית בגלל ניסיונות כושלים; נסה שוב מאוחר יותר', { until: u.locked_until });
-      }
-      const ok = await verifyPassword(password, u.password_hash);
-      await pool.query('SELECT auth_record_attempt($1, $2)', [u.user_id, ok]);
+      const ok = await busy(() => verifyPassword(password, u.password_hash));
       if (!ok) throw generic;
+      await pool.query('SELECT auth_login_succeeded($1)', [u.user_id]);
       if (u.tenant_status !== 'active') throw new HttpError(403, 'tenant_inactive', 'החשבון אינו פעיל; פנה לתמיכה');
       return { tenantId: u.tenant_id, userId: u.user_id, ...(await issueTokens({ tenantId: u.tenant_id, userId: u.user_id, role: u.role }, req.headers['user-agent'])) };
     });
@@ -120,22 +133,24 @@ export function authModule(opts: AuthModuleOptions) {
       const bad = new HttpError(401, 'bad_refresh', 'יש להתחבר מחדש');
       if (!/^[0-9a-f-]{36}$/i.test(tenantId)) throw bad;
       const found = await withTenant(pool, tenantId, async (c) => {
-        const r = await c.query<{ id: string; user_id: string; expires_at: Date; revoked_at: Date | null }>(
-          'SELECT id, user_id, expires_at, revoked_at FROM refresh_tokens WHERE token_hash = $1', [sha256(token)]);
-        const row = r.rows[0];
-        if (!row) return null;
-        if (row.revoked_at) {
-          // A rotated token was used again: someone has a copy. End every session of this user.
-          await c.query('UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [row.user_id]);
-          await c.query(`INSERT INTO audit_log (tenant_id, actor, action, target) VALUES ($1, 'system', 'auth.refresh_reuse', $2)`, [tenantId, row.user_id]);
+        // Revoke-and-read in one statement: of several concurrent uses, exactly one wins.
+        const won = await c.query<{ user_id: string }>(
+          `UPDATE refresh_tokens SET revoked_at = now() WHERE token_hash = $1 AND revoked_at IS NULL AND expires_at > now() RETURNING user_id`,
+          [sha256(token)]);
+        if (!won.rows[0]) {
+          const seen = await c.query<{ user_id: string; revoked_at: Date | null }>('SELECT user_id, revoked_at FROM refresh_tokens WHERE token_hash = $1', [sha256(token)]);
+          if (seen.rows[0]?.revoked_at) {
+            // A used token came back: someone has a copy. End every session of this user.
+            await c.query('UPDATE refresh_tokens SET revoked_at = now() WHERE user_id = $1 AND revoked_at IS NULL', [seen.rows[0].user_id]);
+            await c.query(`INSERT INTO audit_log (tenant_id, actor, action, target) VALUES ($1, 'system', 'auth.refresh_reuse', $2)`, [tenantId, seen.rows[0].user_id]);
+          }
           return null;
         }
-        if (row.expires_at.getTime() < Date.now()) return null;
-        await c.query('UPDATE refresh_tokens SET revoked_at = now() WHERE id = $1', [row.id]);
-        const u = await c.query<{ role: TokenClaims['role'] }>('SELECT role FROM users WHERE id = $1', [row.user_id]);
+        const userId = won.rows[0].user_id;
+        const u = await c.query<{ role: TokenClaims['role'] }>('SELECT role FROM users WHERE id = $1', [userId]);
         const t = await c.query<{ status: string }>('SELECT status FROM tenants WHERE id = $1', [tenantId]);
         if (!u.rows[0] || t.rows[0]?.status !== 'active') return null;
-        return { userId: row.user_id, role: u.rows[0].role };
+        return { userId, role: u.rows[0].role };
       });
       if (!found) throw bad;
       return issueTokens({ tenantId, userId: found.userId, role: found.role }, req.headers['user-agent']);
@@ -163,15 +178,21 @@ export function authModule(opts: AuthModuleOptions) {
         };
       }));
 
-    api.on('DELETE', '/v1/account', true, async ({ auth, req }) => {
+    // POST (not DELETE) so the password travels in the body, never in a header that proxies may log.
+    api.on('POST', '/v1/account/delete', true, async ({ auth, body }) => {
       api.requireRole(auth!, 'owner');
-      // DELETE carries no body in our router; the password comes in a header.
-      const password = String(req.headers['x-confirm-password'] ?? '');
+      const password = String(body.password ?? '');
       const hash = await api.tenantTx(auth!, (c) => c.query<{ password_hash: string }>('SELECT password_hash FROM users WHERE id = $1', [auth!.userId]));
-      if (!(await verifyPassword(password, hash.rows[0]?.password_hash))) throw new HttpError(403, 'bad_password', 'הסיסמה שגויה');
-      const accounts = await api.tenantTx(auth!, (c) => c.query<{ id: string }>('SELECT id FROM wa_accounts'));
-      for (const a of accounts.rows) await api.o.connections.disconnectAndDelete(a.id).catch(() => {});
+      if (!(await busy(() => verifyPassword(password, hash.rows[0]?.password_hash)))) throw new HttpError(403, 'bad_password', 'הסיסמה שגויה');
+      const owned = await api.tenantTx(auth!, async (c) => ({
+        wa: (await c.query<{ id: string }>('SELECT id FROM wa_accounts')).rows.map((r) => r.id),
+        tg: (await c.query<{ id: string }>('SELECT id FROM tg_bots')).rows.map((r) => r.id),
+      }));
+      for (const id of owned.wa) await api.o.connections.disconnectAndDelete(id).catch(() => {});
+      for (const id of owned.tg) await opts.telegram?.stop(id).catch(() => {});
       await api.tenantTx(auth!, (c) => c.query('SELECT delete_my_tenant()'));
+      opts.keys.forget(auth!.tenantId);
+      opts.onRoutesChanged?.();
       return { deleted: true };
     });
   };

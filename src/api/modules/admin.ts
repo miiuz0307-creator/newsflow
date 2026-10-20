@@ -9,7 +9,8 @@
 import { createHmac } from 'node:crypto';
 import type http from 'node:http';
 import { DUMMY_HASH, verifyPassword } from '../../auth/password.js';
-import { verifyTotp } from '../../auth/totp.js';
+import { totpCipherKey, verifyTotpStep } from '../../auth/totp.js';
+import { TenantCipher } from '../../crypto/keyring.js';
 import { safeEqual } from '../../crypto/keyring.js';
 import type { PgPool, Sql } from '../../db/pg.js';
 import { PgError } from '../../db/pg.js';
@@ -39,24 +40,42 @@ export function verifyAdminToken(token: string, secret: string): AdminClaims | n
   }
 }
 
+/** Encrypts an admin's TOTP secret for storage (used by create-admin and tests). */
+export function encryptTotpSecret(masterKeyB64: string, adminEmail: string, secret: string): string {
+  return new TenantCipher('admins', totpCipherKey(masterKeyB64)).encrypt(`totp:${adminEmail.toLowerCase()}`, secret);
+}
+
 export interface AdminModuleOptions {
   adminPool: PgPool;
   /** Different from the customer token secret. ≥32 chars. */
   adminTokenSecret: string;
+  /** The customer token secret, only to check that the two differ. */
+  customerTokenSecret?: string;
+  /** Master key (base64): TOTP secrets are stored encrypted with a key derived from it. */
+  masterKeyB64: string;
   loginLimiter?: WindowLimiter;
 }
 
 export function adminModule(opts: AdminModuleOptions) {
   if (opts.adminTokenSecret.length < 32) throw new Error('adminTokenSecret must be at least 32 characters');
+  if (opts.customerTokenSecret && opts.customerTokenSecret === opts.adminTokenSecret) throw new Error('admin and customer token secrets must differ');
+  const totpCipher = new TenantCipher('admins', totpCipherKey(opts.masterKeyB64));
   const limiter = opts.loginLimiter ?? new WindowLimiter(5, 5 * 60_000);
   const sql: Sql = opts.adminPool;
 
-  const authOf = (req: http.IncomingMessage, need?: 'superadmin'): AdminClaims => {
+  /**
+   * Verifies the token AND re-reads the admin from the database on every request,
+   * so deactivating an admin or changing their role takes effect immediately.
+   */
+  const authOf = async (req: http.IncomingMessage, need?: 'superadmin'): Promise<AdminClaims> => {
     const h = req.headers.authorization ?? '';
     const c = h.startsWith('Bearer ') ? verifyAdminToken(h.slice(7), opts.adminTokenSecret) : null;
     if (!c) throw new HttpError(401, 'unauthorized', 'admin login required');
-    if (need === 'superadmin' && c.role !== 'superadmin') throw new HttpError(403, 'forbidden_role', 'superadmin only');
-    return c;
+    const r = await sql.query<{ role: AdminClaims['role'] }>('SELECT role FROM admins WHERE id = $1 AND active', [c.adminId]);
+    const role = r.rows[0]?.role;
+    if (!role) throw new HttpError(401, 'unauthorized', 'admin login required');
+    if (need === 'superadmin' && role !== 'superadmin') throw new HttpError(403, 'forbidden_role', 'superadmin only');
+    return { ...c, role };
   };
   const audit = (a: AdminClaims, action: string, target: string, tenantId: string | null, detail: Record<string, unknown> = {}) =>
     sql.query('INSERT INTO audit_log (tenant_id, actor, action, target, detail) VALUES ($1, $2, $3, $4, $5)', [tenantId, `admin:${a.adminId}`, action, target, detail]);
@@ -64,26 +83,35 @@ export function adminModule(opts: AdminModuleOptions) {
   return (api: ApiServer) => {
     api.on('POST', '/admin/v1/login', false, async ({ body, ip }) => {
       if (!limiter.take(ip)) throw new HttpError(429, 'too_many', 'too many attempts');
-      const r = await sql.query<{ id: string; password_hash: string; totp_secret: string; role: AdminClaims['role']; active: boolean; locked_until: Date | null }>(
-        'SELECT id, password_hash, totp_secret, role, active, locked_until FROM admins WHERE lower(email) = lower($1)', [String(body.email ?? '')]);
-      const a = r.rows[0];
+      const email = String(body.email ?? '').slice(0, 320);
+      const password = String(body.password ?? '');
       const bad = new HttpError(401, 'bad_credentials', 'bad credentials');
-      if (!a) {
-        await verifyPassword(String(body.password ?? ''), DUMMY_HASH);
+      // Counted first and atomically; locked, inactive and unknown accounts all look the same.
+      const r = await sql.query<{ id: string; password_hash: string; totp_secret: string; role: AdminClaims['role']; last_totp_step: number }>(
+        'SELECT * FROM admin_begin_attempt($1)', [email]);
+      const a = r.rows[0];
+      if (!a || password.length > 200) {
+        await verifyPassword(password.slice(0, 200), DUMMY_HASH).catch(() => false);
         throw bad;
       }
-      if (!a.active || (a.locked_until && a.locked_until.getTime() > Date.now())) throw new HttpError(423, 'locked', 'account locked');
-      const ok = (await verifyPassword(String(body.password ?? ''), a.password_hash)) && verifyTotp(a.totp_secret, String(body.code ?? ''));
-      await sql.query(
-        ok ? 'UPDATE admins SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1'
-          : `UPDATE admins SET failed_logins = failed_logins + 1, locked_until = CASE WHEN failed_logins + 1 >= 5 THEN now() + interval '30 minutes' END WHERE id = $1`,
-        [a.id]);
-      if (!ok) throw bad;
+      if (!(await verifyPassword(password, a.password_hash))) throw bad;
+      let secret: string;
+      try {
+        secret = totpCipher.decryptString(`totp:${email.toLowerCase()}`, a.totp_secret);
+      } catch {
+        throw bad;
+      }
+      const step = verifyTotpStep(secret, String(body.code ?? ''));
+      if (step === null || step <= Number(a.last_totp_step)) throw bad; // each code works once
+      const won = await sql.query(
+        `UPDATE admins SET failed_logins = 0, locked_until = NULL, last_login_at = now(), last_totp_step = $2 WHERE id = $1 AND last_totp_step < $2`,
+        [a.id, step]);
+      if (!won.rowCount) throw bad; // a concurrent login used the same code
       return { token: signAdminToken({ adminId: a.id, role: a.role }, opts.adminTokenSecret), role: a.role };
     });
 
     api.on('GET', '/admin/v1/dashboard', false, async ({ req }) => {
-      authOf(req);
+      await authOf(req);
       const one = async <T>(q: string) => (await sql.query<T>(q)).rows;
       const [tenants, plans, accounts, bots, routes, jobs, safety, tickets, mrr] = await Promise.all([
         one<{ status: string; n: number }>(`SELECT status, count(*)::int AS n FROM tenants GROUP BY status`),
@@ -113,7 +141,7 @@ export function adminModule(opts: AdminModuleOptions) {
     });
 
     api.on('GET', '/admin/v1/tenants', false, async ({ req }) => {
-      authOf(req);
+      await authOf(req);
       const q = new URL(req.url ?? '/', 'http://x').searchParams.get('q') ?? '';
       const r = await sql.query(
         `SELECT t.id, t.name, t.plan_code, t.status, t.created_at,
@@ -127,7 +155,7 @@ export function adminModule(opts: AdminModuleOptions) {
     });
 
     api.on('GET', '/admin/v1/tenants/:id', false, async ({ req, params }) => {
-      authOf(req);
+      await authOf(req);
       const t = await sql.query('SELECT id, name, plan_code, status, risk_accepted_at, created_at FROM tenants WHERE id = $1', [params.id]);
       if (!t.rowCount) throw new HttpError(404, 'not_found', 'tenant not found');
       const [users, accounts, bots, routes, jobs, safety, stops] = await Promise.all([
@@ -143,7 +171,7 @@ export function adminModule(opts: AdminModuleOptions) {
     });
 
     api.on('POST', '/admin/v1/tenants/:id', false, async ({ req, params, body }) => {
-      const a = authOf(req, 'superadmin');
+      const a = await authOf(req, 'superadmin');
       try {
         await sql.query('SELECT admin_set_tenant($1, $2, $3, $4)', [params.id, body.plan ?? null, body.status ?? null, `admin:${a.adminId}`]);
       } catch (e) {
@@ -156,7 +184,7 @@ export function adminModule(opts: AdminModuleOptions) {
 
     // Emergency stops: global (superadmin) and clearing stops the system set automatically.
     api.on('POST', '/admin/v1/stop', false, async ({ req, body }) => {
-      const a = authOf(req, 'superadmin');
+      const a = await authOf(req, 'superadmin');
       const scope = String(body.scope ?? 'global');
       if (!['global', 'tenant', 'account', 'route'].includes(scope)) throw new HttpError(400, 'bad_scope', 'bad scope');
       const scopeId = scope === 'global' ? '*' : String(body.id ?? '');
@@ -169,7 +197,7 @@ export function adminModule(opts: AdminModuleOptions) {
       return { stopped: { scope, id: scopeId } };
     });
     api.on('POST', '/admin/v1/resume', false, async ({ req, body }) => {
-      const a = authOf(req, 'superadmin');
+      const a = await authOf(req, 'superadmin');
       const scope = String(body.scope ?? 'global');
       const scopeId = scope === 'global' ? '*' : String(body.id ?? '');
       const r = await sql.query<{ tenant_id: string | null }>('UPDATE kill_switches SET active = false WHERE scope = $1 AND scope_id = $2 AND active RETURNING tenant_id', [scope, scopeId]);
@@ -180,11 +208,11 @@ export function adminModule(opts: AdminModuleOptions) {
 
     // Plans: prices and limits are data.
     api.on('GET', '/admin/v1/plans', false, async ({ req }) => {
-      authOf(req);
+      await authOf(req);
       return (await sql.query('SELECT code, name, price_agorot, limits, active, updated_at FROM plans ORDER BY price_agorot')).rows;
     });
     api.on('PUT', '/admin/v1/plans/:code', false, async ({ req, params, body }) => {
-      const a = authOf(req, 'superadmin');
+      const a = await authOf(req, 'superadmin');
       if (body.priceAgorot !== undefined && (!Number.isInteger(body.priceAgorot) || body.priceAgorot < 0)) throw new HttpError(400, 'bad_price', 'price must be whole agorot ≥ 0');
       if (body.limits !== undefined && (typeof body.limits !== 'object' || Array.isArray(body.limits))) throw new HttpError(400, 'bad_limits', 'limits must be an object');
       const r = await sql.query(
@@ -198,21 +226,21 @@ export function adminModule(opts: AdminModuleOptions) {
 
     // Tickets (staff side).
     api.on('GET', '/admin/v1/tickets', false, async ({ req }) => {
-      authOf(req);
+      await authOf(req);
       const status = new URL(req.url ?? '/', 'http://x').searchParams.get('status');
       return (await sql.query(
         `SELECT k.id, k.tenant_id, t.name AS tenant_name, k.subject, k.category, k.status, k.updated_at FROM tickets k JOIN tenants t ON t.id = k.tenant_id
           WHERE ($1::text IS NULL AND k.status <> 'closed') OR k.status = $1 ORDER BY k.updated_at LIMIT 200`, [status])).rows;
     });
     api.on('GET', '/admin/v1/tickets/:id', false, async ({ req, params }) => {
-      authOf(req);
+      await authOf(req);
       const t = await sql.query('SELECT * FROM tickets WHERE id = $1', [params.id]);
       if (!t.rowCount) throw new HttpError(404, 'not_found', 'ticket not found');
       const m = await sql.query('SELECT author, body, created_at FROM ticket_messages WHERE ticket_id = $1 ORDER BY id', [params.id]);
       return { ...t.rows[0], messages: m.rows };
     });
     api.on('POST', '/admin/v1/tickets/:id/reply', false, async ({ req, params, body }) => {
-      const a = authOf(req);
+      const a = await authOf(req);
       const text = String(body.body ?? '').trim();
       if (!text || text.length > 5000) throw new HttpError(400, 'bad_request', 'empty or too long');
       const t = await sql.query<{ tenant_id: string; subject: string }>('SELECT tenant_id, subject FROM tickets WHERE id = $1', [params.id]);
@@ -227,11 +255,12 @@ export function adminModule(opts: AdminModuleOptions) {
 
     // System message to customers (all active tenants, or a list).
     api.on('POST', '/admin/v1/broadcast', false, async ({ req, body }) => {
-      const a = authOf(req, 'superadmin');
+      const a = await authOf(req, 'superadmin');
       const title = String(body.title ?? '').trim().slice(0, 120);
       const text = String(body.body ?? '').trim().slice(0, 1000);
       if (!title || !text) throw new HttpError(400, 'bad_request', 'title and body required');
       const ids = Array.isArray(body.tenantIds) ? body.tenantIds.map(String) : null;
+      if (ids && (ids.length > 10_000 || !ids.every((x: string) => /^[0-9a-f-]{36}$/i.test(x)))) throw new HttpError(400, 'bad_ids', 'tenantIds must be UUIDs');
       const r = await sql.query(
         `INSERT INTO notifications (tenant_id, kind, title, body) SELECT id, 'system', $1, $2 FROM tenants
           WHERE status = 'active' AND ($3::uuid[] IS NULL OR id = ANY($3::uuid[]))`, [title, text, ids ? `{${ids.join(',')}}` : null]);
@@ -240,7 +269,7 @@ export function adminModule(opts: AdminModuleOptions) {
     });
 
     api.on('GET', '/admin/v1/audit', false, async ({ req }) => {
-      authOf(req);
+      await authOf(req);
       const tenant = new URL(req.url ?? '/', 'http://x').searchParams.get('tenant');
       return (await sql.query(`SELECT tenant_id, actor, action, target, detail, created_at FROM audit_log WHERE ($1::uuid IS NULL OR tenant_id = $1) ORDER BY id DESC LIMIT 200`, [tenant])).rows;
     });

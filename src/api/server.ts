@@ -37,6 +37,11 @@ export interface ApiOptions {
   /** Enables POST /v1/dev/token. Never on in production. */
   devTokens?: boolean;
   logger?: Logger;
+  /**
+   * Number of reverse proxies in front of the API (e.g. 1 on Railway). 0 = clients
+   * connect directly and X-Forwarded-For is ignored (it can be forged).
+   */
+  trustProxyHops?: number;
   /** Called after routes change, e.g. to clear the worker's route cache. */
   onRoutesChanged?: () => void;
   /** Feature modules that add routes (auth, telegram, support, admin…). */
@@ -120,8 +125,30 @@ export class ApiServer {
     this.routes.push({ method, ...compile(path), auth, handler });
   }
 
+  /**
+   * Runs `fn` in the caller's tenant (RLS). Every request also re-checks that the
+   * tenant is still active and the user still exists, so a token stops working
+   * the moment an account is suspended or deleted — not when it expires.
+   */
   tenantTx<T>(auth: TokenClaims, fn: (c: Sql) => Promise<T>): Promise<T> {
-    return withTenant(this.o.appPool, auth.tenantId, fn);
+    if (!/^[0-9a-f-]{36}$/i.test(auth.userId)) return Promise.reject(new HttpError(401, 'unauthorized', 'invalid token'));
+    return withTenant(this.o.appPool, auth.tenantId, async (c) => {
+      const ok = await c.query(
+        `SELECT 1 FROM tenants t JOIN users u ON u.tenant_id = t.id WHERE t.id = $1 AND u.id = $2 AND t.status = 'active'`,
+        [auth.tenantId, auth.userId]);
+      if (!ok.rowCount) throw new HttpError(401, 'account_inactive', 'החשבון אינו פעיל; יש להתחבר מחדש');
+      return fn(c);
+    });
+  }
+
+  /** Client address. X-Forwarded-For is trusted only behind a configured number of proxies. */
+  clientIp(req: http.IncomingMessage): string {
+    const hops = this.o.trustProxyHops ?? 0;
+    const remote = req.socket.remoteAddress ?? '';
+    if (hops <= 0) return remote;
+    const chain = (req.headers['x-forwarded-for']?.toString() ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+    // Each trusted proxy appends the address it saw; the client is `hops` entries from the right.
+    return chain.length >= hops ? chain[chain.length - hops]! : remote;
   }
 
   async audit(c: Sql, auth: TokenClaims, action: string, target: string, detail: Record<string, unknown> = {}) {
@@ -149,7 +176,10 @@ export class ApiServer {
       if (!o.devTokens) throw new HttpError(404, 'not_found', 'not found');
       const tenantId = String(body.tenantId ?? '');
       if (!/^[0-9a-f-]{36}$/i.test(tenantId)) throw new HttpError(400, 'bad_request', 'tenantId required');
-      return { token: signToken({ tenantId, userId: String(body.userId ?? 'dev'), role: 'owner' }, o.tokenSecret, 8 * 3600) };
+      // Issues a token for the tenant's owner (development only).
+      const u = await withTenant(o.appPool, tenantId, (c) => c.query<{ id: string }>(`SELECT id FROM users WHERE role = 'owner' ORDER BY created_at LIMIT 1`));
+      if (!u.rows[0]) throw new HttpError(404, 'not_found', 'tenant has no owner');
+      return { token: signToken({ tenantId, userId: u.rows[0].id, role: 'owner' }, o.tokenSecret, 8 * 3600) };
     });
 
     // --- risk acceptance (required before the first WhatsApp link)
@@ -252,6 +282,7 @@ export class ApiServer {
 
     this.on('POST', '/v1/templates', true, async ({ auth, body }) =>
       this.tenantTx(auth!, async (c) => {
+        this.requireRole(auth!, 'owner', 'admin');
         const r = await c.query<{ id: string }>('INSERT INTO templates (tenant_id, name, body, vars) VALUES ($1, $2, $3, $4) RETURNING id',
           [auth!.tenantId, String(body.name ?? 'תבנית'), String(body.body ?? '{content}'), body.vars ?? {}]);
         return { id: r.rows[0]!.id };
@@ -260,6 +291,7 @@ export class ApiServer {
     // --- routes
     this.on('POST', '/v1/routes', true, async ({ auth, body }) =>
       this.tenantTx(auth!, async (c) => {
+        this.requireRole(auth!, 'owner', 'admin');
         const route = body as Omit<Route, 'id' | 'tenantId'> & { id?: string };
         if (!Array.isArray(route.sources) || !Array.isArray(route.targets)) throw new HttpError(400, 'bad_request', 'sources and targets are required');
         const chats = await c.query<{ platform: string; account_id: string; chat_id: string; can_send: boolean; title: string }>('SELECT platform, account_id, chat_id, can_send, title FROM chats');
@@ -297,6 +329,7 @@ export class ApiServer {
 
     this.on('POST', '/v1/routes/:id/enabled', true, async ({ auth, params, body }) =>
       this.tenantTx(auth!, async (c) => {
+        this.requireRole(auth!, 'owner', 'admin');
         const r = await c.query('UPDATE routes SET enabled = $2, updated_at = now() WHERE id = $1', [params.id, !!body.enabled]);
         if (!r.rowCount) throw new HttpError(404, 'not_found', 'route not found');
         await this.audit(c, auth!, body.enabled ? 'route.enabled' : 'route.disabled', params.id!);
@@ -381,10 +414,13 @@ export class ApiServer {
         const token = h.startsWith('Bearer ') ? h.slice(7) : queryToken;
         auth = verifyToken(token, this.o.tokenSecret);
         if (!auth) throw new HttpError(401, 'unauthorized', 'missing or invalid token');
+        // Every authenticated route, including ones that don't open a tenant transaction
+        // themselves, first confirms the tenant is active and the user still exists.
+        await this.tenantTx(auth, async () => undefined);
       }
       const body = req.method === 'GET' || req.method === 'DELETE' ? {} : await readJson(req);
       if (typeof body !== 'object' || body === null || Array.isArray(body)) throw new HttpError(400, 'bad_request', 'body must be a JSON object');
-      const ip = (req.headers['x-forwarded-for']?.toString().split(',')[0] ?? req.socket.remoteAddress ?? '').trim();
+      const ip = this.clientIp(req);
       const out = await route.handler({ req, res, params, body, auth, ip });
       if (out === undefined && res.headersSent) return;
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });

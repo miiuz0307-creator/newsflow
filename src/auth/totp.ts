@@ -56,10 +56,27 @@ export function totpCode(secret: string, timeMs = Date.now(), step = 30): string
   return String(bin % 1_000_000).padStart(6, '0');
 }
 
-/** Accepts the current code and one step either side (clock drift). */
+/**
+ * Accepts the current code and one step either side (clock drift). Returns the
+ * matched time step, or null. Callers store the step and refuse any step not
+ * strictly greater than the last one used, so each code works only once.
+ */
+export function verifyTotpStep(secret: string, code: string, timeMs = Date.now()): number | null {
+  if (!/^\d{6}$/.test(code)) return null;
+  for (const d of [-1, 0, 1]) {
+    const t = timeMs + d * 30_000;
+    if (safeEqual(totpCode(secret, t), code)) return Math.floor(t / 30_000);
+  }
+  return null;
+}
+
 export function verifyTotp(secret: string, code: string, timeMs = Date.now()): boolean {
-  if (!/^\d{6}$/.test(code)) return false;
-  return [-1, 0, 1].some((d) => safeEqual(totpCode(secret, timeMs + d * 30_000), code));
+  return verifyTotpStep(secret, code, timeMs) !== null;
+}
+
+/** TOTP secrets are stored encrypted with a key derived from the master key. */
+export function totpCipherKey(masterKeyB64: string): Buffer {
+  return createHmac('sha256', Buffer.from(masterKeyB64, 'base64')).update('admin-totp-v1').digest();
 }
 
 export function otpauthUrl(secret: string, account: string, issuer = 'NewsFlow Admin'): string {

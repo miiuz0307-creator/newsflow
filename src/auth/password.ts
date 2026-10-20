@@ -11,11 +11,43 @@ const R = 8;
 const P = 1;
 const KEYLEN = 64;
 
-function scrypt(password: string, salt: Buffer, n: number, r: number, p: number): Promise<Buffer> {
-  return new Promise((resolve, reject) =>
-    scryptCb(password.normalize('NFKC'), salt, KEYLEN, { N: n, r, p, maxmem: 256 * n * r + 1024 * 1024 }, (err, key) => (err ? reject(err) : resolve(key))),
-  );
+/**
+ * Each scrypt call holds ~32 MB. Without a cap, a burst of login requests could
+ * exhaust memory, so at most MAX_CONCURRENT run at once and at most MAX_WAITING
+ * wait; beyond that the request is refused quickly (the API answers 503).
+ */
+const MAX_CONCURRENT = 4;
+const MAX_WAITING = 64;
+let running = 0;
+const waiting: (() => void)[] = [];
+
+export class PasswordBusyError extends Error {}
+
+async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (running >= MAX_CONCURRENT) {
+    if (waiting.length >= MAX_WAITING) throw new PasswordBusyError('password hashing is busy');
+    await new Promise<void>((r) => waiting.push(r));
+  } else {
+    running++;
+  }
+  try {
+    return await fn();
+  } finally {
+    const next = waiting.shift();
+    if (next) next(); // hand the slot straight to the next waiter
+    else running--;
+  }
 }
+
+function scrypt(password: string, salt: Buffer, n: number, r: number, p: number): Promise<Buffer> {
+  if (n > 2 ** 17 || r > 16 || p > 4) return Promise.reject(new Error('scrypt parameters out of range'));
+  return withSlot(() => new Promise<Buffer>((resolve, reject) =>
+    scryptCb(password.normalize('NFKC'), salt, KEYLEN, { N: n, r, p, maxmem: 256 * n * r + 1024 * 1024 }, (err, key) => (err ? reject(err) : resolve(key))),
+  ));
+}
+
+/** Longest password we will hash; longer input is rejected before any work. */
+export const MAX_PASSWORD_LENGTH = 200;
 
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
@@ -24,7 +56,7 @@ export async function hashPassword(password: string): Promise<string> {
 }
 
 export async function verifyPassword(password: string, stored: string | null | undefined): Promise<boolean> {
-  if (!stored) return false;
+  if (!stored || password.length > MAX_PASSWORD_LENGTH) return false;
   const parts = stored.split('$');
   if (parts.length !== 6 || parts[0] !== 'scrypt') return false;
   const [, n, r, p, salt, hash] = parts;

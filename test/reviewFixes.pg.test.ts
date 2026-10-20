@@ -40,7 +40,8 @@ describe('review fixes (database + API)', { skip: !available && 'local test Post
     conns = new ConnectionManager({ transportFactory: fakeTransportFactory(new FakeWaNetwork()), storeFactory: async (t, a) => new PgAuthStore(db.worker, t, a, await keys.cipher(t)) });
     api = new ApiServer({ appPool: db.app, connections: conns, queue: new PgJobQueue(db.worker, db.app), killSwitches: new PgKillSwitchStore(db.worker), tokenSecret: SECRET });
     await api.listen();
-    tok = signToken({ tenantId: tA, userId: 'u1', role: 'owner' }, SECRET);
+    const owner = (await withTenant(db.app, tA, (c) => c.query<{ id: string }>('SELECT id FROM users'))).rows[0]!.id;
+    tok = signToken({ tenantId: tA, userId: owner, role: 'owner' }, SECRET);
   });
   after(async () => {
     await api?.close();

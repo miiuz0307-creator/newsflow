@@ -37,6 +37,9 @@ export class MemoryKillSwitchStore implements KillSwitchStore {
 
   async set(s: Omit<KillSwitch, 'setAt'>) {
     if ((s.scope === 'global') !== (s.tenantId === null)) throw new Error('global switches have no tenant; others must');
+    const existing = this.active.get(`${s.scope}:${s.scopeId}`);
+    // A customer's stop never replaces a stop set by an administrator or the system.
+    if (existing && !existing.setBy.startsWith('user:') && s.setBy.startsWith('user:')) return;
     this.active.set(`${s.scope}:${s.scopeId}`, { ...s, setAt: new Date() });
   }
   async clear(scope: KillScope, scopeId: string) {

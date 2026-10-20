@@ -29,12 +29,13 @@ export function manageModule(opts: ManageModuleOptions) {
       api.requireRole(auth!, 'owner', 'admin');
       const token = String(body.token ?? '').trim();
       if (!isValidBotToken(token)) throw new HttpError(400, 'bad_token', 'הטוקן אינו תקין. מעתיקים אותו מ־@BotFather');
-      const limit = await api.tenantTx(auth!, async (c) => {
+      // Quick check before calling Telegram; the authoritative check runs under a lock below.
+      const pre = await api.tenantTx(auth!, async (c) => {
         const l = await c.query<{ limits: { tgBots?: number } }>('SELECT p.limits FROM tenants t JOIN plans p ON p.code = t.plan_code WHERE t.id = $1', [auth!.tenantId]);
         const n = await c.query<{ n: number }>(`SELECT count(*)::int AS n FROM tg_bots WHERE status <> 'deleted'`);
-        return { max: l.rows[0]?.limits.tgBots ?? 1, used: n.rows[0]!.n };
+        return n.rows[0]!.n < (l.rows[0]?.limits.tgBots ?? 1);
       });
-      if (limit.used >= limit.max) throw new HttpError(403, 'plan_limit', 'המסלול שלך לא מאפשר בוטים נוספים');
+      if (!pre) throw new HttpError(403, 'plan_limit', 'המסלול שלך לא מאפשר בוטים נוספים');
       let me: { id: number; username?: string };
       try {
         me = await opts.telegram.verifyToken(token);
@@ -43,6 +44,11 @@ export function manageModule(opts: ManageModuleOptions) {
       }
       const cipher = await opts.keys.cipher(auth!.tenantId);
       const id = await api.tenantTx(auth!, async (c) => {
+        // Count and insert under one per-tenant lock, so parallel requests can't exceed the plan.
+        await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`tg-bots:${auth!.tenantId}`]);
+        const l = await c.query<{ limits: { tgBots?: number } }>('SELECT p.limits FROM tenants t JOIN plans p ON p.code = t.plan_code WHERE t.id = $1', [auth!.tenantId]);
+        const n = await c.query<{ n: number }>(`SELECT count(*)::int AS n FROM tg_bots WHERE status <> 'deleted'`);
+        if (n.rows[0]!.n >= (l.rows[0]?.limits.tgBots ?? 1)) throw new HttpError(403, 'plan_limit', 'המסלול שלך לא מאפשר בוטים נוספים');
         const r = await c.query<{ id: string }>(
           `INSERT INTO tg_bots (tenant_id, username, token_blob, bot_user_id) VALUES ($1, $2, 'pending', $3) RETURNING id`,
           [auth!.tenantId, me.username ?? null, me.id]).catch((e: { code?: string }) => {
@@ -72,6 +78,7 @@ export function manageModule(opts: ManageModuleOptions) {
 
     /** Channels don't announce the bot; the customer adds them by @username or id. */
     api.on('POST', '/v1/tg/bots/:id/chats', true, async ({ auth, params, body }) => {
+      api.requireRole(auth!, 'owner', 'admin');
       await api.ownAccount(auth!, params.id!, true);
       const chatId = String(body.chatId ?? '').trim();
       if (!/^(@[A-Za-z0-9_]{5,32}|-?\d{5,20})$/.test(chatId)) throw new HttpError(400, 'bad_chat', 'יש להזין @שם_ערוץ או מזהה מספרי');
@@ -142,6 +149,7 @@ export function manageModule(opts: ManageModuleOptions) {
 
     api.on('PUT', '/v1/templates/:id', true, async ({ auth, params, body }) =>
       api.tenantTx(auth!, async (c) => {
+        api.requireRole(auth!, 'owner', 'admin');
         const r = await c.query('UPDATE templates SET name = COALESCE($2, name), body = COALESCE($3, body), vars = COALESCE($4, vars), updated_at = now() WHERE id = $1',
           [params.id, body.name ?? null, body.body ?? null, body.vars ?? null]);
         if (!r.rowCount) throw new HttpError(404, 'not_found', 'template not found');
@@ -151,6 +159,7 @@ export function manageModule(opts: ManageModuleOptions) {
 
     api.on('DELETE', '/v1/templates/:id', true, async ({ auth, params }) =>
       api.tenantTx(auth!, async (c) => {
+        api.requireRole(auth!, 'owner', 'admin');
         const r = await c.query('DELETE FROM templates WHERE id = $1', [params.id]);
         if (!r.rowCount) throw new HttpError(404, 'not_found', 'template not found');
         changed();

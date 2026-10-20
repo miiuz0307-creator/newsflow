@@ -50,6 +50,11 @@ export class TenantKeys {
     return id;
   }
 
+  /** Drops a tenant's key from memory (after account deletion). */
+  forget(tenantId: string): void {
+    this.cache.delete(tenantId);
+  }
+
   async cipher(tenantId: string): Promise<TenantCipher> {
     const hit = this.cache.get(tenantId);
     if (hit) return hit;
@@ -366,7 +371,9 @@ export class PgKillSwitchStore implements KillSwitchStore {
   async set(s: Omit<KillSwitch, 'setAt'>) {
     await this.sql.query(
       `INSERT INTO kill_switches (scope, scope_id, tenant_id, active, reason, set_by) VALUES ($1, $2, $3, true, $4, $5)
-       ON CONFLICT (scope, scope_id) DO UPDATE SET active = true, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = now()`,
+       ON CONFLICT (scope, scope_id) DO UPDATE SET active = true, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = now()
+         -- A customer's stop never replaces an active stop set by an administrator or the system.
+         WHERE NOT (kill_switches.active AND kill_switches.set_by NOT LIKE 'user:%' AND EXCLUDED.set_by LIKE 'user:%')`,
       [s.scope, s.scopeId, s.tenantId, s.reason, s.setBy],
     );
     await this.sql.query(`INSERT INTO audit_log (tenant_id, actor, action, target, detail) VALUES ($1, $2, 'kill_switch.set', $3, $4)`,

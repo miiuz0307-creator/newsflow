@@ -115,14 +115,15 @@ if (cfg.allowRealTelegram || !cfg.telegramApiBase.includes('api.telegram.org')) 
 
 // The Super Admin API runs only where its database role and secret are configured.
 const adminModules = process.env.DATABASE_URL_ADMIN && process.env.ADMIN_TOKEN_SECRET
-  ? [adminModule({ adminPool: PgPool.fromUrl(process.env.DATABASE_URL_ADMIN, 4), adminTokenSecret: process.env.ADMIN_TOKEN_SECRET })]
+  ? [adminModule({ adminPool: PgPool.fromUrl(process.env.DATABASE_URL_ADMIN, 4), adminTokenSecret: process.env.ADMIN_TOKEN_SECRET, customerTokenSecret: req('TOKEN_SECRET'), masterKeyB64: req('MASTER_KEY') })]
   : [];
 
 const api = new ApiServer({
   appPool, connections: conns, queue, killSwitches, tokenSecret: req('TOKEN_SECRET'),
   onRoutesChanged: () => routeSource.invalidate(),
+  trustProxyHops: Number(process.env.TRUST_PROXY_HOPS ?? 0),
   modules: [
-    authModule({ keys }),
+    authModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate() }),
     manageModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate() }),
     supportModule(),
     ...adminModules,

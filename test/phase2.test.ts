@@ -5,8 +5,8 @@
 import { after, before, describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { signToken } from '../src/api/auth.js';
-import { adminModule, signAdminToken, verifyAdminToken } from '../src/api/modules/admin.js';
-import { WindowLimiter } from '../src/api/modules/auth.js';
+import { adminModule, encryptTotpSecret, signAdminToken, verifyAdminToken } from '../src/api/modules/admin.js';
+import { WindowLimiter, authModule } from '../src/api/modules/auth.js';
 import { manageModule } from '../src/api/modules/manage.js';
 import { supportModule } from '../src/api/modules/support.js';
 import { ApiServer } from '../src/api/server.js';
@@ -49,6 +49,7 @@ describe('TOTP (RFC 6238)', () => {
 const available = await pgAvailable();
 const SECRET = 'phase2-customer-secret-0123456789abcdef';
 const ADMIN_SECRET = 'phase2-admin-secret-0123456789abcdefgh';
+const MASTER = MasterKey.generateB64();
 
 describe('phase 2 API', { skip: !available && 'local test Postgres not running' }, () => {
   let db: TestDb;
@@ -85,13 +86,15 @@ describe('phase 2 API', { skip: !available && 'local test Postgres not running' 
       modules: [
         manageModule({ keys, telegram: runtime, onRoutesChanged: () => routesChanged++ }),
         supportModule(),
-        adminModule({ adminPool: db.admin, adminTokenSecret: ADMIN_SECRET, loginLimiter: new WindowLimiter(1000, 60_000) }),
+        authModule({ keys, telegram: runtime, loginLimiter: new WindowLimiter(1000, 60_000), signupLimiter: new WindowLimiter(1000, 60_000) }),
+        adminModule({ adminPool: db.admin, adminTokenSecret: ADMIN_SECRET, customerTokenSecret: SECRET, masterKeyB64: MASTER, loginLimiter: new WindowLimiter(1000, 60_000) }),
       ],
     });
     await api.listen();
     adminSecretTotp = generateTotpSecret();
-    await db.owner.query(`INSERT INTO admins (email, password_hash, totp_secret, role) VALUES ('boss@newsflow.test', $1, $2, 'superadmin'), ('help@newsflow.test', $1, $2, 'support')`,
-      [await hashPassword('admin password 123'), adminSecretTotp]);
+    const pw = await hashPassword('admin password 123');
+    await db.owner.query(`INSERT INTO admins (email, password_hash, totp_secret, role) VALUES ('boss@newsflow.test', $1, $2, 'superadmin'), ('help@newsflow.test', $1, $3, 'support')`,
+      [pw, encryptTotpSecret(MASTER, 'boss@newsflow.test', adminSecretTotp), encryptTotpSecret(MASTER, 'help@newsflow.test', adminSecretTotp)]);
   });
   after(async () => {
     await api?.close();
@@ -159,6 +162,18 @@ describe('phase 2 API', { skip: !available && 'local test Postgres not running' 
     });
   });
 
+  describe('account deletion', () => {
+    test('deleting the account stops the tenant\'s Telegram bots too', async () => {
+      const s = await call('POST', '/v1/auth/signup', { email: 'gone@example.com', password: 'correct horse battery', businessName: 'זמני', acceptTerms: true });
+      const id = (await withTenant(db.app, s.body.tenantId, (c) => c.query<{ id: string }>(`INSERT INTO tg_bots (tenant_id, username, token_blob) VALUES ($1, 'b', 'x') RETURNING id`, [s.body.tenantId]))).rows[0]!.id;
+      await runtime.start(s.body.tenantId, id, tg.token);
+      assert.ok(runtime.get(id), 'bot running before deletion');
+      const del = await call('POST', '/v1/account/delete', { password: 'correct horse battery' }, s.body.accessToken);
+      assert.equal(del.status, 200);
+      assert.equal(runtime.get(id), undefined, 'bot must be stopped');
+    });
+  });
+
   describe('routes and templates', () => {
     test('list, read, delete routes; tenant isolation', async () => {
       const acc = (await withTenant(db.app, tA, (c) => c.query<{ id: string }>(`INSERT INTO wa_accounts (tenant_id) VALUES ($1) RETURNING id`, [tA]))).rows[0]!.id;
@@ -222,6 +237,36 @@ describe('phase 2 API', { skip: !available && 'local test Postgres not running' 
       assert.equal(ok.status, 200);
       assert.equal(ok.body.role, 'superadmin');
       adminToken = ok.body.token;
+    });
+
+    test('a two-factor code works only once; secrets are stored encrypted', async () => {
+      const code = totpCode(adminSecretTotp);
+      const replay = await call('POST', '/admin/v1/login', { email: 'boss@newsflow.test', password: 'admin password 123', code });
+      assert.equal(replay.status, 401, 'the code used by the previous login must not work again');
+      const raw = await db.owner.query<{ totp_secret: string }>(`SELECT totp_secret FROM admins WHERE email = 'boss@newsflow.test'`);
+      assert.notEqual(raw.rows[0]!.totp_secret, adminSecretTotp);
+    });
+
+    test('a deactivated admin token stops working at once', async () => {
+      const r = await db.owner.query<{ id: string }>(`SELECT id FROM admins WHERE email = 'help@newsflow.test'`);
+      const tmp = signAdminToken({ adminId: r.rows[0]!.id, role: 'support' }, ADMIN_SECRET);
+      assert.equal((await call('GET', '/admin/v1/dashboard', undefined, tmp)).status, 200);
+      await db.owner.query(`UPDATE admins SET active = false WHERE email = 'help@newsflow.test'`);
+      assert.equal((await call('GET', '/admin/v1/dashboard', undefined, tmp)).status, 401);
+      await db.owner.query(`UPDATE admins SET active = true WHERE email = 'help@newsflow.test'`);
+      // A token claiming superadmin for a support admin is refused for superadmin actions.
+      const forged = signAdminToken({ adminId: r.rows[0]!.id, role: 'superadmin' }, ADMIN_SECRET);
+      assert.equal((await call('POST', '/admin/v1/broadcast', { title: 'x', body: 'y' }, forged)).status, 403);
+    });
+
+    test('a customer cannot overwrite or lift an admin stop', async () => {
+      const acc = (await withTenant(db.app, tA, (c) => c.query<{ id: string }>(`SELECT id FROM wa_accounts LIMIT 1`))).rows[0]!.id;
+      await call('POST', '/admin/v1/stop', { scope: 'account', id: acc, tenantId: tA, reason: 'review' }, adminToken);
+      await call('POST', '/v1/stop', { scope: 'account', id: acc }, tokA);
+      const sw = await new PgKillSwitchStore(db.worker).find({ tenantId: tA, accountId: acc });
+      assert.ok(sw?.setBy.startsWith('admin:'), 'admin stop must not be replaced by the customer');
+      assert.equal((await call('POST', '/v1/resume', { scope: 'account', id: acc }, tokA)).status, 403);
+      await call('POST', '/admin/v1/resume', { scope: 'account', id: acc }, adminToken);
     });
 
     test('customer tokens cannot reach admin routes, admin tokens cannot reach customer routes', async () => {
