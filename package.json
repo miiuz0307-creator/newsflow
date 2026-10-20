@@ -1,0 +1,18 @@
+{
+  "name": "newsflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "News distribution SaaS for WhatsApp and Telegram group managers — phase 1 feasibility core",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "simulate": "tsx scripts/simulate.ts",
+    "loadtest": "tsx scripts/loadtest.ts",
+    "api:dev": "tsx src/api/server.ts"
+  }
+}
