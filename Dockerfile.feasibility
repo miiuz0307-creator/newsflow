@@ -3,6 +3,8 @@
 FROM node:22-slim
 WORKDIR /app
 ENV NODE_ENV=production
+# Baileys fetches its Signal library from GitHub, so the build needs git.
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY package.json tsconfig.json ./
 COPY src ./src
 COPY scripts ./scripts
