@@ -11,7 +11,7 @@ import {
   PgAuthStore, PgDedupStore, PgJobQueue, PgKillSwitchStore, PgRouteSource, TenantKeys, saveRoute, withTenant,
 } from '../src/db/pgStores.js';
 import type { PlannedJob } from '../src/routing/types.js';
-import { createTestDb, pgAvailable, type TestDb } from './pgHelpers.js';
+import { adminSetTenant, createTestDb, pgAvailable, type TestDb } from './pgHelpers.js';
 
 const available = await pgAvailable();
 
@@ -26,7 +26,8 @@ describe('PostgreSQL integration', { skip: !available && 'local test Postgres no
   before(async () => {
     db = await createTestDb();
     keys = new TenantKeys(new MasterKey('mk-test', MasterKey.generateB64()), db.worker);
-    tA = await keys.provision(db.app, 'Tenant A', 'premium', 'a@example.com');
+    tA = await keys.provision(db.app, 'Tenant A', 'trial', 'a@example.com');
+    await adminSetTenant(db, tA, 'premium');
     tB = await keys.provision(db.app, 'Tenant B', 'free', 'b@example.com');
     accA = (await withTenant(db.app, tA, (c) => c.query<{ id: string }>(`INSERT INTO wa_accounts (tenant_id, label) VALUES ($1, 'main') RETURNING id`, [tA]))).rows[0]!.id;
     accB = (await withTenant(db.app, tB, (c) => c.query<{ id: string }>(`INSERT INTO wa_accounts (tenant_id, label) VALUES ($1, 'main') RETURNING id`, [tB]))).rows[0]!.id;

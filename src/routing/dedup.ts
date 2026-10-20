@@ -11,6 +11,8 @@ export interface DedupStore {
   claim(tenantId: string, key: string, ttlMs: number): Promise<boolean>;
   /** Batch form of claim(): returns the keys this caller got. Optional; falls back to claim(). */
   claimMany?(tenantId: string, keys: string[], ttlMs: number): Promise<Set<string>>;
+  /** Gives keys back (the jobs they guarded were never stored). */
+  release?(tenantId: string, keys: string[]): Promise<void>;
 }
 
 export class MemoryDedupStore implements DedupStore {
@@ -31,6 +33,10 @@ export class MemoryDedupStore implements DedupStore {
     const got = new Set<string>();
     for (const k of keys) if (await this.claim(tenantId, k, ttlMs)) got.add(k);
     return got;
+  }
+
+  async release(tenantId: string, keys: string[]): Promise<void> {
+    for (const k of keys) this.keys.delete(`${tenantId}|${k}`);
   }
 
   private sweep(t: number) {

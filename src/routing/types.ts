@@ -65,7 +65,8 @@ export type SkipReason =
   | 'excluded_keyword'
   | 'too_short'
   | 'empty_after_cleanup'
-  | 'duplicate';
+  | 'duplicate'
+  | 'own_forward';
 
 export interface PlannedJob {
   tenantId: string;
@@ -83,5 +84,7 @@ export interface PlannedJob {
 
 export interface RoutingPlan {
   jobs: PlannedJob[];
+  /** Duplicate-detection keys claimed for these jobs; released if the jobs can't be stored. */
+  claimedKeys?: { tenantId: string; key: string }[];
   skipped: { routeId: string; reason: SkipReason; target?: string }[];
 }

@@ -27,9 +27,16 @@ export function removeInviteLinks(s: string): string {
 }
 
 /** Stable fingerprint of a message's meaning, for duplicate detection across sources. */
-export function contentFingerprint(text: string | undefined, media?: { mimeType: string; size?: number }): string {
+export function contentFingerprint(text: string | undefined, media?: { mimeType: string; size?: number; data?: Buffer }, uniqueFallback?: string): string {
   const t = normalizeForMatch(removeInviteLinks(text ?? ''));
-  const m = media ? `${media.mimeType}:${media.size ?? '?'}` : '';
+  // Media: hash the bytes when we have them. Without bytes, size alone can't tell two
+  // captionless photos apart, so such a message is treated as unique.
+  let m = '';
+  if (media) {
+    if (media.data) m = `${media.mimeType}:${createHash('sha256').update(media.data).digest('hex')}`;
+    else if (t || media.size) m = `${media.mimeType}:${media.size ?? '?'}`;
+    else m = `unique:${uniqueFallback ?? Math.random()}`;
+  }
   return createHash('sha256').update(`${t}\u0000${m}`).digest('hex').slice(0, 32);
 }
 

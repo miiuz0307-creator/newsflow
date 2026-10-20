@@ -82,7 +82,8 @@ export class Router {
   async plan(msg: InboundMessage, routes: Route[]): Promise<RoutingPlan> {
     const plan: RoutingPlan = { jobs: [], skipped: [] };
     const srcKey = chatKey(msg.source);
-    const fingerprint = contentFingerprint(msg.content.text, msg.content.media);
+    const fingerprint = contentFingerprint(msg.content.text, msg.content.media, `${srcKey}|${msg.messageId}`);
+    plan.claimedKeys = [];
 
     for (const route of routes) {
       if (route.tenantId !== msg.tenantId) continue; // never cross tenants
@@ -114,6 +115,7 @@ export class Router {
       const targets = route.targets.filter((t) => chatKey(t) !== srcKey); // a group never feeds itself
       const keyOf = (t: RouteTarget) => `fp:${route.tenantId}:${chatKey(t)}:${fingerprint}`;
       const claimed = await this.claimAll(route.tenantId, targets.map(keyOf));
+      for (const k of claimed) plan.claimedKeys.push({ tenantId: route.tenantId, key: k });
 
       for (const target of targets) {
         const tKey = chatKey(target);
@@ -145,6 +147,15 @@ export class Router {
     return plan;
   }
 
+  /** Releases the duplicate keys of a plan whose jobs could not be stored, so a retry isn't skipped. */
+  async release(plan: RoutingPlan): Promise<void> {
+    const d = this.opts.dedup;
+    if (!d.release || !plan.claimedKeys?.length) return;
+    const byTenant = new Map<string, string[]>();
+    for (const { tenantId, key } of plan.claimedKeys) byTenant.set(tenantId, [...(byTenant.get(tenantId) ?? []), key]);
+    for (const [t, keys] of byTenant) await d.release(t, keys);
+  }
+
   private async claimAll(tenantId: string, keys: string[]): Promise<Set<string>> {
     if (!keys.length) return new Set();
     const d = this.opts.dedup;
@@ -164,7 +175,8 @@ export interface RouteProblem {
     | 'unknown_chat'
     | 'foreign_account'
     | 'too_many_targets'
-    | 'bad_quiet_hours';
+    | 'bad_quiet_hours'
+    | 'route_cycle';
   message: string;
   chat?: string;
 }
@@ -215,4 +227,46 @@ export function validateRoute(
     }
   }
   return problems;
+}
+
+/**
+ * Finds a cycle among a tenant's routes: A→B in one route and B→A in another
+ * (possibly through other groups, or through different connected accounts)
+ * would bounce every message forever. Chats are compared by platform and chat
+ * id only, because two of the tenant's numbers can sit in the same group.
+ * Returns the chats on the cycle, or null.
+ */
+export function findRouteCycle(routes: Pick<Route, 'sources' | 'targets'>[]): string[] | null {
+  const key = (c: ChatRef) => `${c.platform}:${c.chatId}`;
+  const edges = new Map<string, Set<string>>();
+  for (const r of routes) {
+    for (const s of r.sources) {
+      const set = edges.get(key(s)) ?? new Set<string>();
+      for (const t of r.targets) set.add(key(t));
+      edges.set(key(s), set);
+    }
+  }
+  const state = new Map<string, 1 | 2>(); // 1 = on stack, 2 = done
+  const stack: string[] = [];
+  const visit = (n: string): string[] | null => {
+    state.set(n, 1);
+    stack.push(n);
+    for (const m of edges.get(n) ?? []) {
+      if (state.get(m) === 1) return [...stack.slice(stack.indexOf(m)), m];
+      if (!state.has(m)) {
+        const c = visit(m);
+        if (c) return c;
+      }
+    }
+    stack.pop();
+    state.set(n, 2);
+    return null;
+  };
+  for (const n of edges.keys()) {
+    if (!state.has(n)) {
+      const c = visit(n);
+      if (c) return c;
+    }
+  }
+  return null;
 }

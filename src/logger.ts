@@ -9,18 +9,17 @@
 type Level = 'debug' | 'info' | 'warn' | 'error';
 const ORDER: Record<Level, number> = { debug: 10, info: 20, warn: 30, error: 40 };
 
-const REDACT = new Set([
-  'password', 'token', 'botToken', 'secret', 'session', 'creds', 'keys',
-  'masterKey', 'dek', 'authorization', 'pairingCode', 'qr', 'text', 'caption',
-]);
+/** Any key matching this is redacted, at any depth (case-insensitive, partial match). */
+const REDACT = /pass(word|wd)?|token|secret|session|creds|^keys?$|dek|blob|authorization|cookie|pairing|^qr$|phone|^text$|caption|email|wrapped/i;
 
 function redact(value: unknown, depth = 0): unknown {
-  if (depth > 6 || value === null || typeof value !== 'object') return value;
+  if (value === null || typeof value !== 'object') return value;
+  if (depth > 6) return '[truncated]';
   if (Array.isArray(value)) return value.map((v) => redact(v, depth + 1));
   if (Buffer.isBuffer(value)) return `<buffer ${value.length}b>`;
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k] = REDACT.has(k) ? '[redacted]' : redact(v, depth + 1);
+    out[k] = REDACT.test(k) ? '[redacted]' : redact(v, depth + 1);
   }
   return out;
 }

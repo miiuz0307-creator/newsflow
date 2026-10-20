@@ -43,6 +43,8 @@ export interface JobQueue {
   /** Jobs stuck in "sending" past their lock (crashed worker) go back to the queue. */
   reapStale(): Promise<number>;
   get(id: string): Promise<StoredJob | undefined>;
+  /** True if this system sent `messageId` into that chat (loop guard). */
+  wasSentByUs?(platform: string, chatId: string, messageId: string): Promise<boolean>;
 }
 
 export class MemoryJobQueue implements JobQueue {
@@ -86,22 +88,33 @@ export class MemoryJobQueue implements JobQueue {
     return j;
   }
 
-  async complete(id: string, r: SendResult) {
+  /** Like the database version: only a job still being sent can be finished. */
+  private sending(id: string) {
     const j = this.must(id);
+    return j.status === 'sending' ? j : undefined;
+  }
+
+  async complete(id: string, r: SendResult) {
+    const j = this.sending(id);
+    if (!j) return;
     Object.assign(j, { status: 'sent', sentMessageId: r.messageId, sentAt: r.sentAt, lockedUntil: undefined });
   }
   async retry(id: string, at: Date, kind: string, message: string) {
-    Object.assign(this.must(id), { status: 'queued', notBefore: at, errorKind: kind, lastError: message, lockedUntil: undefined });
+    const j = this.sending(id);
+    if (j) Object.assign(j, { status: 'queued', notBefore: at, errorKind: kind, lastError: message, lockedUntil: undefined });
   }
   async defer(id: string, at: Date) {
-    const j = this.must(id);
+    const j = this.sending(id);
+    if (!j) return;
     Object.assign(j, { status: 'queued', notBefore: at, attempts: Math.max(0, j.attempts - 1), lockedUntil: undefined });
   }
   async fail(id: string, kind: string, message: string) {
-    Object.assign(this.must(id), { status: 'failed', errorKind: kind, lastError: message, lockedUntil: undefined });
+    const j = this.sending(id);
+    if (j) Object.assign(j, { status: 'failed', errorKind: kind, lastError: message, lockedUntil: undefined });
   }
   async skip(id: string, reason: string) {
-    const j = this.must(id);
+    const j = this.sending(id);
+    if (!j) return;
     Object.assign(j, { status: 'skipped', errorKind: reason, lastError: reason, attempts: Math.max(0, j.attempts - 1), lockedUntil: undefined });
   }
   async approve(tenantId: string, id: string) {
@@ -139,6 +152,13 @@ export class MemoryJobQueue implements JobQueue {
   async get(id: string) {
     const j = this.jobs.get(id);
     return j ? { ...j } : undefined;
+  }
+
+  async wasSentByUs(platform: string, chatId: string, messageId: string) {
+    for (const j of this.jobs.values()) {
+      if (j.sentMessageId === messageId && j.target.chatId === chatId && j.target.platform === platform) return true;
+    }
+    return false;
   }
 
   /** Test helper: what each target received, in order. */

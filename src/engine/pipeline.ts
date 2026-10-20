@@ -59,11 +59,22 @@ export class InboundPipeline {
   async handle(msg: InboundMessage): Promise<{ planned: number; inserted: number; skipped: RoutingPlan['skipped'] }> {
     const routes = await this.o.routes.routesForSource(msg.source);
     if (!routes.length) return { planned: 0, inserted: 0, skipped: [] };
-    const plan = await this.o.router.plan(msg, routes);
-    if (plan.jobs.length && msg.content.media) {
-      await this.storeMediaOnce(msg, plan);
+    // Loop guard: a message this system sent (from any of the tenant's numbers) is never a source.
+    if (await this.o.queue.wasSentByUs?.(msg.source.platform, msg.source.chatId, msg.messageId)) {
+      return { planned: 0, inserted: 0, skipped: routes.map((r) => ({ routeId: r.id, reason: 'own_forward' as const })) };
     }
-    const { inserted } = plan.jobs.length ? await this.o.queue.enqueue(plan.jobs) : { inserted: 0 };
+    const plan = await this.o.router.plan(msg, routes);
+    let inserted = 0;
+    try {
+      if (plan.jobs.length && msg.content.media) {
+        await this.storeMediaOnce(msg, plan);
+      }
+      inserted = plan.jobs.length ? (await this.o.queue.enqueue(plan.jobs)).inserted : 0;
+    } catch (err) {
+      // Nothing was stored: give the duplicate keys back so a redelivery isn't dropped as a duplicate.
+      await this.o.router.release(plan).catch(() => {});
+      throw err;
+    }
     this.log.info('planned', { tenantId: msg.tenantId, messageId: msg.messageId, jobs: plan.jobs.length, inserted, skipped: plan.skipped.length });
     this.o.onPlanned?.(msg, plan, inserted);
     return { planned: plan.jobs.length, inserted, skipped: plan.skipped };

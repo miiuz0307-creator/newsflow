@@ -62,3 +62,8 @@ export async function createTestDb(): Promise<TestDb> {
   };
   return db;
 }
+
+/** Admin action: change a tenant's plan or status (as the owner role, audited). */
+export async function adminSetTenant(db: TestDb, tenantId: string, plan: string | null, status: string | null = null) {
+  await db.owner.query('SELECT admin_set_tenant($1, $2, $3, $4)', [tenantId, plan, status, 'admin:test']);
+}

@@ -48,6 +48,10 @@ export interface ConnOptions {
   /** Unix socket directory (host is ignored when set). */
   socketDir?: string;
   applicationName?: string;
+  /** Connect + authenticate must finish within this time. Default 10 s. */
+  connectTimeoutMs?: number;
+  /** Server-side limit per statement; a stuck query fails instead of hanging the pool. Default 30 s. */
+  statementTimeoutMs?: number;
 }
 
 export function parseDatabaseUrl(url: string): ConnOptions {
@@ -95,6 +99,25 @@ function parseArray(s: string): (string | null)[] {
   return out;
 }
 
+/**
+ * Postgres sends "2026-10-20 04:17:36.78+03" (offset without minutes), which
+ * JavaScript's Date cannot parse. Normalise to ISO 8601 first. Sessions are
+ * also opened with TimeZone=UTC so offsets are normally "+00".
+ */
+export function parseTimestamp(text: string, withZone: boolean): Date {
+  if (text === 'infinity') return new Date(8.64e15);
+  if (text === '-infinity') return new Date(-8.64e15);
+  let iso = text.replace(' ', 'T');
+  if (withZone) {
+    iso = iso.replace(/([+-])(\d{2})(?::?(\d{2}))?(?::?(\d{2}))?$/, (_m, sign: string, h: string, m?: string) => `${sign}${h}:${m ?? '00'}`);
+  } else {
+    iso += 'Z';
+  }
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) throw new Error(`unparseable timestamp "${text}"`);
+  return d;
+}
+
 function parseValue(oid: number, text: string): unknown {
   switch (oid) {
     case OID.bool: return text === 't';
@@ -109,7 +132,7 @@ function parseValue(oid: number, text: string): unknown {
     case OID.json:
     case OID.jsonb: return JSON.parse(text);
     case OID.timestamptz:
-    case OID.timestamp: return new Date(text.includes('T') || text.endsWith('Z') ? text : text.replace(' ', 'T') + (oid === OID.timestamp ? 'Z' : ''));
+    case OID.timestamp: return parseTimestamp(text, oid === OID.timestamptz);
     case OID.bytea: return Buffer.from(text.slice(2), 'hex');
     case OID.textArr:
     case OID.uuidArr: return parseArray(text);
@@ -181,7 +204,22 @@ export class PgConnection implements Sql {
 
   static async connect(opts: ConnOptions): Promise<PgConnection> {
     const c = new PgConnection(opts);
-    await c.open();
+    const ms = opts.connectTimeoutMs ?? 10_000;
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        c.open(),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`database connect timed out after ${ms} ms`)), ms);
+        }),
+      ]);
+    } catch (e) {
+      c.sock?.destroy();
+      c.closed = true;
+      throw e;
+    } finally {
+      clearTimeout(timer);
+    }
     return c;
   }
 
@@ -205,7 +243,8 @@ export class PgConnection implements Sql {
     this.sock.on('error', (e) => this.fail(e));
     this.sock.on('close', () => this.fail(new Error('connection closed')));
     const start = new Writer().int32(196608).cstr('user').cstr(o.user).cstr('database').cstr(o.database)
-      .cstr('application_name').cstr(o.applicationName ?? 'newsflow').cstr('client_encoding').cstr('UTF8').cstr('');
+      .cstr('application_name').cstr(o.applicationName ?? 'newsflow').cstr('client_encoding').cstr('UTF8')
+      .cstr('TimeZone').cstr('UTC').cstr('statement_timeout').cstr(String(o.statementTimeoutMs ?? 30_000)).cstr('');
     this.sock.write(start.frame(null));
     await this.authenticate();
   }
@@ -241,7 +280,7 @@ export class PgConnection implements Sql {
   }
 
   private async authenticate() {
-    let scram: { nonce: string; clientFirstBare: string; serverSig?: Buffer } | null = null;
+    let scram: { nonce: string; clientFirstBare: string; serverSig?: Buffer; verified?: boolean } | null = null;
     for (;;) {
       const m = await this.next();
       if (m.type === 'E') throw new PgError(parseErrorFields(m.body));
@@ -250,9 +289,15 @@ export class PgConnection implements Sql {
       if (m.type !== 'R') throw new Error(`unexpected message ${m.type} during auth`);
       const r = new Reader(m.body);
       const code = r.int32();
-      if (code === 0) continue; // AuthenticationOk
+      if (code === 0) {
+        // AuthenticationOk. If SCRAM started, the server must have proven itself first.
+        if (scram && !scram.verified) throw new Error('server skipped SCRAM verification');
+        continue;
+      }
       const password = this.opts.password ?? '';
       if (code === 3) {
+        // Never send a plaintext password over an unencrypted connection (downgrade protection).
+        if (!this.opts.ssl && !this.opts.socketDir) throw new Error('server asked for a cleartext password without TLS; refusing');
         this.sock.write(new Writer().cstr(password).frame('p'));
       } else if (code === 10) {
         const mechs = r.rest().toString().split('\0');
@@ -284,6 +329,7 @@ export class PgConnection implements Sql {
         if (!scram?.serverSig || got.length !== 32 || !timingSafeEqual(got, scram.serverSig)) {
           throw new Error('SCRAM server signature mismatch');
         }
+        scram.verified = true;
       } else {
         throw new Error(`unsupported auth method ${code} (use scram-sha-256)`);
       }
@@ -399,7 +445,7 @@ export class PgConnection implements Sql {
 export class PgPool implements Sql {
   private idle: PgConnection[] = [];
   private total = 0;
-  private waiting: ((c: PgConnection) => void)[] = [];
+  private waiting: ((c: PgConnection | Error) => void)[] = [];
   private ending = false;
 
   constructor(private readonly opts: ConnOptions, private readonly max = 10) {}
@@ -424,12 +470,35 @@ export class PgPool implements Sql {
         throw e;
       }
     }
-    return new Promise((r) => this.waiting.push(r));
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiting = this.waiting.filter((x) => x !== fn);
+        reject(new Error('timed out waiting for a database connection'));
+      }, this.acquireTimeoutMs);
+      const fn = (c: PgConnection | Error) => {
+        clearTimeout(timer);
+        if (c instanceof Error) reject(c);
+        else resolve(c);
+      };
+      this.waiting.push(fn);
+    });
   }
+
+  /** How long acquire() waits for a free connection before failing. */
+  acquireTimeoutMs = 15_000;
 
   release(c: PgConnection) {
     if (c.isClosed) {
       this.total--;
+      // Someone may be waiting for a slot: open a fresh connection for them.
+      const w = this.waiting.shift();
+      if (w) {
+        this.total++;
+        PgConnection.connect(this.opts).then(w, (err) => {
+          this.total--;
+          w(err as Error);
+        });
+      }
       return;
     }
     const w = this.waiting.shift();
@@ -464,6 +533,7 @@ export class PgPool implements Sql {
 
   async end(): Promise<void> {
     this.ending = true;
+    for (const w of this.waiting.splice(0)) w(new Error('pool is closed'));
     await Promise.all(this.idle.splice(0).map((c) => c.close()));
   }
 }

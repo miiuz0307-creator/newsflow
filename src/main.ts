@@ -87,8 +87,11 @@ const worker = new Worker({
 
 const api = new ApiServer({
   appPool, connections: conns, queue, killSwitches, tokenSecret: req('TOKEN_SECRET'),
-  devTokens: cfg.env !== 'production' && process.env.DEV_TOKENS === '1', logger: log,
+  devTokens: cfg.env === 'development' && process.env.DEV_TOKENS === '1', logger: log,
 });
+
+// Media is only needed until its jobs are sent or skipped as stale (2 hours); keep 6 hours, then delete.
+setInterval(() => void worker.media.sweep(6 * 3_600_000).catch((e) => log.error('media sweep failed', { err: String(e) })), 3_600_000).unref();
 
 // Retention: clear old message content and expired duplicate keys every hour.
 setInterval(() => void workerPool.query('SELECT * FROM purge_expired(7)').catch((e) => log.error('purge failed', { err: String(e) })), 3_600_000).unref();

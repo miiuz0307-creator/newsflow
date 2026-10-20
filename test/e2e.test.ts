@@ -19,7 +19,7 @@ import { FakeTelegramServer } from '../src/telegram/fakeServer.js';
 import { ConnectionManager } from '../src/wa/connectionManager.js';
 import { FakeWaNetwork, fakeTransportFactory } from '../src/wa/fakeNetwork.js';
 import { waitFor } from './helpers.js';
-import { createTestDb, pgAvailable, type TestDb } from './pgHelpers.js';
+import { adminSetTenant, createTestDb, pgAvailable, type TestDb } from './pgHelpers.js';
 
 const available = await pgAvailable();
 
@@ -51,7 +51,8 @@ describe('end to end', { skip: !available && 'local test Postgres not running' }
     db = await createTestDb();
     await tg.start();
     const keys = new TenantKeys(new MasterKey('mk-e2e', MasterKey.generateB64()), db.worker);
-    tA = await keys.provision(db.app, 'חדשות ארצי בע"מ', 'premium', 'owner-a@example.com');
+    tA = await keys.provision(db.app, 'חדשות ארצי בע"מ', 'trial', 'owner-a@example.com');
+    await adminSetTenant(db, tA, 'premium');
     tB = await keys.provision(db.app, 'Tenant B', 'free', 'owner-b@example.com');
     accA = (await withTenant(db.app, tA, (c) => c.query<{ id: string }>(`INSERT INTO wa_accounts (tenant_id, label) VALUES ($1, 'ראשי') RETURNING id`, [tA]))).rows[0]!.id;
     accB = (await withTenant(db.app, tB, (c) => c.query<{ id: string }>(`INSERT INTO wa_accounts (tenant_id, label) VALUES ($1, 'main') RETURNING id`, [tB]))).rows[0]!.id;

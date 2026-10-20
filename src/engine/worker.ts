@@ -48,6 +48,9 @@ export class Worker {
   readonly dispatcher: Dispatcher;
   readonly safety: SafetyMonitor;
   readonly limiter: RateLimiter;
+  get media() {
+    return this.o.media;
+  }
   private readonly telegram = new Map<string, TelegramAccount>();
   private readonly log: Logger;
   private inflight = new Set<Promise<unknown>>();

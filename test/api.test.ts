@@ -7,7 +7,7 @@ import { PgAuthStore, PgJobQueue, PgKillSwitchStore, TenantKeys } from '../src/d
 import { ConnectionManager } from '../src/wa/connectionManager.js';
 import { FakeWaNetwork, fakeTransportFactory } from '../src/wa/fakeNetwork.js';
 import { waitFor } from './helpers.js';
-import { createTestDb, pgAvailable, type TestDb } from './pgHelpers.js';
+import { adminSetTenant, createTestDb, pgAvailable, type TestDb } from './pgHelpers.js';
 
 const SECRET = 'test-secret-that-is-long-enough-1234567890';
 
@@ -52,7 +52,8 @@ describe('API', { skip: !available && 'local test Postgres not running' }, () =>
   before(async () => {
     db = await createTestDb();
     const keys = new TenantKeys(new MasterKey('mk-api', MasterKey.generateB64()), db.worker);
-    tA = await keys.provision(db.app, 'A', 'premium', 'a@x.com');
+    tA = await keys.provision(db.app, 'A', 'trial', 'a@x.com');
+    await adminSetTenant(db, tA, 'premium');
     tB = await keys.provision(db.app, 'B', 'free', 'b@x.com');
     conns = new ConnectionManager({
       transportFactory: fakeTransportFactory(net),

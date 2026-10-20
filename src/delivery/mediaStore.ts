@@ -7,13 +7,15 @@
  * never load another tenant's file even with a guessed reference.
  */
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 export interface MediaStore {
   put(tenantId: string, data: Buffer, mimeType: string): Promise<string>;
   get(tenantId: string, ref: string): Promise<Buffer>;
   delete(tenantId: string, ref: string): Promise<void>;
+  /** Deletes media older than `maxAgeMs`. Jobs are skipped as stale long before, so nothing still needs it. */
+  sweep(maxAgeMs: number): Promise<number>;
 }
 
 function checkRef(tenantId: string, ref: string): string {
@@ -24,10 +26,27 @@ function checkRef(tenantId: string, ref: string): string {
 
 export class MemoryMediaStore implements MediaStore {
   private readonly files = new Map<string, Buffer>();
-  async put(tenantId: string, data: Buffer) {
+  private readonly added = new Map<string, number>();
+  constructor(private readonly now: () => number = Date.now) {}
+  async put(tenantId: string, data: Buffer, _mimeType?: string) {
     const ref = `media:${tenantId}/${randomUUID()}`;
     this.files.set(ref, data);
+    this.added.set(ref, this.now());
     return ref;
+  }
+  async sweep(maxAgeMs: number) {
+    let n = 0;
+    for (const [ref, at] of this.added) {
+      if (this.now() - at > maxAgeMs) {
+        this.files.delete(ref);
+        this.added.delete(ref);
+        n++;
+      }
+    }
+    return n;
+  }
+  get size() {
+    return this.files.size;
   }
   async get(tenantId: string, ref: string) {
     checkRef(tenantId, ref);
@@ -58,5 +77,26 @@ export class FileMediaStore implements MediaStore {
   }
   async delete(tenantId: string, ref: string) {
     await rm(this.file(tenantId, ref), { force: true });
+  }
+  async sweep(maxAgeMs: number) {
+    let n = 0;
+    const cutoff = Date.now() - maxAgeMs;
+    let tenants: string[] = [];
+    try {
+      tenants = await readdir(this.root);
+    } catch {
+      return 0;
+    }
+    for (const t of tenants) {
+      for (const f of await readdir(path.join(this.root, t)).catch(() => [] as string[])) {
+        const p = path.join(this.root, t, f);
+        const st = await stat(p).catch(() => null);
+        if (st && st.mtimeMs < cutoff) {
+          await rm(p, { force: true });
+          n++;
+        }
+      }
+    }
+    return n;
   }
 }

@@ -162,6 +162,11 @@ export class PgDedupStore implements DedupStore {
     );
     return new Set(r.rows.map((x) => x.key));
   }
+
+  async release(tenantId: string, keys: string[]) {
+    if (!keys.length) return;
+    await this.sql.query('DELETE FROM dedup_keys WHERE tenant_id = $1 AND key IN (SELECT jsonb_array_elements_text($2::jsonb))', [tenantId, keys]);
+  }
 }
 
 // ---------------------------------------------------------------- jobs
@@ -272,35 +277,35 @@ export class PgJobQueue implements JobQueue {
   async complete(id: string, res: SendResult) {
     await this.sql.query(
       `UPDATE outbound_jobs SET status = 'sent', sent_message_id = $2, sent_at = $3, locked_by = NULL, locked_until = NULL,
-              error_kind = NULL, last_error = NULL, updated_at = now() WHERE id = $1`,
+              error_kind = NULL, last_error = NULL, updated_at = now() WHERE id = $1 AND status = 'sending'`,
       [id, res.messageId, res.sentAt],
     );
   }
   async retry(id: string, at: Date, kind: string, message: string) {
     await this.sql.query(
       `UPDATE outbound_jobs SET status = 'queued', not_before = $2, error_kind = $3, last_error = $4,
-              locked_by = NULL, locked_until = NULL, updated_at = now() WHERE id = $1`,
+              locked_by = NULL, locked_until = NULL, updated_at = now() WHERE id = $1 AND status = 'sending'`,
       [id, at, kind, message.slice(0, 500)],
     );
   }
   async defer(id: string, at: Date) {
     await this.sql.query(
       `UPDATE outbound_jobs SET status = 'queued', not_before = $2, attempts = GREATEST(attempts - 1, 0),
-              locked_by = NULL, locked_until = NULL, updated_at = now() WHERE id = $1`,
+              locked_by = NULL, locked_until = NULL, updated_at = now() WHERE id = $1 AND status = 'sending'`,
       [id, at],
     );
   }
   async fail(id: string, kind: string, message: string) {
     await this.sql.query(
       `UPDATE outbound_jobs SET status = 'failed', error_kind = $2, last_error = $3, locked_by = NULL, locked_until = NULL,
-              updated_at = now() WHERE id = $1`,
+              updated_at = now() WHERE id = $1 AND status = 'sending'`,
       [id, kind, message.slice(0, 500)],
     );
   }
   async skip(id: string, reason: string) {
     await this.sql.query(
       `UPDATE outbound_jobs SET status = 'skipped', error_kind = $2, last_error = $2, attempts = GREATEST(attempts - 1, 0),
-              locked_by = NULL, locked_until = NULL, updated_at = now() WHERE id = $1`,
+              locked_by = NULL, locked_until = NULL, updated_at = now() WHERE id = $1 AND status = 'sending'`,
       [id, reason],
     );
   }
@@ -344,6 +349,13 @@ export class PgJobQueue implements JobQueue {
     const r = await this.sql.query<JobRow>('SELECT * FROM outbound_jobs WHERE id = $1', [id]);
     return r.rows[0] ? toJob(r.rows[0]) : undefined;
   }
+
+  async wasSentByUs(platform: string, chatId: string, messageId: string) {
+    const r = await this.sql.query(
+      `SELECT 1 FROM outbound_jobs WHERE target_chat_id = $1 AND sent_message_id = $2 AND target_platform = $3 LIMIT 1`,
+      [chatId, messageId, platform]);
+    return r.rowCount > 0;
+  }
 }
 
 // ---------------------------------------------------------------- kill switches
@@ -368,11 +380,22 @@ export class PgKillSwitchStore implements KillSwitchStore {
       [r.rows[0]?.tenant_id ?? null, by, `${scope}:${scopeId}`]);
   }
 
+  /**
+   * The first active switch covering the target. A tenant that is not
+   * 'active' (suspended or deleted by an admin) counts as a tenant-level stop
+   * that the customer cannot lift.
+   */
   async find(t: KillTarget) {
     const r = await this.sql.query<{ scope: KillScope; scope_id: string; tenant_id: string | null; reason: string; set_by: string; set_at: Date }>(
-      `SELECT * FROM kill_switches WHERE active AND (
-          (scope = 'global') OR (scope = 'tenant' AND scope_id = $1) OR (scope = 'account' AND scope_id = $2) OR (scope = 'route' AND scope_id = $3))
-        ORDER BY CASE scope WHEN 'global' THEN 0 WHEN 'tenant' THEN 1 WHEN 'account' THEN 2 ELSE 3 END LIMIT 1`,
+      `SELECT scope, scope_id, tenant_id, reason, set_by, set_at FROM (
+         SELECT scope, scope_id, tenant_id, reason, set_by, set_at,
+                CASE scope WHEN 'global' THEN 0 WHEN 'tenant' THEN 2 WHEN 'account' THEN 3 ELSE 4 END AS prio
+           FROM kill_switches WHERE active AND (
+             (scope = 'global') OR (scope = 'tenant' AND scope_id = $1) OR (scope = 'account' AND scope_id = $2) OR (scope = 'route' AND scope_id = $3))
+         UNION ALL
+         SELECT 'tenant', id::text, id, 'tenant ' || status, 'admin:status', now(), 1
+           FROM tenants WHERE id::text = $1 AND status <> 'active'
+       ) s ORDER BY prio LIMIT 1`,
       [t.tenantId, t.accountId, t.routeId ?? ''],
     );
     const row = r.rows[0];

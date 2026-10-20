@@ -20,7 +20,8 @@ import type { JobQueue } from '../delivery/queue.js';
 import type { KillSwitchStore } from '../delivery/killSwitch.js';
 import type { Logger } from '../logger.js';
 import { silentLogger } from '../logger.js';
-import { validateRoute } from '../routing/router.js';
+import { findRouteCycle, validateRoute } from '../routing/router.js';
+import type { ChatRef } from '../core/types.js';
 import { placeholdersOf, renderTemplate } from '../routing/template.js';
 import type { Route } from '../routing/types.js';
 import type { ConnectionManager, StatusEvent } from '../wa/connectionManager.js';
@@ -122,8 +123,9 @@ export class ApiServer {
   }
 
   /** Confirms the account belongs to the caller's tenant (RLS returns nothing otherwise). */
-  private async ownAccount(auth: TokenClaims, id: string) {
-    const r = await this.tenantTx(auth, (c) => c.query<{ id: string }>('SELECT id FROM wa_accounts WHERE id = $1', [id]));
+  private async ownAccount(auth: TokenClaims, id: string, includeTelegram = false) {
+    const sql = includeTelegram ? 'SELECT id FROM wa_accounts WHERE id = $1 UNION SELECT id FROM tg_bots WHERE id = $1' : 'SELECT id FROM wa_accounts WHERE id = $1';
+    const r = await this.tenantTx(auth, (c) => c.query<{ id: string }>(sql, [id]));
     if (!r.rowCount) throw new HttpError(404, 'not_found', 'account not found');
   }
 
@@ -151,7 +153,7 @@ export class ApiServer {
     this.on('POST', '/v1/wa/accounts', true, async ({ auth, body }) =>
       this.tenantTx(auth!, async (c) => {
         const t = await c.query<{ limits: { waAccounts: number } }>('SELECT p.limits FROM tenants t JOIN plans p ON p.code = t.plan_code WHERE t.id = $1', [auth!.tenantId]);
-        const n = await c.query<{ n: number }>('SELECT count(*)::int AS n FROM wa_accounts');
+        const n = await c.query<{ n: number }>(`SELECT count(*)::int AS n FROM wa_accounts WHERE status <> 'deleted'`);
         if (n.rows[0]!.n >= (t.rows[0]?.limits.waAccounts ?? 1)) throw new HttpError(403, 'plan_limit', 'המסלול שלך לא מאפשר מספרים נוספים');
         const r = await c.query<{ id: string }>('INSERT INTO wa_accounts (tenant_id, label) VALUES ($1, $2) RETURNING id', [auth!.tenantId, String(body.label ?? '').slice(0, 60)]);
         await this.audit(c, auth!, 'wa_account.created', r.rows[0]!.id);
@@ -219,6 +221,10 @@ export class ApiServer {
       await this.tenantTx(auth!, async (c) => {
         await c.query('DELETE FROM wa_auth WHERE account_id = $1', [params.id]);
         await c.query(`UPDATE wa_accounts SET status = 'deleted', phone_number = NULL WHERE id = $1`, [params.id]);
+        // Nothing may still try to send through, or listen on, a deleted number.
+        await c.query(`UPDATE outbound_jobs SET status = 'cancelled', updated_at = now() WHERE target_account_id = $1 AND status IN ('queued', 'pending_approval')`, [params.id]);
+        await c.query(`UPDATE routes SET enabled = false, updated_at = now() WHERE id IN (
+                         SELECT route_id FROM route_sources WHERE account_id = $1 UNION SELECT route_id FROM route_targets WHERE account_id = $1)`, [params.id]);
         await this.audit(c, auth!, 'wa_account.deleted', params.id!);
       });
       return { deleted: true };
@@ -253,6 +259,22 @@ export class ApiServer {
           ownAccounts: new Set(accounts.rows.map((r) => r.id)),
           maxTargets: limits.rows[0]?.limits.targets ?? 3,
         });
+        // A cycle across this tenant's routes would bounce messages forever.
+        const others = await c.query<{ route_id: string; kind: 's' | 't'; platform: 'wa' | 'tg'; account_id: string; chat_id: string }>(
+          `SELECT s.route_id, 's' AS kind, s.platform, s.account_id, s.chat_id FROM route_sources s JOIN routes r ON r.id = s.route_id WHERE r.enabled
+           UNION ALL
+           SELECT t.route_id, 't', t.platform, t.account_id, t.chat_id FROM route_targets t JOIN routes r ON r.id = t.route_id WHERE r.enabled`);
+        const graph = new Map<string, { sources: ChatRef[]; targets: ChatRef[] }>();
+        for (const row of others.rows) {
+          if (row.route_id === route.id) continue;
+          const g = graph.get(row.route_id) ?? { sources: [], targets: [] };
+          (row.kind === 's' ? g.sources : g.targets).push({ platform: row.platform, accountId: row.account_id, chatId: row.chat_id });
+          graph.set(row.route_id, g);
+        }
+        if (route.enabled !== false) {
+          const cycle = findRouteCycle([...graph.values(), route]);
+          if (cycle) problems.push({ code: 'route_cycle', message: 'המסלול יוצר מעגל עם מסלול קיים: הודעות היו חוזרות בלי סוף', chat: cycle.join(' → ') });
+        }
         if (problems.length) throw new HttpError(422, 'invalid_route', 'המסלול אינו תקין', problems);
         const id = await saveRoute(c, auth!.tenantId, {
           ...route, enabled: route.enabled ?? true, requireApproval: !!route.requireApproval, filters: route.filters ?? {},
@@ -286,7 +308,7 @@ export class ApiServer {
       const scope = body.scope as 'tenant' | 'account' | 'route';
       if (!['tenant', 'account', 'route'].includes(scope)) throw new HttpError(400, 'bad_scope', 'scope must be tenant, account or route');
       const scopeId = scope === 'tenant' ? auth!.tenantId : String(body.id ?? '');
-      if (scope === 'account') await this.ownAccount(auth!, scopeId);
+      if (scope === 'account') await this.ownAccount(auth!, scopeId, true);
       if (scope === 'route') {
         const r = await this.tenantTx(auth!, (c) => c.query('SELECT 1 FROM routes WHERE id = $1', [scopeId]));
         if (!r.rowCount) throw new HttpError(404, 'not_found', 'route not found');
@@ -300,6 +322,12 @@ export class ApiServer {
       const scopeId = scope === 'tenant' ? auth!.tenantId : String(body.id ?? '');
       const own = (await o.killSwitches.list(auth!.tenantId)).find((s) => s.scope === scope && s.scopeId === scopeId && s.tenantId === auth!.tenantId);
       if (!own) throw new HttpError(404, 'not_found', 'no active stop');
+      // Stops set by an administrator or by the system after a ban/rate-limit warning
+      // are not lifted by the customer here: system stops need the account fixed first,
+      // admin stops need an admin.
+      if (!own.setBy.startsWith('user:')) {
+        throw new HttpError(403, 'locked_stop', own.setBy.startsWith('admin') ? 'העצירה הופעלה על ידי מנהל המערכת' : 'העצירה הופעלה אוטומטית בגלל אזהרה; יש לפנות לתמיכה');
+      }
       await o.killSwitches.clear(scope, scopeId, `user:${auth!.userId}`);
       return { resumed: { scope, id: scopeId } };
     });
@@ -334,7 +362,10 @@ export class ApiServer {
       let auth: TokenClaims | null = null;
       if (route.auth) {
         const h = req.headers.authorization ?? '';
-        const token = h.startsWith('Bearer ') ? h.slice(7) : url.searchParams.get('token') ?? '';
+        // A token in the URL ends up in proxy and access logs, so it is accepted only for the
+        // live-status stream (browsers' EventSource cannot send headers).
+        const queryToken = url.pathname.endsWith('/events') ? url.searchParams.get('token') ?? '' : '';
+        const token = h.startsWith('Bearer ') ? h.slice(7) : queryToken;
         auth = verifyToken(token, this.o.tokenSecret);
         if (!auth) throw new HttpError(401, 'unauthorized', 'missing or invalid token');
       }
@@ -347,6 +378,7 @@ export class ApiServer {
     } catch (e) {
       const err = e instanceof HttpError ? e
         : e instanceof PgError && e.code === '42501' ? new HttpError(403, 'forbidden', 'forbidden')
+          : e instanceof PgError && (e.code === '22P02' || e.code === '22003') ? new HttpError(404, 'not_found', 'not found')
           : new HttpError(500, 'internal', 'internal error');
       if (err.status === 500) this.log.error('request failed', { path: url.pathname, err: String(e) });
       if (!res.headersSent) {

@@ -63,7 +63,9 @@ export class Dispatcher {
     this.o = {
       ...opts,
       batchSize: opts.batchSize ?? 50,
-      lockMs: opts.lockMs ?? 60_000,
+      // Longer than the slowest send (a large media upload can take up to 2 minutes),
+      // so a job is never reclaimed by another worker while it is still being sent.
+      lockMs: opts.lockMs ?? 5 * 60_000,
       maxAttempts: opts.maxAttempts ?? 4,
       retryDelaysMs: opts.retryDelaysMs ?? [30_000, 120_000, 600_000],
       maxJobAgeMs: opts.maxJobAgeMs ?? 2 * 60 * 60_000,
