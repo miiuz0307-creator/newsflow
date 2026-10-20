@@ -226,8 +226,8 @@ describe('PostgreSQL integration', { skip: !available && 'local test Postgres no
       assert.equal(await ks.find({ tenantId: tB, accountId: accB }), null);
       await ks.clear('account', accA, 'customer');
       assert.equal(await ks.find({ tenantId: tA, accountId: accA }), null);
-      const a = await db.owner.query(`SELECT 1`);
-      assert.equal(a.rowCount, 1);
+      const audit = await withTenant(db.app, tA, (c) => c.query<{ action: string }>(`SELECT action FROM audit_log WHERE action LIKE 'kill_switch.%' ORDER BY id`));
+      assert.deepEqual(audit.rows.map((r) => r.action), ['kill_switch.set', 'kill_switch.cleared']);
     });
 
     test('routes saved by the API are found by the worker', async () => {
