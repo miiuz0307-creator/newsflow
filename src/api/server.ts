@@ -37,15 +37,17 @@ export interface ApiOptions {
   /** Enables POST /v1/dev/token. Never on in production. */
   devTokens?: boolean;
   logger?: Logger;
+  /** Feature modules that add routes (auth, telegram, support, admin…). */
+  modules?: ((api: ApiServer) => void)[];
 }
 
-class HttpError extends Error {
+export class HttpError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string, public readonly details?: unknown) {
     super(message);
   }
 }
 
-type Handler = (ctx: { req: http.IncomingMessage; res: http.ServerResponse; params: Record<string, string>; body: any; auth: TokenClaims | null }) => Promise<unknown>;
+export type Handler = (ctx: { req: http.IncomingMessage; res: http.ServerResponse; params: Record<string, string>; body: any; auth: TokenClaims | null; ip: string }) => Promise<unknown>;
 
 interface RouteDef {
   method: string;
@@ -103,27 +105,34 @@ export class ApiServer {
   private readonly log: Logger;
   url = '';
 
-  constructor(private readonly o: ApiOptions) {
+  constructor(readonly o: ApiOptions) {
     this.log = (o.logger ?? silentLogger).child({ component: 'api' });
     if (o.tokenSecret.length < 32) throw new Error('tokenSecret must be at least 32 characters');
     this.define();
+    for (const m of o.modules ?? []) m(this);
     o.connections.onStatus((e) => this.pushStatus(e));
   }
 
-  private on(method: string, path: string, auth: boolean, handler: Handler) {
+  /** Registers a route. Used by the feature modules in src/api/modules. */
+  on(method: string, path: string, auth: boolean, handler: Handler) {
     this.routes.push({ method, ...compile(path), auth, handler });
   }
 
-  private tenantTx<T>(auth: TokenClaims, fn: (c: Sql) => Promise<T>): Promise<T> {
+  tenantTx<T>(auth: TokenClaims, fn: (c: Sql) => Promise<T>): Promise<T> {
     return withTenant(this.o.appPool, auth.tenantId, fn);
   }
 
-  private async audit(c: Sql, auth: TokenClaims, action: string, target: string, detail: Record<string, unknown> = {}) {
+  async audit(c: Sql, auth: TokenClaims, action: string, target: string, detail: Record<string, unknown> = {}) {
     await c.query('INSERT INTO audit_log (tenant_id, actor, action, target, detail) VALUES ($1, $2, $3, $4, $5)', [auth.tenantId, `user:${auth.userId}`, action, target, detail]);
   }
 
+  /** Throws 403 unless the caller has one of the roles. */
+  requireRole(auth: TokenClaims, ...roles: TokenClaims['role'][]) {
+    if (!roles.includes(auth.role)) throw new HttpError(403, 'forbidden_role', 'אין לך הרשאה לפעולה הזו');
+  }
+
   /** Confirms the account belongs to the caller's tenant (RLS returns nothing otherwise). */
-  private async ownAccount(auth: TokenClaims, id: string, includeTelegram = false) {
+  async ownAccount(auth: TokenClaims, id: string, includeTelegram = false) {
     const sql = includeTelegram ? 'SELECT id FROM wa_accounts WHERE id = $1 UNION SELECT id FROM tg_bots WHERE id = $1' : 'SELECT id FROM wa_accounts WHERE id = $1';
     const r = await this.tenantTx(auth, (c) => c.query<{ id: string }>(sql, [id]));
     if (!r.rowCount) throw new HttpError(404, 'not_found', 'account not found');
@@ -371,7 +380,8 @@ export class ApiServer {
       }
       const body = req.method === 'GET' || req.method === 'DELETE' ? {} : await readJson(req);
       if (typeof body !== 'object' || body === null || Array.isArray(body)) throw new HttpError(400, 'bad_request', 'body must be a JSON object');
-      const out = await route.handler({ req, res, params, body, auth });
+      const ip = (req.headers['x-forwarded-for']?.toString().split(',')[0] ?? req.socket.remoteAddress ?? '').trim();
+      const out = await route.handler({ req, res, params, body, auth, ip });
       if (out === undefined && res.headersSent) return;
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
       res.end(JSON.stringify(out ?? {}));
