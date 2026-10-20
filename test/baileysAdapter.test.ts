@@ -94,7 +94,7 @@ describe('Baileys adapter — wiring against a stub', () => {
     await t.start({ method: 'qr' });
     const sock = sockets[0];
     assert.equal(sock.cfg.printQRInTerminal, false);
-    assert.equal(sock.cfg.browser[0], 'NewsFlow');
+    assert.equal(sock.cfg.browser[0], 'Ubuntu');
 
     sock.ev.emit('connection.update', { qr: 'QRDATA' });
     assert.deepEqual(seen.qr, ['QRDATA']);

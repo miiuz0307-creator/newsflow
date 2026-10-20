@@ -98,6 +98,9 @@ export class BaileysTransport implements WaTransport {
   private connected = false;
   private pairingRequested = false;
   private stopped = false;
+  private pairingTimer?: NodeJS.Timeout;
+  /** How long a pairing code is shown before a new attempt starts. */
+  pairingCodeTtlMs = 90_000;
 
   constructor(
     public readonly accountId: string,
@@ -144,8 +147,9 @@ export class BaileysTransport implements WaTransport {
       markOnlineOnConnect: false,
       syncFullHistory: false,
       generateHighQualityLinkPreview: false,
-      // Honest identity: shown to the customer under WhatsApp > Linked devices.
-      browser: ['NewsFlow', 'Chrome', '1.0'],
+      // A standard browser identity: WhatsApp rejects pairing codes from clients whose
+      // platform it doesn't recognise. Nothing here imitates a phone or a specific device.
+      browser: B.Browsers?.ubuntu ? B.Browsers.ubuntu('Chrome') : ['Ubuntu', 'Chrome', '22.04.4'],
     });
     this.sock = sock;
 
@@ -160,6 +164,16 @@ export class BaileysTransport implements WaTransport {
           try {
             const code: string = await sock.requestPairingCode(phone);
             this.emit('pairing_code', code.length === 8 ? `${code.slice(0, 4)}-${code.slice(4)}` : code);
+            // A code is valid for a short time. If it isn't used, end this attempt so the
+            // manager reports link_expired and a fresh attempt (with a new code) can start.
+            this.pairingTimer = setTimeout(() => {
+              if (!sock.authState.creds.registered && !this.connected) {
+                this.stopped = true;
+                try { sock.end(undefined); } catch { /* already closed */ }
+                this.emit('close', { reason: 'link_timeout', detail: 'pairing code not used in time' });
+              }
+            }, this.pairingCodeTtlMs);
+            this.pairingTimer.unref?.();
           } catch (err) {
             this.log.error('pairing code request failed', { accountId: this.accountId, err: String(err) });
             this.emit('close', { reason: 'link_timeout', detail: 'pairing request failed' });
@@ -170,6 +184,7 @@ export class BaileysTransport implements WaTransport {
       }
       if (u.connection === 'open') {
         this.connected = true;
+        if (this.pairingTimer) clearTimeout(this.pairingTimer);
         const me: string = sock.user?.id ?? '';
         this.emit('open', { phoneNumber: me.split(':')[0]?.split('@')[0] ?? '' });
       }
@@ -213,6 +228,7 @@ export class BaileysTransport implements WaTransport {
 
   async stop(): Promise<void> {
     this.stopped = true;
+    if (this.pairingTimer) clearTimeout(this.pairingTimer);
     this.connected = false;
     try {
       this.sock?.end?.(undefined);
