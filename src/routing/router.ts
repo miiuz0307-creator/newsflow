@@ -9,7 +9,7 @@ import { chatKey } from '../core/types.js';
 import type { DedupStore } from './dedup.js';
 import { renderTemplate } from './template.js';
 import { codePointLength, contentFingerprint, normalizeForMatch, removeInviteLinks } from './text.js';
-import type { PlannedJob, QuietHours, Route, RouteFilters, RoutingPlan, SkipReason, Template } from './types.js';
+import type { PlannedJob, QuietHours, Route, RouteFilters, RouteTarget, RoutingPlan, SkipReason, Template } from './types.js';
 
 const SUPPORTED_DEFAULT = new Set(['text', 'image', 'video', 'audio', 'document']);
 
@@ -34,9 +34,13 @@ export function checkFilters(f: RouteFilters, msg: InboundMessage): SkipReason |
   return null;
 }
 
-/** Local hour and minute in a time zone. */
+const hmFormatters = new Map<string, Intl.DateTimeFormat>();
+
+/** Local hour and minute in a time zone (formatters cached: they hold native memory). */
 function zonedMinutes(d: Date, timeZone: string): number {
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d);
+  let f = hmFormatters.get(timeZone);
+  if (!f) hmFormatters.set(timeZone, (f = new Intl.DateTimeFormat('en-GB', { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })));
+  const parts = f.formatToParts(d);
   const h = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
   const m = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
   return h * 60 + m;
@@ -107,11 +111,13 @@ export class Router {
       let notBefore = new Date(now.getTime() + (route.delaySeconds ?? 0) * 1000);
       if (route.quietHours) notBefore = nextAllowedTime(notBefore, route.quietHours);
 
-      for (const target of route.targets) {
+      const targets = route.targets.filter((t) => chatKey(t) !== srcKey); // a group never feeds itself
+      const keyOf = (t: RouteTarget) => `fp:${route.tenantId}:${chatKey(t)}:${fingerprint}`;
+      const claimed = await this.claimAll(route.tenantId, targets.map(keyOf));
+
+      for (const target of targets) {
         const tKey = chatKey(target);
-        if (tKey === srcKey) continue; // a group never feeds itself
-        const fresh = await this.opts.dedup.claim(route.tenantId, `fp:${route.tenantId}:${tKey}:${fingerprint}`, this.dedupWindowMs);
-        if (!fresh) {
+        if (!claimed.has(keyOf(target))) {
           plan.skipped.push({ routeId: route.id, reason: 'duplicate', target: tKey });
           continue;
         }
@@ -137,6 +143,15 @@ export class Router {
       }
     }
     return plan;
+  }
+
+  private async claimAll(tenantId: string, keys: string[]): Promise<Set<string>> {
+    if (!keys.length) return new Set();
+    const d = this.opts.dedup;
+    if (d.claimMany) return d.claimMany(tenantId, keys, this.dedupWindowMs);
+    const got = new Set<string>();
+    for (const k of keys) if (await d.claim(tenantId, k, this.dedupWindowMs)) got.add(k);
+    return got;
   }
 }
 

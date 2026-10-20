@@ -39,6 +39,8 @@ export interface WorkerOptions {
   logger?: Logger;
   now?: () => number;
   dispatcherOverrides?: { retryDelaysMs?: number[]; maxJobAgeMs?: number; killedRecheckMs?: number; batchSize?: number };
+  /** Inbound messages planned at the same time; the rest wait in order. Default 16. */
+  inboundConcurrency?: number;
 }
 
 export class Worker {
@@ -76,7 +78,8 @@ export class Worker {
       ...(o.dispatcherOverrides ?? {}),
     });
 
-    o.connections.onMessage((m) => this.track(this.pipeline.handle(m)));
+    this.inboundLimit = o.inboundConcurrency ?? 16;
+    o.connections.onMessage((m) => this.enqueueInbound(m));
     o.connections.onSafetySignal((s) => this.track(this.safety.onConnectionSignal(s)));
     if (o.onStatus) o.connections.onStatus((e) => this.track(Promise.resolve(o.onStatus!(e))));
   }
@@ -88,7 +91,39 @@ export class Worker {
 
   /** Called by a TelegramAccount's onMessage hook. */
   handleTelegram(m: Parameters<InboundPipeline['handle']>[0]) {
-    this.track(this.pipeline.handle(m));
+    this.enqueueInbound(m);
+  }
+
+  /**
+   * Bounded concurrency for inbound planning: a burst (e.g. a busy source
+   * group) waits in a FIFO instead of opening thousands of database calls
+   * at once. Order of planning follows arrival order.
+   */
+  private readonly inboundWaiting: Parameters<InboundPipeline['handle']>[0][] = [];
+  private inboundActive = 0;
+  private readonly inboundLimit: number;
+
+  private enqueueInbound(m: Parameters<InboundPipeline['handle']>[0]) {
+    this.inboundWaiting.push(m);
+    this.pumpInbound();
+  }
+
+  private pumpInbound() {
+    while (this.inboundActive < this.inboundLimit && this.inboundWaiting.length) {
+      const m = this.inboundWaiting.shift()!;
+      this.inboundActive++;
+      this.track(
+        this.pipeline.handle(m).finally(() => {
+          this.inboundActive--;
+          this.pumpInbound();
+        }),
+      );
+    }
+  }
+
+  /** Inbound messages waiting to be planned (for monitoring). */
+  get inboundBacklog(): number {
+    return this.inboundWaiting.length;
   }
 
   senderFor(platform: 'wa' | 'tg', accountId: string): ChannelSender | undefined {
@@ -102,7 +137,10 @@ export class Worker {
 
   /** Waits until every inbound message received so far has been planned. */
   async settle(): Promise<void> {
-    while (this.inflight.size) await Promise.allSettled([...this.inflight]);
+    while (this.inflight.size || this.inboundWaiting.length) {
+      if (this.inflight.size) await Promise.allSettled([...this.inflight]);
+      else await new Promise((r) => setImmediate(r));
+    }
   }
 
   async shutdown(): Promise<void> {

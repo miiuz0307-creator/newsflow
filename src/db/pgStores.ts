@@ -149,6 +149,19 @@ export class PgDedupStore implements DedupStore {
     );
     return r.rowCount > 0;
   }
+
+  async claimMany(tenantId: string, keys: string[], ttlMs: number) {
+    if (!keys.length) return new Set<string>();
+    const r = await this.sql.query<{ key: string }>(
+      `INSERT INTO dedup_keys (key, tenant_id, expires_at)
+       SELECT k, $2, now() + ($3 || ' milliseconds')::interval FROM jsonb_array_elements_text($1::jsonb) AS k
+       ON CONFLICT (key) DO UPDATE SET expires_at = EXCLUDED.expires_at
+         WHERE dedup_keys.expires_at < now()
+       RETURNING key`,
+      [[...new Set(keys)], tenantId, String(ttlMs)],
+    );
+    return new Set(r.rows.map((x) => x.key));
+  }
 }
 
 // ---------------------------------------------------------------- jobs
@@ -212,16 +225,24 @@ export class PgJobQueue implements JobQueue {
    */
   constructor(private readonly sql: Sql, private readonly appPool?: PgPool) {}
 
+  /** One multi-row INSERT per batch of up to 500 jobs (a news item fans out to many targets at once). */
   async enqueue(jobs: PlannedJob[]) {
     let inserted = 0;
-    for (const j of jobs) {
+    const COLS = 12;
+    for (let i = 0; i < jobs.length; i += 500) {
+      const batch = jobs.slice(i, i + 500);
+      const params: unknown[] = [];
+      const rows = batch.map((j, k) => {
+        params.push(j.tenantId, j.routeId || null, j.idempotencyKey, j.source, j.sourceMessageId, j.target.platform, j.target.accountId,
+          j.target.chatId, j.target.title ?? null, storableContent(j.content), j.requiresApproval ? 'pending_approval' : 'queued', j.notBefore);
+        return `(${Array.from({ length: COLS }, (_, c) => `$${k * COLS + c + 1}`).join(', ')})`;
+      });
       const r = await this.sql.query(
         `INSERT INTO outbound_jobs (tenant_id, route_id, idempotency_key, source, source_message_id,
            target_platform, target_account_id, target_chat_id, target_title, content, status, not_before)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         VALUES ${rows.join(', ')}
          ON CONFLICT (idempotency_key) DO NOTHING`,
-        [j.tenantId, j.routeId || null, j.idempotencyKey, j.source, j.sourceMessageId, j.target.platform, j.target.accountId,
-          j.target.chatId, j.target.title ?? null, storableContent(j.content), j.requiresApproval ? 'pending_approval' : 'queued', j.notBefore],
+        params,
       );
       inserted += r.rowCount;
     }

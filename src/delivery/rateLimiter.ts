@@ -61,9 +61,10 @@ export class RateLimiter {
     if (lastChat !== undefined && t - lastChat < r.chatMinGapMs) {
       return { ok: false, retryAt: new Date(lastChat + r.chatMinGapMs), reason: 'chat_gap' };
     }
-    const sent = await this.sentLast24h(accountId);
+    const sent = await this.dailyCount(accountId, t);
     if (sent >= r.dailyCap) {
       // Re-check in 15 minutes; the rolling window frees up gradually.
+      this.dailyCache.delete(accountId);
       return { ok: false, retryAt: new Date(t + 15 * 60_000), reason: 'daily_cap' };
     }
 
@@ -71,7 +72,26 @@ export class RateLimiter {
     this.minuteWindow.set(accountId, win);
     this.lastByAccount.set(accountId, t);
     this.lastByChat.set(chatKey, t);
+    const c = this.dailyCache.get(accountId);
+    if (c) c.count++;
     return { ok: true };
+  }
+
+  /**
+   * The rolling 24h count comes from the database, but asking for every send
+   * would cost one query per message. It is fetched at most once per
+   * `dailyRefreshMs` and counted locally in between (each account lives on
+   * one worker, so the local count is accurate).
+   */
+  private dailyCache = new Map<string, { count: number; at: number }>();
+  dailyRefreshMs = 60_000;
+
+  private async dailyCount(accountId: string, t: number): Promise<number> {
+    const c = this.dailyCache.get(accountId);
+    if (c && t - c.at < this.dailyRefreshMs) return c.count;
+    const count = await this.sentLast24h(accountId);
+    this.dailyCache.set(accountId, { count, at: t });
+    return count;
   }
 
   /** Stops all sends from an account until `until` (after a platform rate-limit signal). */

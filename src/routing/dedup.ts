@@ -9,6 +9,8 @@ export interface DedupStore {
    * has not expired.
    */
   claim(tenantId: string, key: string, ttlMs: number): Promise<boolean>;
+  /** Batch form of claim(): returns the keys this caller got. Optional; falls back to claim(). */
+  claimMany?(tenantId: string, keys: string[], ttlMs: number): Promise<Set<string>>;
 }
 
 export class MemoryDedupStore implements DedupStore {
@@ -23,6 +25,12 @@ export class MemoryDedupStore implements DedupStore {
     this.keys.set(k, t + ttlMs);
     if (this.keys.size > 50_000) this.sweep(t);
     return true;
+  }
+
+  async claimMany(tenantId: string, keys: string[], ttlMs: number): Promise<Set<string>> {
+    const got = new Set<string>();
+    for (const k of keys) if (await this.claim(tenantId, k, ttlMs)) got.add(k);
+    return got;
   }
 
   private sweep(t: number) {

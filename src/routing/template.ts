@@ -58,6 +58,24 @@ export interface RenderResult {
   truncated: boolean;
 }
 
+/**
+ * Intl formatters hold native (ICU) memory that the JS garbage collector
+ * doesn't see; creating one per message ballooned memory to >1GB in the load
+ * test. One instance per time zone is reused.
+ */
+const formatters = new Map<string, { date: Intl.DateTimeFormat; time: Intl.DateTimeFormat }>();
+function formattersFor(tz: string) {
+  let f = formatters.get(tz);
+  if (!f) {
+    f = {
+      date: new Intl.DateTimeFormat('he-IL', { timeZone: tz, day: '2-digit', month: '2-digit', year: 'numeric' }),
+      time: new Intl.DateTimeFormat('he-IL', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }),
+    };
+    formatters.set(tz, f);
+  }
+  return f;
+}
+
 function canonical(name: string): string {
   const key = name.trim().toLowerCase();
   return ALIASES[key] ?? key.replace(/\s+/g, '_');
@@ -76,8 +94,8 @@ export function renderTemplate(tpl: Pick<Template, 'body' | 'vars'> | undefined,
   for (const [k, v] of Object.entries(tpl?.vars ?? {})) vars[canonical(k)] = v;
   const builtins: Record<string, string> = {
     group_name: ctx.groupName ?? '',
-    date: new Intl.DateTimeFormat('he-IL', { timeZone: tz, day: '2-digit', month: '2-digit', year: 'numeric' }).format(now),
-    time: new Intl.DateTimeFormat('he-IL', { timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(now),
+    date: formattersFor(tz).date.format(now),
+    time: formattersFor(tz).time.format(now),
   };
   const unknown: string[] = [];
 
