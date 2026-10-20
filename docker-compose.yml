@@ -1,0 +1,21 @@
+# Local development stack (prepared, not used in phase 1).
+# Fully separate from any existing system: own containers, own volume, own ports.
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: dev-superuser-only
+      POSTGRES_DB: newsflow
+    ports: ["55433:5432"]
+    volumes: ["newsflow-db:/var/lib/postgresql/data"]
+  app:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL_APP: postgres://newsflow_app:${APP_DB_PASSWORD}@db:5432/newsflow
+      DATABASE_URL_WORKER: postgres://newsflow_worker:${WORKER_DB_PASSWORD}@db:5432/newsflow
+      API_HOST: 0.0.0.0
+    ports: ["8787:8787"]
+    depends_on: [db]
+volumes:
+  newsflow-db:

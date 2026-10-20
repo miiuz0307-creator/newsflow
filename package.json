@@ -4,15 +4,26 @@
   "private": true,
   "description": "News distribution SaaS for WhatsApp and Telegram group managers — phase 1 feasibility core",
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest",
+    "test": "tsx --test test/*.test.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "simulate": "tsx scripts/simulate.ts",
     "loadtest": "tsx scripts/loadtest.ts",
-    "api:dev": "tsx src/api/server.ts"
+    "api:dev": "tsx src/main.ts",
+    "test:unit": "tsx --test test/crypto.test.ts test/connectionManager.test.ts test/baileysAdapter.test.ts test/routing.test.ts test/delivery.test.ts test/telegram.test.ts",
+    "feasibility": "tsx scripts/feasibility.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0",
+    "@types/node": "^22.0.0"
+  },
+  "optionalDependencies": {
+    "baileys": "PIN-EXACT-VERSION-BEFORE-INSTALL"
   }
 }
