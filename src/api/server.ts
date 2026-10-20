@@ -37,6 +37,8 @@ export interface ApiOptions {
   /** Enables POST /v1/dev/token. Never on in production. */
   devTokens?: boolean;
   logger?: Logger;
+  /** Called after routes change, e.g. to clear the worker's route cache. */
+  onRoutesChanged?: () => void;
   /** Feature modules that add routes (auth, telegram, support, admin…). */
   modules?: ((api: ApiServer) => void)[];
 }
@@ -289,6 +291,7 @@ export class ApiServer {
           ...route, enabled: route.enabled ?? true, requireApproval: !!route.requireApproval, filters: route.filters ?? {},
         });
         await this.audit(c, auth!, 'route.saved', id);
+        o.onRoutesChanged?.();
         return { id };
       }));
 
@@ -297,6 +300,7 @@ export class ApiServer {
         const r = await c.query('UPDATE routes SET enabled = $2, updated_at = now() WHERE id = $1', [params.id, !!body.enabled]);
         if (!r.rowCount) throw new HttpError(404, 'not_found', 'route not found');
         await this.audit(c, auth!, body.enabled ? 'route.enabled' : 'route.disabled', params.id!);
+        o.onRoutesChanged?.();
         return { enabled: !!body.enabled };
       }));
 

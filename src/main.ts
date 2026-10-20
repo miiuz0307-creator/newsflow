@@ -24,6 +24,12 @@ import {
 } from './db/pgStores.js';
 import { CachedKillSwitches } from './delivery/killSwitch.js';
 import { FileMediaStore } from './delivery/mediaStore.js';
+import { adminModule } from './api/modules/admin.js';
+import { authModule } from './api/modules/auth.js';
+import { manageModule } from './api/modules/manage.js';
+import { supportModule } from './api/modules/support.js';
+import { NotificationService, noticeForSafety, noticeForStatus } from './notify/notifications.js';
+import { TelegramRuntime } from './telegram/runtime.js';
 import { CachedRouteSource } from './engine/routeCache.js';
 import { Worker } from './engine/worker.js';
 import { createLogger } from './logger.js';
@@ -71,22 +77,56 @@ async function refreshCaps() {
 await refreshCaps();
 setInterval(() => void refreshCaps().catch((e) => log.error('caps refresh failed', { err: String(e) })), 5 * 60_000).unref();
 
+const notifications = new NotificationService(workerPool);
+const routeSource = new CachedRouteSource(new PgRouteSource(workerPool));
+
 const worker = new Worker({
   workerId: process.env.WORKER_ID ?? `${os.hostname()}-${process.pid}`,
   connections: conns,
   queue,
-  routes: new CachedRouteSource(new PgRouteSource(workerPool)),
+  routes: routeSource,
   dedup: new PgDedupStore(workerPool),
   killSwitches,
   media: new FileMediaStore(process.env.MEDIA_DIR ?? './.media'),
   dailyCapFor: (accountId) => caps.get(accountId) ?? 100,
-  onSafetyEvent: (e) => recordSafetyEvent(workerPool, e),
-  onStatus: (e) => recordConnectionEvent(workerPool, e.state.tenantId, e.state.accountId, e.state.status, e.state.lastDisconnect?.reason),
+  onSafetyEvent: async (e) => {
+    await recordSafetyEvent(workerPool, e);
+    await notifications.notify(noticeForSafety(e));
+  },
+  onStatus: async (e) => {
+    await recordConnectionEvent(workerPool, e.state.tenantId, e.state.accountId, e.state.status, e.state.lastDisconnect?.reason);
+    await notifications.notify(noticeForStatus(e));
+  },
   logger: log,
 });
 
+const telegram = new TelegramRuntime({
+  workerSql: workerPool,
+  keys,
+  apiOptions: { apiBase: cfg.telegramApiBase, allowReal: cfg.allowRealTelegram },
+  onMessage: (m) => worker.handleTelegram(m),
+  onStarted: (acc) => worker.addTelegram(acc),
+  onStopped: (id) => worker.removeTelegram(id),
+  logger: log,
+});
+if (cfg.allowRealTelegram || !cfg.telegramApiBase.includes('api.telegram.org')) {
+  log.info('telegram bots started', { count: await telegram.loadAll() });
+}
+
+// The Super Admin API runs only where its database role and secret are configured.
+const adminModules = process.env.DATABASE_URL_ADMIN && process.env.ADMIN_TOKEN_SECRET
+  ? [adminModule({ adminPool: PgPool.fromUrl(process.env.DATABASE_URL_ADMIN, 4), adminTokenSecret: process.env.ADMIN_TOKEN_SECRET })]
+  : [];
+
 const api = new ApiServer({
   appPool, connections: conns, queue, killSwitches, tokenSecret: req('TOKEN_SECRET'),
+  onRoutesChanged: () => routeSource.invalidate(),
+  modules: [
+    authModule({ keys }),
+    manageModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate() }),
+    supportModule(),
+    ...adminModules,
+  ],
   devTokens: cfg.env === 'development' && process.env.DEV_TOKENS === '1', logger: log,
 });
 
@@ -103,6 +143,7 @@ log.info('started', { api: api.url, waMode: mode });
 async function shutdown(signal: string) {
   log.info('shutting down', { signal });
   await api.close();
+  await telegram.shutdown();
   await worker.shutdown();
   await Promise.all([appPool.end(), workerPool.end()]);
   process.exit(0);

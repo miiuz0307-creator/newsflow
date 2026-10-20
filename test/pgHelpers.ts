@@ -11,7 +11,7 @@ import { PgConnection, PgPool, type ConnOptions } from '../src/db/pg.js';
 const PORT = Number(process.env.TEST_PG_PORT ?? 55432);
 const SOCKET = process.env.TEST_PG_SOCKET ?? '/tmp';
 const HOST = '127.0.0.1';
-const PW = { owner: 'dev-owner-pw', app: 'dev-app-pw', worker: 'dev-worker-pw' };
+const PW = { owner: 'dev-owner-pw', app: 'dev-app-pw', worker: 'dev-worker-pw', admin: 'dev-admin-pw' };
 
 export async function pgAvailable(): Promise<boolean> {
   try {
@@ -28,6 +28,7 @@ export interface TestDb {
   app: PgPool;
   worker: PgPool;
   owner: PgPool;
+  admin: PgPool;
   drop(): Promise<void>;
 }
 
@@ -38,7 +39,7 @@ export async function createTestDb(): Promise<TestDb> {
   await su.close();
   const su2 = await PgConnection.connect({ host: HOST, socketDir: SOCKET, port: PORT, user: 'postgres', database: name });
   await su2.exec(`REVOKE ALL ON SCHEMA public FROM PUBLIC; ALTER SCHEMA public OWNER TO newsflow_owner;
-                  GRANT USAGE ON SCHEMA public TO newsflow_app, newsflow_worker;`);
+                  GRANT USAGE ON SCHEMA public TO newsflow_app, newsflow_worker, newsflow_admin;`);
   await su2.close();
 
   // Everything below goes over TCP with SCRAM passwords, like production.
@@ -53,8 +54,9 @@ export async function createTestDb(): Promise<TestDb> {
     app: new PgPool(opts('newsflow_app', PW.app), 5),
     worker: new PgPool(opts('newsflow_worker', PW.worker), 5),
     owner: new PgPool(opts('newsflow_owner', PW.owner), 2),
+    admin: new PgPool(opts('newsflow_admin', PW.admin), 2),
     async drop() {
-      await Promise.all([db.app.end(), db.worker.end(), db.owner.end()]);
+      await Promise.all([db.app.end(), db.worker.end(), db.owner.end(), db.admin.end()]);
       const s = await PgConnection.connect({ host: HOST, socketDir: SOCKET, port: PORT, user: 'postgres', database: 'postgres' });
       await s.exec(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
       await s.close();

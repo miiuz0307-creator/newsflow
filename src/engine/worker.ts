@@ -92,6 +92,10 @@ export class Worker {
     this.telegram.set(acc.accountId, acc);
   }
 
+  removeTelegram(botId: string) {
+    this.telegram.delete(botId);
+  }
+
   /** Called by a TelegramAccount's onMessage hook. */
   handleTelegram(m: Parameters<InboundPipeline['handle']>[0]) {
     this.enqueueInbound(m);

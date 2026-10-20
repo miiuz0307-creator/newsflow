@@ -113,8 +113,10 @@ export class TelegramAccount implements ChannelSender {
     for (const u of updates) {
       this.offset = Math.max(this.offset ?? 0, u.update_id + 1);
       if (u.my_chat_member) {
-        this.rememberChat(u.my_chat_member.chat, u.my_chat_member.new_chat_member);
-        this.o.onChatsChanged?.(this.listChats());
+        // Report the chat that changed — including one the bot was removed from (canSend false),
+        // so stored permissions don't go stale.
+        const info = this.rememberChat(u.my_chat_member.chat, u.my_chat_member.new_chat_member);
+        this.o.onChatsChanged?.([info]);
         continue;
       }
       const m = u.message ?? u.channel_post;
