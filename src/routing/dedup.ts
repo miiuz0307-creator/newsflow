@@ -4,21 +4,23 @@
  */
 export interface DedupStore {
   /**
-   * Atomically claims `key` for `ttlMs`. Returns true if this caller got it
-   * (first time), false if it was already claimed and not yet expired.
+   * Atomically claims `key` for `ttlMs` on behalf of `tenantId`. Returns true
+   * if this caller got it (first time), false if it was already claimed and
+   * has not expired.
    */
-  claim(key: string, ttlMs: number): Promise<boolean>;
+  claim(tenantId: string, key: string, ttlMs: number): Promise<boolean>;
 }
 
 export class MemoryDedupStore implements DedupStore {
   private readonly keys = new Map<string, number>();
   constructor(private readonly now: () => number = Date.now) {}
 
-  async claim(key: string, ttlMs: number): Promise<boolean> {
+  async claim(tenantId: string, key: string, ttlMs: number): Promise<boolean> {
+    const k = `${tenantId}|${key}`;
     const t = this.now();
-    const exp = this.keys.get(key);
+    const exp = this.keys.get(k);
     if (exp !== undefined && exp > t) return false;
-    this.keys.set(key, t + ttlMs);
+    this.keys.set(k, t + ttlMs);
     if (this.keys.size > 50_000) this.sweep(t);
     return true;
   }

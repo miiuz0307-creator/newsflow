@@ -26,7 +26,11 @@ export interface MediaRef {
   /** Where the bytes are. Phase 1 keeps media in memory or a temp URL. */
   data?: Buffer;
   url?: string;
+  /** Reference into the MediaStore, used once the bytes are stored (jobs keep only this). */
+  ref?: string;
   fileName?: string;
+  /** Lazy loader supplied by a transport (e.g. WhatsApp media download). */
+  load?: () => Promise<Buffer>;
 }
 
 export interface MessageContent {

@@ -17,7 +17,7 @@ export interface RouterOptions {
   dedup: DedupStore;
   /** How long a fingerprint blocks the same content to the same target. Default 6 hours. */
   dedupWindowMs?: number;
-  templates: (tenantId: string, id: string) => Template | undefined;
+  templates: (tenantId: string, id: string) => Template | undefined | Promise<Template | undefined>;
   now?: () => Date;
 }
 
@@ -102,7 +102,7 @@ export class Router {
         continue;
       }
 
-      const template = route.templateId ? this.opts.templates(route.tenantId, route.templateId) : undefined;
+      const template = route.templateId ? await this.opts.templates(route.tenantId, route.templateId) : undefined;
       const now = this.now();
       let notBefore = new Date(now.getTime() + (route.delaySeconds ?? 0) * 1000);
       if (route.quietHours) notBefore = nextAllowedTime(notBefore, route.quietHours);
@@ -110,7 +110,7 @@ export class Router {
       for (const target of route.targets) {
         const tKey = chatKey(target);
         if (tKey === srcKey) continue; // a group never feeds itself
-        const fresh = await this.opts.dedup.claim(`fp:${route.tenantId}:${tKey}:${fingerprint}`, this.dedupWindowMs);
+        const fresh = await this.opts.dedup.claim(route.tenantId, `fp:${route.tenantId}:${tKey}:${fingerprint}`, this.dedupWindowMs);
         if (!fresh) {
           plan.skipped.push({ routeId: route.id, reason: 'duplicate', target: tKey });
           continue;
