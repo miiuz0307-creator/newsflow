@@ -24,6 +24,7 @@ import {
 } from './db/pgStores.js';
 import { CachedKillSwitches } from './delivery/killSwitch.js';
 import { FileMediaStore } from './delivery/mediaStore.js';
+import { CachedRouteSource } from './engine/routeCache.js';
 import { Worker } from './engine/worker.js';
 import { createLogger } from './logger.js';
 import { baileysTransportFactory } from './wa/baileysTransport.js';
@@ -74,7 +75,7 @@ const worker = new Worker({
   workerId: process.env.WORKER_ID ?? `${os.hostname()}-${process.pid}`,
   connections: conns,
   queue,
-  routes: new PgRouteSource(workerPool),
+  routes: new CachedRouteSource(new PgRouteSource(workerPool)),
   dedup: new PgDedupStore(workerPool),
   killSwitches,
   media: new FileMediaStore(process.env.MEDIA_DIR ?? './.media'),
