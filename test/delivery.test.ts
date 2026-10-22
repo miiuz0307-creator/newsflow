@@ -51,7 +51,7 @@ function harness(rules: Partial<RateRules> = {}) {
   const dispatcher = new Dispatcher({
     workerId: 'w1', queue, killSwitches: ks, limiter, safety, media,
     senderFor: (_p, acc) => (acc === 'acc1' ? sender : undefined),
-    now: clock.now, retryDelaysMs: [1000, 2000, 4000],
+    now: clock.now, retryDelaysMs: [1000, 2000, 4000], retryJitter: 0,
   });
   const routes = new MemoryRouteSource();
   const route: Route = { id: 'r1', tenantId: 'ten1', name: 'r', enabled: true, sources: [SRC], targets, filters: {}, requireApproval: false };

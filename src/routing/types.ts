@@ -29,6 +29,26 @@ export interface QuietHours {
   timeZone: string;
 }
 
+export type ReportMode = 'all' | 'failures' | 'summary' | 'off';
+
+/**
+ * Settings that make a route's source a PUSH control group: the customer
+ * posts there, and edits and deletes there follow every copy.
+ */
+export interface ControlSettings {
+  /** An edit in the control group edits every copy. Default true. */
+  syncEdits?: boolean;
+  /** "Delete for everyone" in the control group deletes every copy. Default true. */
+  syncDeletes?: boolean;
+  /** Status messages posted back into the control group. Default 'summary'. */
+  reportMode?: ReportMode;
+  /**
+   * Only these senders (phone numbers / Telegram user ids) may distribute.
+   * Empty or missing = anyone in the control group.
+   */
+  allowedSenders?: string[];
+}
+
 export interface Route {
   id: string;
   tenantId: string;
@@ -43,6 +63,8 @@ export interface Route {
   /** Fixed delay before sending, in seconds (e.g. to let the editor fix typos). */
   delaySeconds?: number;
   quietHours?: QuietHours;
+  /** Present when the source is a PUSH control group. */
+  control?: ControlSettings;
 }
 
 export interface Template {
@@ -66,7 +88,15 @@ export type SkipReason =
   | 'too_short'
   | 'empty_after_cleanup'
   | 'duplicate'
-  | 'own_forward';
+  | 'own_forward'
+  | 'sender_not_allowed'
+  | 'own_report';
+
+/** send = a copy; edit / delete change a copy already sent; report = a status message to the control group. */
+export type JobAction = 'send' | 'edit' | 'delete' | 'report';
+
+/** Lower runs first. A delete beats everything; reports wait for the real work. */
+export const ACTION_PRIORITY: Record<JobAction, number> = { delete: 0, edit: 1, send: 2, report: 3 };
 
 export interface PlannedJob {
   tenantId: string;
@@ -80,6 +110,12 @@ export interface PlannedJob {
   requiresApproval: boolean;
   /** Unique per (inbound message, route, target): creating the same job twice is a no-op. */
   idempotencyKey: string;
+  /** Default 'send'. */
+  action?: JobAction;
+  /** For edit / delete: the send job whose copy is changed. */
+  parentJobId?: string;
+  /** Version of the source message this job carries (1 = the original). */
+  version?: number;
 }
 
 export interface RoutingPlan {

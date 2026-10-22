@@ -20,7 +20,7 @@ import { loadConfig } from './config.js';
 import { MasterKey } from './crypto/keyring.js';
 import { PgPool } from './db/pg.js';
 import {
-  PgAuthStore, PgDedupStore, PgJobQueue, PgKillSwitchStore, PgRouteSource, TenantKeys, recordConnectionEvent, recordSafetyEvent,
+  PgAuthStore, PgDedupStore, PgJobQueue, PgKillSwitchStore, PgRouteSource, PgSourceMessageStore, TenantKeys, recordConnectionEvent, recordSafetyEvent,
 } from './db/pgStores.js';
 import { CachedKillSwitches } from './delivery/killSwitch.js';
 import { FileMediaStore } from './delivery/mediaStore.js';
@@ -28,6 +28,7 @@ import { adminModule } from './api/modules/admin.js';
 import { authModule } from './api/modules/auth.js';
 import { manageModule } from './api/modules/manage.js';
 import { supportModule } from './api/modules/support.js';
+import { pushModule } from './api/modules/push.js';
 import { NotificationService, noticeForSafety, noticeForStatus } from './notify/notifications.js';
 import { TelegramRuntime } from './telegram/runtime.js';
 import { CachedRouteSource } from './engine/routeCache.js';
@@ -88,6 +89,7 @@ const worker = new Worker({
   dedup: new PgDedupStore(workerPool),
   killSwitches,
   media: new FileMediaStore(process.env.MEDIA_DIR ?? './.media'),
+  sources: new PgSourceMessageStore(workerPool),
   dailyCapFor: (accountId) => caps.get(accountId) ?? 100,
   onSafetyEvent: async (e) => {
     await recordSafetyEvent(workerPool, e);
@@ -105,6 +107,7 @@ const telegram = new TelegramRuntime({
   keys,
   apiOptions: { apiBase: cfg.telegramApiBase, allowReal: cfg.allowRealTelegram },
   onMessage: (m) => worker.handleTelegram(m),
+  onSync: (e) => worker.handleTelegramSync(e),
   onStarted: (acc) => worker.addTelegram(acc),
   onStopped: (id) => worker.removeTelegram(id),
   logger: log,
@@ -126,6 +129,7 @@ const api = new ApiServer({
     authModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate() }),
     manageModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate() }),
     supportModule(),
+    pushModule(),
     ...adminModules,
   ],
   devTokens: cfg.env === 'development' && process.env.DEV_TOKENS === '1', logger: log,

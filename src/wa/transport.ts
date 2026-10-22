@@ -52,12 +52,36 @@ export interface RawInbound {
   content: MessageContent;
 }
 
+/** Someone edited a message (WhatsApp allows this for 15 minutes). */
+export interface RawEdit {
+  chatId: string;
+  messageId: string;
+  senderId: string;
+  fromSelf: boolean;
+  timestamp: Date;
+  content: MessageContent;
+}
+
+/**
+ * A "delete for everyone". "Delete for me" is a private app-state change on
+ * the phone; it is never reported here and never deletes copies.
+ */
+export interface RawRevoke {
+  chatId: string;
+  messageId: string;
+  /** Who deleted it (the author, or a group admin). */
+  senderId: string;
+  timestamp: Date;
+}
+
 export interface TransportEvents {
   qr: (qr: string) => void;
   pairing_code: (code: string) => void;
   open: (info: { phoneNumber: string }) => void;
   close: (info: { reason: DisconnectReason; detail?: string }) => void;
   message: (msg: RawInbound) => void;
+  message_edited: (e: RawEdit) => void;
+  message_revoked: (e: RawRevoke) => void;
   /** Group list or a group's settings changed; the manager refreshes its cache. */
   chats_changed: () => void;
 }
@@ -78,6 +102,10 @@ export interface WaTransport {
   logout(): Promise<void>;
   listChats(): Promise<ChatInfo[]>;
   send(chatId: string, content: MessageContent): Promise<SendResult>;
+  /** Edits the text / caption of a message this number sent. */
+  edit(chatId: string, messageId: string, content: MessageContent): Promise<void>;
+  /** Deletes for everyone a message this number sent. */
+  remove(chatId: string, messageId: string): Promise<void>;
   on<E extends keyof TransportEvents>(event: E, fn: TransportEvents[E]): void;
   off<E extends keyof TransportEvents>(event: E, fn: TransportEvents[E]): void;
 }

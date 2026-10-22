@@ -6,7 +6,7 @@
  * it sends to WhatsApp, and emits InboundMessage, so Telegram groups and
  * channels can be route sources too (Telegram → WhatsApp).
  */
-import type { ChannelSender, ChatInfo, InboundMessage, MessageContent, MessageKind, SendResult } from '../core/types.js';
+import type { ChannelSender, ChatInfo, InboundMessage, MessageContent, MessageKind, SendResult, SyncEvent } from '../core/types.js';
 import { SendError } from '../core/types.js';
 import type { Logger } from '../logger.js';
 import { silentLogger } from '../logger.js';
@@ -19,6 +19,8 @@ export interface TelegramAccountOptions {
   api: TelegramBotApi;
   logger?: Logger;
   onMessage?: (m: InboundMessage) => void;
+  /** An edit of a message in a chat the bot is in. (Telegram does not tell bots about deletions.) */
+  onSync?: (e: SyncEvent) => void;
   onChatsChanged?: (chats: ChatInfo[]) => void;
   /** Persist the polling offset so restarts don't re-read old updates. */
   loadOffset?: () => Promise<number | undefined>;
@@ -108,6 +110,20 @@ export class TelegramAccount implements ChannelSender {
     return { messageId: String(res.message_id), sentAt: new Date(res.date * 1000) };
   }
 
+  async edit(chatId: string, messageId: string, content: MessageContent): Promise<void> {
+    const text = content.text ?? '';
+    if (content.kind === 'text') {
+      if (!text.trim()) throw new SendError('invalid', 'empty text');
+      await this.o.api.editMessageText(chatId, messageId, text);
+    } else {
+      await this.o.api.editMessageCaption(chatId, messageId, text);
+    }
+  }
+
+  async remove(chatId: string, messageId: string): Promise<void> {
+    await this.o.api.deleteMessage(chatId, messageId);
+  }
+
   /** Processes one batch of updates. Exposed for webhook use and tests. */
   async handleUpdates(updates: TgUpdate[]): Promise<void> {
     for (const u of updates) {
@@ -117,6 +133,22 @@ export class TelegramAccount implements ChannelSender {
         // so stored permissions don't go stale.
         const info = this.rememberChat(u.my_chat_member.chat, u.my_chat_member.new_chat_member);
         this.o.onChatsChanged?.([info]);
+        continue;
+      }
+      const edited = u.edited_message ?? u.edited_channel_post;
+      if (edited) {
+        const content = parseTgMessage(this.o.api, edited);
+        if (content) {
+          this.safely(() => this.o.onSync?.({
+            type: 'edit',
+            tenantId: this.o.tenantId,
+            source: { platform: 'tg', accountId: this.o.accountId, chatId: String(edited.chat.id) },
+            messageId: String(edited.message_id),
+            senderId: String(edited.from?.id ?? edited.sender_chat?.id ?? ''),
+            content,
+            at: new Date((edited.edit_date ?? edited.date) * 1000),
+          }));
+        }
         continue;
       }
       const m = u.message ?? u.channel_post;
@@ -139,12 +171,9 @@ export class TelegramAccount implements ChannelSender {
         isForwarded: !!(m.forward_origin || m.forward_date),
         receivedAt: new Date(m.date * 1000),
         content,
+        ...(m.reply_to_message ? { replyToMessageId: String(m.reply_to_message.message_id) } : {}),
       };
-      try {
-        this.o.onMessage?.(inbound);
-      } catch (err) {
-        this.log.error('onMessage failed', { err: String(err) });
-      }
+      this.safely(() => this.o.onMessage?.(inbound));
     }
     if (this.offset !== undefined) await this.o.saveOffset?.(this.offset);
   }
@@ -186,6 +215,14 @@ export class TelegramAccount implements ChannelSender {
   async stop(): Promise<void> {
     this.running = false;
     await this.loop?.catch(() => {});
+  }
+
+  private safely(fn: () => void) {
+    try {
+      fn();
+    } catch (err) {
+      this.log.error('listener failed', { err: String(err) });
+    }
   }
 
   private rememberChat(chat: TgChat, member: TgChatMember, count?: number): ChatInfo {

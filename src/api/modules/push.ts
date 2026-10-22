@@ -1,0 +1,193 @@
+/**
+ * PUSH customer API: distribution history with the status of every copy,
+ * manual retry, platform capabilities, and the basic dashboard page.
+ *
+ * Everything runs inside the caller's tenant (RLS). A copy whose outcome is
+ * unknown ("ממתין לאימות") is resent only when the customer confirms it is
+ * not in the group — otherwise it could appear twice.
+ */
+import { randomBytes } from 'node:crypto';
+import { CAPABILITIES } from '../../core/types.js';
+import { HttpError, type ApiServer } from '../server.js';
+import { dashboardHtml } from '../dashboard.js';
+
+interface DistRow {
+  platform: string;
+  account_id: string;
+  chat_id: string;
+  source_message_id: string;
+  created_at: Date;
+  source_title: string | null;
+  text: string | null;
+  kind: string | null;
+  version: number | null;
+  deleted: boolean | null;
+  targets: number;
+  sent: number;
+  failed: number;
+  unknown: number;
+  pending: number;
+  cancelled: number;
+  skipped: number;
+  edits_sent: number;
+  edits_failed: number;
+  deletes_sent: number;
+  deletes_failed: number;
+}
+
+interface CopyRow {
+  id: string;
+  target_platform: string;
+  target_chat_id: string;
+  title: string | null;
+  status: string;
+  error_kind: string | null;
+  last_error: string | null;
+  sent_at: Date | null;
+  attempts: number;
+  version: number;
+  edit_status: string | null;
+  edit_version: number | null;
+  edit_error: string | null;
+  edit_job_id: string | null;
+  delete_status: string | null;
+  delete_error: string | null;
+  delete_job_id: string | null;
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function pushModule() {
+  return (api: ApiServer) => {
+    api.on('GET', '/v1/capabilities', false, async () => CAPABILITIES);
+
+    // Recent distributions (last 30 days), newest first.
+    api.on('GET', '/v1/distributions', true, async ({ auth, req }) => {
+      const limit = Math.min(Math.max(Number(new URL(req.url ?? '/', 'http://x').searchParams.get('limit') ?? 50) || 50, 1), 200);
+      return api.tenantTx(auth!, async (c) => {
+        const r = await c.query<DistRow>(
+          `WITH d AS (
+             SELECT source->>'platform' AS platform, source->>'accountId' AS account_id, source->>'chatId' AS chat_id, source_message_id,
+                    min(created_at) AS created_at,
+                    (array_agg(content->>'text' ORDER BY id) FILTER (WHERE action = 'send'))[1] AS text,
+                    (array_agg(content->>'kind' ORDER BY id) FILTER (WHERE action = 'send'))[1] AS kind,
+                    count(*) FILTER (WHERE action = 'send')::int AS targets,
+                    count(*) FILTER (WHERE action = 'send' AND status = 'sent')::int AS sent,
+                    count(*) FILTER (WHERE action = 'send' AND status = 'failed')::int AS failed,
+                    count(*) FILTER (WHERE action = 'send' AND status = 'unknown')::int AS unknown,
+                    count(*) FILTER (WHERE action = 'send' AND status IN ('queued', 'sending', 'pending_approval'))::int AS pending,
+                    count(*) FILTER (WHERE action = 'send' AND status = 'cancelled')::int AS cancelled,
+                    count(*) FILTER (WHERE action = 'send' AND status = 'skipped')::int AS skipped,
+                    count(*) FILTER (WHERE action = 'edit' AND status = 'sent')::int AS edits_sent,
+                    count(*) FILTER (WHERE action = 'edit' AND status IN ('failed', 'unknown'))::int AS edits_failed,
+                    count(*) FILTER (WHERE action = 'delete' AND status = 'sent')::int AS deletes_sent,
+                    count(*) FILTER (WHERE action = 'delete' AND status IN ('failed', 'unknown'))::int AS deletes_failed
+               FROM outbound_jobs
+              WHERE action IN ('send', 'edit', 'delete') AND created_at > now() - interval '30 days'
+              GROUP BY 1, 2, 3, 4
+              ORDER BY min(created_at) DESC
+              LIMIT $1)
+           SELECT d.platform, d.account_id, d.chat_id, d.source_message_id, d.created_at, d.kind,
+                  d.targets, d.sent, d.failed, d.unknown, d.pending, d.cancelled, d.skipped,
+                  d.edits_sent, d.edits_failed, d.deletes_sent, d.deletes_failed,
+                  -- The customer's latest wording (from the control group), else the first copy's text.
+                  COALESCE(mv.text, d.text) AS text,
+                  sm.version, sm.deleted_at IS NOT NULL AS deleted, ch.title AS source_title
+             FROM d
+             LEFT JOIN source_messages sm ON sm.platform = d.platform AND sm.account_id::text = d.account_id
+                                         AND sm.chat_id = d.chat_id AND sm.message_id = d.source_message_id
+             LEFT JOIN chats ch ON ch.platform = d.platform AND ch.account_id::text = d.account_id AND ch.chat_id = d.chat_id
+             LEFT JOIN LATERAL (SELECT text FROM message_versions v
+                                 WHERE v.platform = d.platform AND v.account_id::text = d.account_id AND v.chat_id = d.chat_id
+                                   AND v.message_id = d.source_message_id AND v.text IS NOT NULL
+                                 ORDER BY v.version DESC LIMIT 1) mv ON true
+            ORDER BY d.created_at DESC`,
+          [limit]);
+        return r.rows.map((x) => ({
+          source: { platform: x.platform, accountId: x.account_id, chatId: x.chat_id, title: x.source_title },
+          messageId: x.source_message_id,
+          createdAt: x.created_at,
+          preview: (x.text ?? '').slice(0, 280),
+          kind: x.kind,
+          version: x.version ?? 1,
+          deleted: !!x.deleted,
+          copies: { total: x.targets, sent: x.sent, failed: x.failed, unknown: x.unknown, pending: x.pending, cancelled: x.cancelled, skipped: x.skipped },
+          edits: { sent: x.edits_sent, failed: x.edits_failed },
+          deletes: { sent: x.deletes_sent, failed: x.deletes_failed },
+        }));
+      });
+    });
+
+    // One distribution: every copy, its latest edit and its delete.
+    api.on('GET', '/v1/distributions/:plat/:acct/:chat/:msg', true, async ({ auth, params }) => {
+      const { plat, acct, chat, msg } = params as Record<string, string>;
+      if (plat !== 'wa' && plat !== 'tg') throw new HttpError(404, 'not_found', 'not found');
+      if (!UUID.test(acct ?? '')) throw new HttpError(404, 'not_found', 'not found');
+      return api.tenantTx(auth!, async (c) => {
+        const copies = await c.query<CopyRow>(
+          `SELECT s.id::text, s.target_platform, s.target_chat_id, COALESCE(s.target_title, ch.title) AS title, s.status, s.error_kind,
+                  s.last_error, s.sent_at, s.attempts, s.version,
+                  e.status AS edit_status, e.version AS edit_version, e.error_kind AS edit_error, e.id::text AS edit_job_id,
+                  d.status AS delete_status, d.error_kind AS delete_error, d.id::text AS delete_job_id
+             FROM outbound_jobs s
+             LEFT JOIN LATERAL (SELECT id, status, version, error_kind FROM outbound_jobs x
+                                 WHERE x.parent_job_id = s.id AND x.action = 'edit' ORDER BY version DESC, id DESC LIMIT 1) e ON true
+             LEFT JOIN LATERAL (SELECT id, status, error_kind FROM outbound_jobs x
+                                 WHERE x.parent_job_id = s.id AND x.action = 'delete' ORDER BY id DESC LIMIT 1) d ON true
+             LEFT JOIN chats ch ON ch.platform = s.target_platform AND ch.account_id = s.target_account_id AND ch.chat_id = s.target_chat_id
+            WHERE s.action = 'send' AND s.source_message_id = $1
+              AND s.source->>'platform' = $2 AND s.source->>'accountId' = $3 AND s.source->>'chatId' = $4
+            ORDER BY s.id`,
+          [msg, plat, acct, chat]);
+        if (!copies.rowCount) throw new HttpError(404, 'not_found', 'distribution not found');
+        const versions = await c.query<{ version: number; text: string | null; created_at: Date }>(
+          `SELECT version, text, created_at FROM message_versions
+            WHERE platform = $1 AND account_id = $2 AND chat_id = $3 AND message_id = $4 ORDER BY version`,
+          [plat, acct, chat, msg]);
+        return {
+          versions: versions.rows.map((v) => ({ version: v.version, text: v.text, at: v.created_at })),
+          copies: copies.rows.map((r) => ({
+            jobId: r.id,
+            target: { platform: r.target_platform, chatId: r.target_chat_id, title: r.title },
+            status: r.status,
+            error: r.error_kind,
+            detail: r.last_error,
+            sentAt: r.sent_at,
+            attempts: r.attempts,
+            version: r.version,
+            edit: r.edit_status ? { jobId: r.edit_job_id, status: r.edit_status, version: r.edit_version, error: r.edit_error } : null,
+            delete: r.delete_status ? { jobId: r.delete_job_id, status: r.delete_status, error: r.delete_error } : null,
+          })),
+        };
+      });
+    });
+
+    // Manual retry of one failed (or unknown, after confirmation) send, edit or delete.
+    api.on('POST', '/v1/jobs/:id/retry', true, async ({ auth, params, body }) => {
+      api.requireRole(auth!, 'owner', 'admin', 'editor');
+      const job = await api.tenantTx(auth!, (c) =>
+        c.query<{ status: string; action: string }>('SELECT status, action FROM outbound_jobs WHERE id = $1', [params.id]));
+      const row = job.rows[0];
+      if (!row) throw new HttpError(404, 'not_found', 'job not found');
+      if (row.action === 'report') throw new HttpError(400, 'not_retryable', 'דיווחים אינם נשלחים מחדש');
+      if (row.status === 'unknown' && row.action === 'send' && body.confirmNotDelivered !== true) {
+        throw new HttpError(409, 'confirm_required', 'לא ידוע אם ההודעה הגיעה לקבוצה. בדקו בקבוצה, ושלחו שוב רק אם היא לא שם (confirmNotDelivered: true).');
+      }
+      if (!['failed', 'unknown'].includes(row.status)) throw new HttpError(409, 'not_retryable', 'אפשר לנסות שוב רק פעולה שנכשלה או שממתינה לאימות');
+      if (!(await api.o.queue.requeue(auth!.tenantId, params.id!))) throw new HttpError(409, 'not_retryable', 'המצב השתנה בינתיים; רעננו את הדף');
+      return { requeued: true };
+    });
+
+    // The basic dashboard (Hebrew, RTL). The page is static; it talks to the API with the user's token.
+    api.on('GET', '/app', false, async ({ res }) => {
+      const nonce = randomBytes(16).toString('base64');
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        'referrer-policy': 'no-referrer',
+      });
+      res.end(dashboardHtml(nonce));
+      return undefined;
+    });
+  };
+}

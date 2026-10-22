@@ -5,14 +5,15 @@
  *  - appPool    as newsflow_app    — API requests, always inside withTenant()
  *  - workerPool as newsflow_worker — delivery workers (cross-tenant by design)
  */
-import type { ChatRef, SendResult } from '../core/types.js';
+import type { ChatRef, MessageContent, SendResult } from '../core/types.js';
 import { MasterKey, TenantCipher } from '../crypto/keyring.js';
 import type { KillScope, KillSwitch, KillSwitchStore, KillTarget } from '../delivery/killSwitch.js';
-import type { JobQueue, StoredJob } from '../delivery/queue.js';
+import { addToSummary, emptySummary, type ActionSummary, type JobQueue, type JobStatus, type StoredJob } from '../delivery/queue.js';
 import type { SafetyEvent } from '../delivery/safety.js';
 import type { RouteSource } from '../engine/pipeline.js';
+import type { SourceMessageStore, SourceState } from '../engine/sync.js';
 import type { DedupStore } from '../routing/dedup.js';
-import type { PlannedJob, Route, RouteTarget, Template } from '../routing/types.js';
+import { ACTION_PRIORITY, type JobAction, type PlannedJob, type Route, type RouteTarget, type Template } from '../routing/types.js';
 import type { AuthStore } from '../wa/authStore.js';
 import { deserialize, serialize } from '../wa/authStore.js';
 import type { PgConnection, PgPool, Sql } from './pg.js';
@@ -196,6 +197,9 @@ interface JobRow {
   sent_message_id: string | null;
   created_at: Date;
   sent_at: Date | null;
+  action: JobAction;
+  version: number;
+  parent_job_id: number | string | null;
 }
 
 function toJob(r: JobRow): StoredJob {
@@ -211,6 +215,9 @@ function toJob(r: JobRow): StoredJob {
     notBefore: r.not_before,
     requiresApproval: r.status === 'pending_approval',
     idempotencyKey: r.idempotency_key,
+    action: r.action,
+    version: r.version,
+    ...(r.parent_job_id !== null && r.parent_job_id !== undefined ? { parentJobId: String(r.parent_job_id) } : {}),
     status: r.status,
     attempts: r.attempts,
     ...(r.error_kind ? { errorKind: r.error_kind } : {}),
@@ -238,18 +245,21 @@ export class PgJobQueue implements JobQueue {
   /** One multi-row INSERT per batch of up to 500 jobs (a news item fans out to many targets at once). */
   async enqueue(jobs: PlannedJob[]) {
     let inserted = 0;
-    const COLS = 12;
+    const COLS = 16;
     for (let i = 0; i < jobs.length; i += 500) {
       const batch = jobs.slice(i, i + 500);
       const params: unknown[] = [];
       const rows = batch.map((j, k) => {
+        const action = j.action ?? 'send';
         params.push(j.tenantId, j.routeId || null, j.idempotencyKey, j.source, j.sourceMessageId, j.target.platform, j.target.accountId,
-          j.target.chatId, j.target.title ?? null, storableContent(j.content), j.requiresApproval ? 'pending_approval' : 'queued', j.notBefore);
+          j.target.chatId, j.target.title ?? null, storableContent(j.content), j.requiresApproval ? 'pending_approval' : 'queued', j.notBefore,
+          action, ACTION_PRIORITY[action], j.parentJobId ?? null, j.version ?? 1);
         return `(${Array.from({ length: COLS }, (_, c) => `$${k * COLS + c + 1}`).join(', ')})`;
       });
       const r = await this.sql.query(
         `INSERT INTO outbound_jobs (tenant_id, route_id, idempotency_key, source, source_message_id,
-           target_platform, target_account_id, target_chat_id, target_title, content, status, not_before)
+           target_platform, target_account_id, target_chat_id, target_title, content, status, not_before,
+           action, priority, parent_job_id, version)
          VALUES ${rows.join(', ')}
          ON CONFLICT (idempotency_key) DO NOTHING`,
         params,
@@ -270,13 +280,14 @@ export class PgJobQueue implements JobQueue {
           SELECT id FROM outbound_jobs
            WHERE status = 'queued' AND not_before <= now()
              AND ($4::uuid[] IS NULL OR target_account_id = ANY($4::uuid[]))
-           ORDER BY not_before, id
+           ORDER BY priority, not_before, id
            LIMIT $3
            FOR UPDATE SKIP LOCKED)
         RETURNING j.*`,
       [workerId, String(lockMs), limit, accounts ? `{${accounts.join(',')}}` : null],
     );
-    return r.rows.map(toJob).sort((a, b) => a.notBefore.getTime() - b.notBefore.getTime() || Number(a.id) - Number(b.id));
+    return r.rows.map(toJob).sort((a, b) =>
+      ACTION_PRIORITY[a.action] - ACTION_PRIORITY[b.action] || a.notBefore.getTime() - b.notBefore.getTime() || Number(a.id) - Number(b.id));
   }
 
   async complete(id: string, res: SendResult) {
@@ -341,7 +352,7 @@ export class PgJobQueue implements JobQueue {
   }
   async sentCountSince(accountId: string, since: Date) {
     const r = await this.sql.query<{ n: number }>(
-      `SELECT count(*)::int AS n FROM outbound_jobs WHERE target_account_id = $1 AND status = 'sent' AND sent_at >= $2`, [accountId, since]);
+      `SELECT count(*)::int AS n FROM outbound_jobs WHERE target_account_id = $1 AND status = 'sent' AND action = 'send' AND sent_at >= $2`, [accountId, since]);
     return r.rows[0]?.n ?? 0;
   }
   async reapStale() {
@@ -357,9 +368,135 @@ export class PgJobQueue implements JobQueue {
 
   async wasSentByUs(platform: string, chatId: string, messageId: string) {
     const r = await this.sql.query(
-      `SELECT 1 FROM outbound_jobs WHERE target_chat_id = $1 AND sent_message_id = $2 AND target_platform = $3 LIMIT 1`,
+      `SELECT 1 FROM outbound_jobs WHERE target_chat_id = $1 AND sent_message_id = $2 AND target_platform = $3
+          AND action IN ('send', 'report') LIMIT 1`,
       [chatId, messageId, platform]);
     return r.rowCount > 0;
+  }
+
+  // ---- PUSH Sync
+
+  async markUnknown(id: string, message: string) {
+    await this.sql.query(
+      `UPDATE outbound_jobs SET status = 'unknown', error_kind = 'unknown', last_error = $2, locked_by = NULL, locked_until = NULL,
+              updated_at = now() WHERE id = $1 AND status = 'sending'`,
+      [id, message.slice(0, 500)],
+    );
+  }
+
+  /** Matches one source message. The jsonb source is compared field by field (index on source_message_id). */
+  private static readonly SAME_SOURCE = `tenant_id = $1 AND source_message_id = $2 AND source->>'platform' = $3
+       AND source->>'accountId' = $4 AND source->>'chatId' = $5`;
+
+  async copiesOf(tenantId: string, source: ChatRef, messageId: string) {
+    const r = await this.sql.query<JobRow>(
+      `SELECT * FROM outbound_jobs WHERE ${PgJobQueue.SAME_SOURCE} AND action = 'send' ORDER BY id`,
+      [tenantId, messageId, source.platform, source.accountId, source.chatId]);
+    return r.rows.map(toJob);
+  }
+
+  async replaceUnsentContent(id: string, content: MessageContent, version: number) {
+    const r = await this.sql.query(
+      `UPDATE outbound_jobs SET content = $2, version = $3, updated_at = now()
+        WHERE id = $1 AND status IN ('queued', 'pending_approval', 'failed') AND version <= $3`,
+      [id, storableContent(content), version]);
+    return r.rowCount > 0;
+  }
+
+  async cancelUnsent(tenantId: string, source: ChatRef, messageId: string, actions: JobAction[], reason: string) {
+    const r = await this.sql.query(
+      `UPDATE outbound_jobs SET status = 'cancelled', error_kind = $7, last_error = $7, locked_by = NULL, locked_until = NULL, updated_at = now()
+        WHERE ${PgJobQueue.SAME_SOURCE} AND action = ANY($6::text[]) AND status IN ('queued', 'pending_approval', 'failed')`,
+      [tenantId, messageId, source.platform, source.accountId, source.chatId, `{${actions.join(',')}}`, reason]);
+    return r.rowCount;
+  }
+
+  async cancelOlderEdits(parentJobId: string, version: number) {
+    const r = await this.sql.query(
+      `UPDATE outbound_jobs SET status = 'cancelled', error_kind = 'superseded', last_error = 'superseded', updated_at = now()
+        WHERE parent_job_id = $1 AND action = 'edit' AND status = 'queued' AND version < $2`,
+      [parentJobId, version]);
+    return r.rowCount;
+  }
+
+  async summary(tenantId: string, source: ChatRef, messageId: string, action: JobAction, version?: number): Promise<ActionSummary> {
+    const r = await this.sql.query<{ status: JobStatus; error_kind: string | null; n: number; titles: string[] | null }>(
+      `SELECT status, error_kind, count(*)::int AS n,
+              (array_agg(COALESCE(target_title, target_chat_id) ORDER BY id) FILTER (WHERE status = 'failed'))[1:10] AS titles
+         FROM outbound_jobs
+        WHERE ${PgJobQueue.SAME_SOURCE} AND action = $6 AND ($7::int IS NULL OR version = $7)
+        GROUP BY status, error_kind`,
+      [tenantId, messageId, source.platform, source.accountId, source.chatId, action, version ?? null]);
+    const s = emptySummary();
+    for (const row of r.rows) {
+      addToSummary(s, row.status, row.error_kind ?? undefined, undefined, row.n);
+      if (row.status === 'failed') for (const t of row.titles ?? []) if (s.failedTargets.length < 10) s.failedTargets.push(t);
+    }
+    return s;
+  }
+
+  /** Customer's manual retry; tenant-scoped through the API pool when available. */
+  async requeue(tenantId: string, id: string) {
+    const run = async (c: Sql) => {
+      const r = await c.query(
+        // A manual retry is a new decision by the customer: its age starts now (otherwise it would be skipped as stale).
+        `UPDATE outbound_jobs SET status = 'queued', attempts = 0, not_before = now(), created_at = now(), error_kind = NULL, last_error = NULL, updated_at = now()
+          WHERE id = $1 AND tenant_id = $2 AND status IN ('failed', 'unknown')`, [id, tenantId]);
+      if (r.rowCount) await c.query(`INSERT INTO audit_log (tenant_id, actor, action, target) VALUES ($1, 'customer', 'job.requeued', $2)`, [tenantId, id]);
+      return r.rowCount > 0;
+    };
+    return this.appPool ? this.tenantScoped(tenantId, run) : run(this.sql);
+  }
+}
+
+// ---------------------------------------------------------------- source messages (PUSH Sync)
+
+export class PgSourceMessageStore implements SourceMessageStore {
+  constructor(private readonly sql: Sql) {}
+
+  async record(tenantId: string, source: ChatRef, messageId: string, text?: string) {
+    const r = await this.sql.query(
+      `INSERT INTO source_messages (tenant_id, platform, account_id, chat_id, message_id) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT DO NOTHING`,
+      [tenantId, source.platform, source.accountId, source.chatId, messageId]);
+    if (r.rowCount) {
+      await this.sql.query(
+        `INSERT INTO message_versions (tenant_id, platform, account_id, chat_id, message_id, version, text) VALUES ($1, $2, $3, $4, $5, 1, $6)
+         ON CONFLICT DO NOTHING`,
+        [tenantId, source.platform, source.accountId, source.chatId, messageId, text ?? null]);
+    }
+  }
+
+  async bump(tenantId: string, source: ChatRef, messageId: string, text?: string) {
+    const r = await this.sql.query<{ version: number }>(
+      `UPDATE source_messages SET version = version + 1, updated_at = now()
+        WHERE platform = $2 AND account_id = $3 AND chat_id = $4 AND message_id = $5 AND tenant_id = $1 AND deleted_at IS NULL
+        RETURNING version`,
+      [tenantId, source.platform, source.accountId, source.chatId, messageId]);
+    const v = r.rows[0]?.version;
+    if (v !== undefined) {
+      await this.sql.query(
+        `INSERT INTO message_versions (tenant_id, platform, account_id, chat_id, message_id, version, text) VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT DO NOTHING`,
+        [tenantId, source.platform, source.accountId, source.chatId, messageId, v, text ?? null]);
+    }
+    return v;
+  }
+
+  async markDeleted(tenantId: string, source: ChatRef, messageId: string) {
+    const r = await this.sql.query(
+      `UPDATE source_messages SET deleted_at = now(), updated_at = now()
+        WHERE platform = $2 AND account_id = $3 AND chat_id = $4 AND message_id = $5 AND tenant_id = $1 AND deleted_at IS NULL`,
+      [tenantId, source.platform, source.accountId, source.chatId, messageId]);
+    return r.rowCount > 0;
+  }
+
+  async state(source: ChatRef, messageId: string): Promise<SourceState | undefined> {
+    const r = await this.sql.query<{ version: number; deleted: boolean }>(
+      `SELECT version, deleted_at IS NOT NULL AS deleted FROM source_messages
+        WHERE platform = $1 AND account_id = $2 AND chat_id = $3 AND message_id = $4`,
+      [source.platform, source.accountId, source.chatId, messageId]);
+    return r.rows[0];
   }
 }
 
@@ -421,6 +558,7 @@ export class PgKillSwitchStore implements KillSwitchStore {
 interface RouteRow {
   id: string; tenant_id: string; name: string; enabled: boolean; filters: Route['filters'];
   template_id: string | null; require_approval: boolean; delay_seconds: number; quiet_hours: Route['quietHours'] | null;
+  control: Route['control'] | null;
 }
 
 export class PgRouteSource implements RouteSource {
@@ -459,6 +597,7 @@ export class PgRouteSource implements RouteSource {
       requireApproval: r.require_approval,
       delaySeconds: r.delay_seconds,
       ...(r.quiet_hours ? { quietHours: r.quiet_hours } : {}),
+      ...(r.control ? { control: r.control } : {}),
     };
   }
 }
@@ -466,13 +605,13 @@ export class PgRouteSource implements RouteSource {
 /** Route writes, done by the API inside withTenant() so RLS checks ownership. */
 export async function saveRoute(c: Sql, tenantId: string, r: Omit<Route, 'id' | 'tenantId'> & { id?: string }): Promise<string> {
   const row = await c.query<{ id: string }>(
-    `INSERT INTO routes (id, tenant_id, name, enabled, filters, template_id, require_approval, delay_seconds, quiet_hours)
-     VALUES (COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8, $9)
+    `INSERT INTO routes (id, tenant_id, name, enabled, filters, template_id, require_approval, delay_seconds, quiet_hours, control)
+     VALUES (COALESCE($1::uuid, gen_random_uuid()), $2, $3, $4, $5, $6, $7, $8, $9, $10)
      ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name, enabled = EXCLUDED.enabled, filters = EXCLUDED.filters,
        template_id = EXCLUDED.template_id, require_approval = EXCLUDED.require_approval,
-       delay_seconds = EXCLUDED.delay_seconds, quiet_hours = EXCLUDED.quiet_hours, updated_at = now()
+       delay_seconds = EXCLUDED.delay_seconds, quiet_hours = EXCLUDED.quiet_hours, control = EXCLUDED.control, updated_at = now()
      RETURNING id`,
-    [r.id ?? null, tenantId, r.name, r.enabled, r.filters, r.templateId ?? null, r.requireApproval, r.delaySeconds ?? 0, r.quietHours ?? null],
+    [r.id ?? null, tenantId, r.name, r.enabled, r.filters, r.templateId ?? null, r.requireApproval, r.delaySeconds ?? 0, r.quietHours ?? null, r.control ?? null],
   );
   const id = row.rows[0]!.id;
   await c.query('DELETE FROM route_sources WHERE route_id = $1', [id]);

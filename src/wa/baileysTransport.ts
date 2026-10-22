@@ -1,13 +1,14 @@
 /**
  * Real WhatsApp linked-device client, built on Baileys (unofficial).
  *
- * STATUS: written against the Baileys public API but NOT yet compiled or run
- * against the real library — the npm registry was unreachable when this was
- * written. It loads Baileys with a dynamic import, so the rest of the project
- * builds and tests without it. Before first use:
- *   1. npm install baileys  (pin an exact version; verify the package name and
+ * STATUS: written against the Baileys public API. The edit / revoke handling
+ * was checked against the source of baileys 7.0.0-rc14 (October 2026), but
+ * nothing here has run against a real number yet. It loads Baileys with a
+ * dynamic import, so the rest of the project builds and tests without it.
+ * Before first use:
+ *   1. npm install baileys@7.0.0-rc14 --save-exact (verify the package name and
  *      integrity — a malicious Baileys fork once stole credentials)
- *   2. run test/baileys.smoke.ts manually with a TEST number, with the owner's
+ *   2. run the feasibility script manually with a TEST number, with the owner's
  *      approval and ALLOW_REAL_WHATSAPP=1.
  *
  * Using this client is against WhatsApp's terms. It identifies itself
@@ -19,7 +20,7 @@ import type { Logger } from '../logger.js';
 import { silentLogger } from '../logger.js';
 import type { AuthStore } from './authStore.js';
 import { BufferJSON } from './authStore.js';
-import type { DisconnectReason, RawInbound, StartOptions, TransportEvents, TransportFactory, WaTransport } from './transport.js';
+import type { DisconnectReason, RawEdit, RawInbound, RawRevoke, StartOptions, TransportEvents, TransportFactory, WaTransport } from './transport.js';
 import { normalizePhone } from './transport.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -66,6 +67,65 @@ export function extractContent(message: any): { content: MessageContent; isForwa
   if (m.documentMessage) return pick('document', m.documentMessage);
   if (m.stickerMessage) return pick('sticker', m.stickerMessage);
   return null; // reactions, protocol messages, polls etc. are ignored in phase 1
+}
+
+/** WAMessageStubType.REVOKE in Baileys. */
+const STUB_REVOKE = 1;
+
+/**
+ * Reads one entry of Baileys' 'messages.update' event (checked against
+ * Baileys 7.0.0-rc14, Utils/process-message.js):
+ *  - an edit arrives as update.message.editedMessage.message
+ *  - a "delete for everyone" arrives as update.message === null with
+ *    messageStubType REVOKE; update.key is the deleter's protocol message
+ * "Delete for me" is an app-state change ('messages.delete'), never this event.
+ * Everything else in 'messages.update' (receipts, reactions, polls) returns null.
+ */
+export function parseMessageUpdate(u: any, now = Date.now()): { edit?: RawEdit; revoke?: RawRevoke } | null {
+  const key = u?.key;
+  const jid: string | undefined = key?.remoteJid;
+  if (!jid || jid === 'status@broadcast' || !key.id) return null;
+  const update = u.update ?? {};
+  const edited = update.message?.editedMessage?.message;
+  if (edited) {
+    const parsed = extractContent(edited);
+    if (!parsed) return null;
+    const ts = Number(update.messageTimestamp ?? 0);
+    return {
+      edit: {
+        chatId: jid,
+        messageId: key.id,
+        senderId: key.participant ?? jid,
+        fromSelf: !!key.fromMe,
+        timestamp: new Date(ts ? ts * 1000 : now),
+        content: parsed.content,
+      },
+    };
+  }
+  if ('message' in update && update.message === null && update.messageStubType === STUB_REVOKE) {
+    return {
+      revoke: {
+        chatId: jid,
+        messageId: key.id,
+        senderId: update.key?.participant ?? key.participant ?? jid,
+        timestamp: new Date(now),
+      },
+    };
+  }
+  return null;
+}
+
+/** Maps a Baileys send/edit/delete error onto our error kinds. */
+export function mapSendError(err: any): SendError {
+  const status = err?.output?.statusCode ?? err?.data?.statusCode;
+  const msg = String(err?.message ?? err);
+  if (/rate-overlimit/i.test(msg) || status === 429) return new SendError('rate_limited', msg);
+  if (status === 403 || /not-authorized|forbidden/i.test(msg)) return new SendError('forbidden', msg);
+  if (status === 404 || /item-not-found/i.test(msg)) return new SendError('not_found', msg);
+  if (status === 401) return new SendError('account_blocked', msg);
+  // No answer in time: WhatsApp may have taken the message. Not resent automatically.
+  if (status === 408 || /timed out/i.test(msg)) return new SendError('unknown', msg);
+  return new SendError('transient', msg);
 }
 
 /** Builds the Baileys sendMessage payload for our content. */
@@ -220,6 +280,14 @@ export class BaileysTransport implements WaTransport {
       }
     });
 
+    sock.ev.on('messages.update', (updates: any[]) => {
+      for (const u of updates ?? []) {
+        const parsed = parseMessageUpdate(u);
+        if (parsed?.edit) this.emit('message_edited', parsed.edit);
+        if (parsed?.revoke) this.emit('message_revoked', parsed.revoke);
+      }
+    });
+
     const changed = () => this.emit('chats_changed');
     sock.ev.on('groups.update', changed);
     sock.ev.on('group-participants.update', changed);
@@ -276,13 +344,33 @@ export class BaileysTransport implements WaTransport {
       const res = await this.sock.sendMessage(chatId, payload);
       return { messageId: res?.key?.id ?? '', sentAt: new Date() };
     } catch (err: any) {
-      const status = err?.output?.statusCode ?? err?.data?.statusCode;
-      const msg = String(err?.message ?? err);
-      if (/rate-overlimit/i.test(msg) || status === 429) throw new SendError('rate_limited', msg);
-      if (status === 403 || /not-authorized|forbidden/i.test(msg)) throw new SendError('forbidden', msg);
-      if (status === 404 || /item-not-found/i.test(msg)) throw new SendError('not_found', msg);
-      if (status === 401) throw new SendError('account_blocked', msg);
-      throw new SendError('transient', msg);
+      throw mapSendError(err);
+    }
+  }
+
+  /**
+   * Edits a message this number sent. Baileys wraps { text, edit: key } into a
+   * MESSAGE_EDIT protocol message. WhatsApp accepts edits for 15 minutes.
+   * Editing a photo/video caption this way is NOT yet verified on a real number.
+   */
+  async edit(chatId: string, messageId: string, content: MessageContent): Promise<void> {
+    if (!this.connected || !this.sock) throw new SendError('disconnected', 'not connected');
+    const text = content.text ?? '';
+    if (!text.trim()) throw new SendError('invalid', 'empty text');
+    try {
+      await this.sock.sendMessage(chatId, { text, edit: { remoteJid: chatId, fromMe: true, id: messageId } });
+    } catch (err: any) {
+      throw mapSendError(err);
+    }
+  }
+
+  /** "Delete for everyone" of a message this number sent (Baileys REVOKE). */
+  async remove(chatId: string, messageId: string): Promise<void> {
+    if (!this.connected || !this.sock) throw new SendError('disconnected', 'not connected');
+    try {
+      await this.sock.sendMessage(chatId, { delete: { remoteJid: chatId, fromMe: true, id: messageId } });
+    } catch (err: any) {
+      throw mapSendError(err);
     }
   }
 }

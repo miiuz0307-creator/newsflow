@@ -9,9 +9,53 @@ import { chatKey } from '../core/types.js';
 import type { DedupStore } from './dedup.js';
 import { renderTemplate } from './template.js';
 import { codePointLength, contentFingerprint, normalizeForMatch, removeInviteLinks } from './text.js';
-import type { PlannedJob, QuietHours, Route, RouteFilters, RouteTarget, RoutingPlan, SkipReason, Template } from './types.js';
+import type { ControlSettings, PlannedJob, QuietHours, Route, RouteFilters, RouteTarget, RoutingPlan, SkipReason, Template } from './types.js';
 
 const SUPPORTED_DEFAULT = new Set(['text', 'image', 'video', 'audio', 'document']);
+
+/** Every status message PUSH posts into a control group starts with an emoji and this tag. */
+export const REPORT_TAG = 'PUSH ·';
+
+/** True for a status message PUSH itself posted (so it is never distributed). */
+export function isOwnReport(msg: InboundMessage): boolean {
+  if (!msg.fromSelf || msg.content.kind !== 'text') return false;
+  const head = (msg.content.text ?? '').slice(0, 16);
+  return head.includes(REPORT_TAG);
+}
+
+/** The phone number or user id in a sender id ("972501234567:3@s.whatsapp.net" → "972501234567"). */
+export function senderDigits(senderId: string): string {
+  return senderId.split('@')[0]!.split(':')[0]!.replace(/^\+/, '');
+}
+
+/** Whether a control group's sender list lets this sender distribute. */
+export function senderAllowed(route: Pick<Route, 'control'>, msg: Pick<InboundMessage, 'senderId' | 'fromSelf'>): boolean {
+  const list = route.control?.allowedSenders?.map((s) => s.replace(/[\s+\-()]/g, '')).filter(Boolean);
+  if (!list?.length) return true;
+  if (msg.fromSelf) return true; // the linked number itself is always the customer's
+  return list.includes(senderDigits(msg.senderId));
+}
+
+/** The text and media one target receives: cleanup, then the route's template. Used for sends and for edits. */
+export function renderCopy(
+  route: Pick<Route, 'filters'>,
+  template: Template | undefined,
+  source: { kind: MessageContent['kind']; text?: string; media?: MessageContent['media'] },
+  target: RouteTarget,
+  now: Date,
+): MessageContent | null {
+  let body = source.text ?? '';
+  if (route.filters.removeInviteLinks ?? true) body = removeInviteLinks(body);
+  if (source.kind === 'text' && !body.trim()) return null;
+  const rendered = renderTemplate(template, {
+    content: body,
+    groupName: target.title,
+    now,
+    platform: target.platform,
+    isCaption: source.kind !== 'text',
+  });
+  return { kind: source.kind, text: rendered.text, ...(source.media ? { media: source.media } : {}) };
+}
 
 export interface RouterOptions {
   dedup: DedupStore;
@@ -94,6 +138,14 @@ export class Router {
         plan.skipped.push({ routeId: route.id, reason: 'route_disabled' });
         continue;
       }
+      if (route.control && isOwnReport(msg)) {
+        plan.skipped.push({ routeId: route.id, reason: 'own_report' });
+        continue;
+      }
+      if (!senderAllowed(route, msg)) {
+        plan.skipped.push({ routeId: route.id, reason: 'sender_not_allowed' });
+        continue;
+      }
       const reason = checkFilters(route.filters, msg);
       if (reason) {
         plan.skipped.push({ routeId: route.id, reason });
@@ -123,14 +175,7 @@ export class Router {
           plan.skipped.push({ routeId: route.id, reason: 'duplicate', target: tKey });
           continue;
         }
-        const rendered = renderTemplate(template, {
-          content: body,
-          groupName: target.title,
-          now,
-          platform: target.platform,
-          isCaption: msg.content.kind !== 'text',
-        });
-        const content: MessageContent = { kind: msg.content.kind, text: rendered.text, ...(msg.content.media ? { media: msg.content.media } : {}) };
+        const content = renderCopy(route, template, msg.content, target, now)!;
         plan.jobs.push({
           tenantId: route.tenantId,
           routeId: route.id,
@@ -141,6 +186,8 @@ export class Router {
           notBefore,
           requiresApproval: route.requireApproval,
           idempotencyKey: `${srcKey}|${msg.messageId}|${route.id}|${tKey}`,
+          action: 'send',
+          version: 1,
         });
       }
     }
@@ -164,6 +211,30 @@ export class Router {
     for (const k of keys) if (await d.claim(tenantId, k, this.dedupWindowMs)) got.add(k);
     return got;
   }
+}
+
+/**
+ * Cleans control-group settings from an API request. Returns undefined for
+ * "not a control group", or throws a message for invalid input.
+ */
+export function parseControlSettings(input: unknown): ControlSettings | undefined {
+  if (input === undefined || input === null || input === false) return undefined;
+  if (typeof input !== 'object' || Array.isArray(input)) throw new Error('הגדרות קבוצת השליטה אינן תקינות');
+  const i = input as Record<string, unknown>;
+  const modes = ['all', 'failures', 'summary', 'off'];
+  if (i.reportMode !== undefined && !modes.includes(String(i.reportMode))) throw new Error('סוג הדיווח חייב להיות all, failures, summary או off');
+  let allowed: string[] | undefined;
+  if (i.allowedSenders !== undefined) {
+    if (!Array.isArray(i.allowedSenders) || i.allowedSenders.length > 50) throw new Error('רשימת השולחים המורשים אינה תקינה (עד 50)');
+    allowed = i.allowedSenders.map((x) => String(x).replace(/[\s+\-()]/g, ''));
+    if (allowed.some((x) => !/^\d{5,15}$/.test(x))) throw new Error('שולח מורשה הוא מספר טלפון עם קידומת מדינה, או מזהה משתמש בטלגרם');
+  }
+  return {
+    syncEdits: i.syncEdits !== false,
+    syncDeletes: i.syncDeletes !== false,
+    reportMode: (i.reportMode as 'all' | 'failures' | 'summary' | 'off' | undefined) ?? 'summary',
+    ...(allowed?.length ? { allowedSenders: allowed } : {}),
+  };
 }
 
 export interface RouteProblem {

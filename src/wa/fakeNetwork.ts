@@ -20,6 +20,24 @@ interface FakePhone {
   banned: boolean;
   rateLimit?: { max: number; windowMs: number };
   sendTimes: number[];
+  /** The next send is delivered but the sender gets no answer (outcome unknown). */
+  loseNextAck?: boolean;
+}
+
+/** WhatsApp's limits for changing a sent message. */
+export const WA_EDIT_WINDOW_MS = 15 * 60_000;
+export const WA_DELETE_WINDOW_MS = 60 * 60 * 60_000;
+
+export interface FakeLogEntry {
+  id: string;
+  from: string;
+  content: MessageContent;
+  at: Date;
+  editedAt?: Date;
+  /** Deleted for everyone ("This message was deleted"). */
+  deleted?: boolean;
+  /** Phones that deleted it only for themselves. */
+  hiddenFor?: Set<string>;
 }
 
 interface FakeGroup {
@@ -28,7 +46,7 @@ interface FakeGroup {
   members: Set<string>;
   admins: Set<string>;
   adminsOnly: boolean;
-  log: { id: string; from: string; content: MessageContent; at: Date }[];
+  log: FakeLogEntry[];
 }
 
 interface FakeCreds {
@@ -57,6 +75,8 @@ export class FakeWaNetwork {
   private readonly pendingQr = new Map<string, FakeTransport>();
   private readonly pendingPair = new Map<string, { t: FakeTransport; phone: string }>();
   readonly timings: FakeTimings;
+  /** The network's clock (tests move it forward to pass edit / delete windows). */
+  clock: () => number = Date.now;
 
   constructor(timings: Partial<FakeTimings> = {}) {
     this.timings = { ...DEFAULT_TIMINGS, ...timings };
@@ -110,7 +130,28 @@ export class FakeWaNetwork {
     return this.deliver(g, phone, content);
   }
 
+  /** A human edits their own message (allowed for 15 minutes); members' devices see the edit. */
+  humanEdit(phone: string, jid: string, messageId: string, content: MessageContent): void {
+    this.editFrom(phone, jid, messageId, content);
+  }
+
+  /** "Delete for everyone" by the author or a group admin; members' devices are told. */
+  humanDeleteForEveryone(phone: string, jid: string, messageId: string): void {
+    this.removeFrom(phone, jid, messageId);
+  }
+
+  /** "Delete for me": only that person's phone hides it. Nobody else is told — like WhatsApp. */
+  humanDeleteForMe(phone: string, jid: string, messageId: string): void {
+    const e = this.mustEntry(this.mustGroup(jid), messageId);
+    (e.hiddenFor ??= new Set()).add(phone);
+  }
+
   // ---------- failure injection ----------
+
+  /** The next message this phone sends reaches the group, but the sender never gets the answer. */
+  loseNextAck(phone: string): void {
+    this.mustPhone(phone).loseNextAck = true;
+  }
 
   ban(phone: string): void {
     this.mustPhone(phone).banned = true;
@@ -202,12 +243,68 @@ export class FakeWaNetwork {
       p.sendTimes.push(now);
     }
     const id = this.deliver(g, phone, content);
-    return { messageId: id, sentAt: new Date() };
+    if (p.loseNextAck) {
+      p.loseNextAck = false;
+      throw new SendError('unknown', 'no answer from WhatsApp after sending');
+    }
+    return { messageId: id, sentAt: new Date(this.clock()) };
+  }
+
+  /** @internal */ editFrom(phone: string, jid: string, messageId: string, content: MessageContent): void {
+    const p = this.mustPhone(phone);
+    if (p.banned) throw new SendError('account_blocked', 'number is banned');
+    const g = this.groups.get(jid);
+    if (!g) throw new SendError('not_found', 'group not found');
+    const e = g.log.find((x) => x.id === messageId);
+    if (!e || e.deleted) throw new SendError('not_found', 'message not found');
+    if (e.from !== phone) throw new SendError('forbidden', 'only the author can edit');
+    if (this.clock() - e.at.getTime() > WA_EDIT_WINDOW_MS) throw new SendError('window_closed', 'edit window (15 minutes) has passed');
+    this.checkRate(p);
+    e.content = { ...e.content, text: content.text };
+    e.editedAt = new Date(this.clock());
+    for (const member of g.members) {
+      for (const t of this.live.get(member) ?? []) {
+        t.emitPublic('message_edited', { chatId: jid, messageId, senderId: `${phone}@s.whatsapp.net`, fromSelf: member === phone, timestamp: e.editedAt, content: e.content });
+      }
+    }
+  }
+
+  /** @internal */ removeFrom(phone: string, jid: string, messageId: string): void {
+    const p = this.mustPhone(phone);
+    if (p.banned) throw new SendError('account_blocked', 'number is banned');
+    const g = this.groups.get(jid);
+    if (!g) throw new SendError('not_found', 'group not found');
+    const e = g.log.find((x) => x.id === messageId);
+    if (!e) throw new SendError('not_found', 'message not found');
+    if (e.deleted) return; // deleting twice is harmless
+    if (e.from !== phone && !g.admins.has(phone)) throw new SendError('forbidden', 'only the author or an admin can delete for everyone');
+    if (this.clock() - e.at.getTime() > WA_DELETE_WINDOW_MS) throw new SendError('window_closed', 'delete-for-everyone window has passed');
+    this.checkRate(p);
+    e.deleted = true;
+    for (const member of g.members) {
+      for (const t of this.live.get(member) ?? []) {
+        t.emitPublic('message_revoked', { chatId: jid, messageId, senderId: `${phone}@s.whatsapp.net`, timestamp: new Date(this.clock()) });
+      }
+    }
+  }
+
+  private checkRate(p: FakePhone) {
+    if (!p.rateLimit) return;
+    const now = Date.now();
+    p.sendTimes = p.sendTimes.filter((t) => now - t < p.rateLimit!.windowMs);
+    if (p.sendTimes.length >= p.rateLimit.max) throw new SendError('rate_limited', 'rate-overlimit', p.rateLimit.windowMs);
+    p.sendTimes.push(now);
+  }
+
+  private mustEntry(g: FakeGroup, id: string): FakeLogEntry {
+    const e = g.log.find((x) => x.id === id);
+    if (!e) throw new Error(`no message ${id} in ${g.title}`);
+    return e;
   }
 
   private deliver(g: FakeGroup, from: string, content: MessageContent): string {
     const id = `FAKE${randomUUID().replace(/-/g, '').slice(0, 16).toUpperCase()}`;
-    const at = new Date();
+    const at = new Date(this.clock());
     g.log.push({ id, from, content, at });
     for (const member of g.members) {
       for (const t of this.live.get(member) ?? []) {
@@ -350,6 +447,17 @@ export class FakeTransport implements WaTransport {
     if (content.kind === 'text' && !content.text?.trim()) throw new SendError('invalid', 'empty text');
     if (content.kind !== 'text' && !content.media) throw new SendError('invalid', 'media missing');
     return this.net.sendFrom(this.phone, chatId, content);
+  }
+
+  async edit(chatId: string, messageId: string, content: MessageContent): Promise<void> {
+    if (!this.connected || !this.phone) throw new SendError('disconnected', 'not connected');
+    if (!content.text?.trim() && content.kind === 'text') throw new SendError('invalid', 'empty text');
+    this.net.editFrom(this.phone, chatId, messageId, content);
+  }
+
+  async remove(chatId: string, messageId: string): Promise<void> {
+    if (!this.connected || !this.phone) throw new SendError('disconnected', 'not connected');
+    this.net.removeFrom(this.phone, chatId, messageId);
   }
 
   /** @internal */ forceClose(reason: DisconnectReason) {

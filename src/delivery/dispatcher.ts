@@ -2,15 +2,22 @@
  * The delivery loop: takes ready jobs from the queue and sends them, one
  * account at a time, under kill switches, rate limits and retry rules.
  *
- * Order of checks for every job:
+ * Order of checks for every send:
  *   1. too old? → skipped as stale (news loses value; default 2 hours)
  *   2. any kill switch active (global / tenant / account / route)? → put back
  *   3. is the sending account on this worker? → put back for its owner
  *   4. rate limits → put back until the limiter's retry time
- *   5. send → done, retry, or fail depending on the error kind
+ *   5. send → done, retry, fail, or 'unknown' depending on the error kind
+ *
+ * Edit and delete jobs (PUSH Sync) take a separate path: they wait for the
+ * copy they change to be sent, are skipped when a newer edit or a delete
+ * replaced them, and fail without retrying once the platform's time window
+ * for that change has passed. Repeating an edit or delete is harmless, so an
+ * unknown outcome there is simply retried.
  */
 import type { ChannelSender, MessageContent } from '../core/types.js';
-import { SendError, chatKey } from '../core/types.js';
+import { CAPABILITIES, SendError, chatKey } from '../core/types.js';
+import type { SourceState } from '../engine/sync.js';
 import type { Logger } from '../logger.js';
 import { silentLogger } from '../logger.js';
 import type { KillSwitchStore } from './killSwitch.js';
@@ -40,8 +47,15 @@ export interface DispatcherOptions {
   /** When a kill switch blocks a job, look again after this long. */
   killedRecheckMs?: number;
   now?: () => number;
-  onResult?: (job: StoredJob, outcome: 'sent' | 'retry' | 'failed' | 'deferred' | 'skipped', detail?: string) => void;
+  /** Current version / deleted flag of a source message (PUSH Sync). */
+  sourceState?: (job: StoredJob) => Promise<SourceState | undefined>;
+  /** Spread retries by ±this fraction so many failures don't retry in the same second. Default 0.2. */
+  retryJitter?: number;
+  random?: () => number;
+  onResult?: (job: StoredJob, outcome: Outcome, detail?: string) => void;
 }
+
+export type Outcome = 'sent' | 'retry' | 'failed' | 'deferred' | 'skipped' | 'unknown';
 
 export interface TickStats {
   claimed: number;
@@ -50,13 +64,15 @@ export interface TickStats {
   failed: number;
   deferred: number;
   skipped: number;
+  unknown: number;
 }
 
 export class Dispatcher {
   private running = false;
   private loop?: Promise<void>;
   private readonly log: Logger;
-  private readonly o: Required<Omit<DispatcherOptions, 'media' | 'accountIds' | 'logger' | 'onResult'>> & Pick<DispatcherOptions, 'media' | 'accountIds' | 'onResult'>;
+  private readonly o: Required<Omit<DispatcherOptions, 'media' | 'accountIds' | 'logger' | 'onResult' | 'sourceState'>> &
+    Pick<DispatcherOptions, 'media' | 'accountIds' | 'onResult' | 'sourceState'>;
 
   constructor(opts: DispatcherOptions) {
     this.log = (opts.logger ?? silentLogger).child({ component: 'dispatcher', worker: opts.workerId });
@@ -67,7 +83,10 @@ export class Dispatcher {
       // so a job is never reclaimed by another worker while it is still being sent.
       lockMs: opts.lockMs ?? 5 * 60_000,
       maxAttempts: opts.maxAttempts ?? 4,
-      retryDelaysMs: opts.retryDelaysMs ?? [30_000, 120_000, 600_000],
+      // Spec: 30 seconds, 2 minutes, 5 minutes.
+      retryDelaysMs: opts.retryDelaysMs ?? [30_000, 120_000, 300_000],
+      retryJitter: opts.retryJitter ?? 0.2,
+      random: opts.random ?? Math.random,
       maxJobAgeMs: opts.maxJobAgeMs ?? 2 * 60 * 60_000,
       killedRecheckMs: opts.killedRecheckMs ?? 60_000,
       now: opts.now ?? Date.now,
@@ -76,7 +95,7 @@ export class Dispatcher {
 
   /** One pass over ready jobs. Exposed for tests and the simulator. */
   async tick(): Promise<TickStats> {
-    const stats: TickStats = { claimed: 0, sent: 0, retried: 0, failed: 0, deferred: 0, skipped: 0 };
+    const stats: TickStats = { claimed: 0, sent: 0, retried: 0, failed: 0, deferred: 0, skipped: 0, unknown: 0 };
     await this.o.queue.reapStale();
     const ids = this.o.accountIds?.();
     const jobs = await this.o.queue.claim(this.o.workerId, this.o.batchSize, this.o.lockMs, ids ? { accountIds: ids } : undefined);
@@ -93,17 +112,25 @@ export class Dispatcher {
       [...byAccount.values()].map(async (list) => {
         for (const job of list) {
           const outcome = await this.process(job);
-          stats[outcome === 'sent' ? 'sent' : outcome === 'retry' ? 'retried' : outcome] += 1;
+          stats[outcome === 'retry' ? 'retried' : outcome] += 1;
         }
       }),
     );
     return stats;
   }
 
-  private async process(job: StoredJob): Promise<'sent' | 'retry' | 'failed' | 'deferred' | 'skipped'> {
+  /** Delay before retry n (1-based), spread by jitter, never shorter than the platform asked. */
+  private retryDelay(attempt: number, retryAfterMs?: number): number {
+    const base = this.o.retryDelaysMs[Math.min(attempt - 1, this.o.retryDelaysMs.length - 1)] ?? 60_000;
+    const spread = base * this.o.retryJitter * (this.o.random() * 2 - 1);
+    return Math.max(Math.round(base + spread), retryAfterMs ?? 0);
+  }
+
+  private async process(job: StoredJob): Promise<Outcome> {
+    if (job.action === 'edit' || job.action === 'delete') return this.processChange(job);
     const now = this.o.now();
     const q = this.o.queue;
-    const report = (o: 'sent' | 'retry' | 'failed' | 'deferred' | 'skipped', d?: string) => {
+    const report = (o: Outcome, d?: string) => {
       this.o.onResult?.(job, o, d);
       return o;
     };
@@ -147,14 +174,18 @@ export class Dispatcher {
       await this.o.safety.onSendError(job.tenantId, job.target.accountId, targetKey, e.kind, e.retryAfterMs);
       this.log.warn('send failed', { jobId: job.id, kind: e.kind, attempt: job.attempts });
       switch (e.kind) {
+        case 'unknown':
+          // The copy may already be in the group. Sending again could duplicate it, so it waits
+          // for verification by the customer instead ("ממתין לאימות").
+          await q.markUnknown(job.id, e.message);
+          return report('unknown', e.message);
         case 'transient':
         case 'disconnected': {
           if (job.attempts >= this.o.maxAttempts) {
             await q.fail(job.id, e.kind, e.message);
             return report('failed', e.kind);
           }
-          const delay = this.o.retryDelaysMs[Math.min(job.attempts - 1, this.o.retryDelaysMs.length - 1)] ?? 60_000;
-          await q.retry(job.id, new Date(now + delay), e.kind, e.message);
+          await q.retry(job.id, new Date(now + this.retryDelay(job.attempts, e.retryAfterMs)), e.kind, e.message);
           return report('retry', e.kind);
         }
         case 'rate_limited':
@@ -163,6 +194,119 @@ export class Dispatcher {
           return report('deferred', 'rate_limited');
         default:
           // forbidden, not_found, invalid, account_blocked: retrying won't help.
+          await q.fail(job.id, e.kind, e.message);
+          return report('failed', e.kind);
+      }
+    }
+  }
+
+  /** Edit or delete of a copy that was (or is being) sent. */
+  private async processChange(job: StoredJob): Promise<Outcome> {
+    const now = this.o.now();
+    const q = this.o.queue;
+    const report = (o: Outcome, d?: string) => {
+      this.o.onResult?.(job, o, d);
+      return o;
+    };
+
+    const ks = await this.o.killSwitches.find({ tenantId: job.tenantId, accountId: job.target.accountId, routeId: job.routeId });
+    if (ks) {
+      await q.defer(job.id, new Date(now + this.o.killedRecheckMs));
+      return report('deferred', `kill switch ${ks.scope}`);
+    }
+
+    const parent = job.parentJobId ? await q.get(job.parentJobId) : undefined;
+    if (!parent) {
+      await q.skip(job.id, 'parent_missing');
+      return report('skipped', 'parent_missing');
+    }
+    if (parent.status === 'queued' || parent.status === 'sending' || parent.status === 'pending_approval') {
+      if (parent.status !== 'sending') {
+        // The copy went back to the queue (a retry) before it was sent: change it there instead.
+        if (job.action === 'delete') {
+          await q.cancelUnsent(job.tenantId, job.source, job.sourceMessageId, ['send', 'edit'], 'source_deleted');
+          await q.skip(job.id, 'cancelled_before_send');
+          return report('skipped', 'cancelled_before_send');
+        }
+        if (await q.replaceUnsentContent(parent.id, { ...parent.content, text: job.content.text }, job.version)) {
+          await q.skip(job.id, 'merged_into_send');
+          return report('skipped', 'merged_into_send');
+        }
+      }
+      await q.defer(job.id, new Date(now + 3_000));
+      return report('deferred', 'waiting for the copy to be sent');
+    }
+    if (parent.status !== 'sent' || !parent.sentMessageId) {
+      const why = parent.status === 'unknown' ? 'copy_unknown' : 'copy_not_sent';
+      await q.skip(job.id, why);
+      return report('skipped', why);
+    }
+
+    if (job.action === 'edit' && this.o.sourceState) {
+      const st = await this.o.sourceState(job);
+      if (st?.deleted) {
+        await q.skip(job.id, 'source_deleted');
+        return report('skipped', 'source_deleted');
+      }
+      if (st && st.version > job.version) {
+        await q.skip(job.id, 'superseded');
+        return report('skipped', 'superseded');
+      }
+    }
+
+    const caps = CAPABILITIES[job.target.platform];
+    const windowMs = job.action === 'edit' ? caps.editWindowMs : caps.deleteWindowMs;
+    const sentAt = parent.sentAt?.getTime() ?? now;
+    if (windowMs !== undefined && now - sentAt > windowMs) {
+      await q.fail(job.id, 'window_closed', `${job.action} window of ${Math.round(windowMs / 60_000)} minutes has passed`);
+      return report('failed', 'window_closed');
+    }
+
+    const sender = this.o.senderFor(job.target.platform, job.target.accountId);
+    if (!sender) {
+      await q.defer(job.id, new Date(now + 5_000));
+      return report('deferred', 'account not on this worker');
+    }
+    const op = job.action === 'edit' ? sender.edit : sender.remove;
+    if (!op) {
+      await q.fail(job.id, 'not_supported', `${job.target.platform} connector has no ${job.action}`);
+      return report('failed', 'not_supported');
+    }
+
+    const targetKey = chatKey(job.target);
+    const rsv = await this.o.limiter.reserve(job.target.platform, job.target.accountId, targetKey);
+    if (!rsv.ok) {
+      await q.defer(job.id, rsv.retryAt);
+      return report('deferred', rsv.reason);
+    }
+
+    try {
+      if (job.action === 'edit') await sender.edit!(job.target.chatId, parent.sentMessageId, job.content);
+      else await sender.remove!(job.target.chatId, parent.sentMessageId);
+      await q.complete(job.id, { messageId: parent.sentMessageId, sentAt: new Date(now) });
+      await this.o.safety.onSendSuccess(job.target.accountId, targetKey);
+      return report('sent');
+    } catch (err) {
+      const e = err instanceof SendError ? err : new SendError('transient', String((err as Error)?.message ?? err));
+      if (e.kind !== 'window_closed' && e.kind !== 'not_found') {
+        await this.o.safety.onSendError(job.tenantId, job.target.accountId, targetKey, e.kind, e.retryAfterMs);
+      }
+      this.log.warn(`${job.action} failed`, { jobId: job.id, kind: e.kind, attempt: job.attempts });
+      switch (e.kind) {
+        case 'transient':
+        case 'disconnected':
+        case 'unknown': {
+          if (job.attempts >= this.o.maxAttempts) {
+            await q.fail(job.id, e.kind, e.message);
+            return report('failed', e.kind);
+          }
+          await q.retry(job.id, new Date(now + this.retryDelay(job.attempts, e.retryAfterMs)), e.kind, e.message);
+          return report('retry', e.kind);
+        }
+        case 'rate_limited':
+          await q.defer(job.id, new Date(now + Math.max(e.retryAfterMs ?? 0, 60_000)));
+          return report('deferred', 'rate_limited');
+        default:
           await q.fail(job.id, e.kind, e.message);
           return report('failed', e.kind);
       }

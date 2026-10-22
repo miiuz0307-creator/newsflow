@@ -17,7 +17,7 @@ export interface ManageModuleOptions {
 
 interface RouteRow {
   id: string; name: string; enabled: boolean; filters: unknown; template_id: string | null;
-  require_approval: boolean; delay_seconds: number; quiet_hours: unknown; updated_at: Date;
+  require_approval: boolean; delay_seconds: number; quiet_hours: unknown; updated_at: Date; control: unknown;
 }
 
 export function manageModule(opts: ManageModuleOptions) {
@@ -115,7 +115,7 @@ export function manageModule(opts: ManageModuleOptions) {
          UNION ALL SELECT route_id, 't', platform, account_id, chat_id, title FROM route_targets WHERE route_id = ANY($1::uuid[])`, [`{${ids.join(',')}}`]);
       return rows.map((r) => ({
         id: r.id, name: r.name, enabled: r.enabled, filters: r.filters, templateId: r.template_id, requireApproval: r.require_approval,
-        delaySeconds: r.delay_seconds, quietHours: r.quiet_hours, updatedAt: r.updated_at,
+        delaySeconds: r.delay_seconds, quietHours: r.quiet_hours, control: r.control ?? null, updatedAt: r.updated_at,
         sources: ends.rows.filter((e) => e.route_id === r.id && e.kind === 's').map((e) => ({ platform: e.platform, accountId: e.account_id, chatId: e.chat_id })),
         targets: ends.rows.filter((e) => e.route_id === r.id && e.kind === 't').map((e) => ({ platform: e.platform, accountId: e.account_id, chatId: e.chat_id, title: e.title })),
       }));

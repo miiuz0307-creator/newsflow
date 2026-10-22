@@ -20,7 +20,7 @@ import type { JobQueue } from '../delivery/queue.js';
 import type { KillSwitchStore } from '../delivery/killSwitch.js';
 import type { Logger } from '../logger.js';
 import { silentLogger } from '../logger.js';
-import { findRouteCycle, validateRoute } from '../routing/router.js';
+import { findRouteCycle, parseControlSettings, validateRoute } from '../routing/router.js';
 import type { ChatRef } from '../core/types.js';
 import { placeholdersOf, renderTemplate } from '../routing/template.js';
 import type { Route } from '../routing/types.js';
@@ -294,6 +294,12 @@ export class ApiServer {
         this.requireRole(auth!, 'owner', 'admin');
         const route = body as Omit<Route, 'id' | 'tenantId'> & { id?: string };
         if (!Array.isArray(route.sources) || !Array.isArray(route.targets)) throw new HttpError(400, 'bad_request', 'sources and targets are required');
+        try {
+          route.control = parseControlSettings((body as { control?: unknown }).control);
+        } catch (e) {
+          throw new HttpError(400, 'bad_control', (e as Error).message);
+        }
+        if (route.control && route.sources.length !== 1) throw new HttpError(400, 'bad_control', 'לקבוצת שליטה יש מקור אחד בלבד: קבוצת השליטה עצמה');
         const chats = await c.query<{ platform: string; account_id: string; chat_id: string; can_send: boolean; title: string }>('SELECT platform, account_id, chat_id, can_send, title FROM chats');
         const accounts = await c.query<{ id: string }>(`SELECT id FROM wa_accounts UNION SELECT id FROM tg_bots`);
         const limits = await c.query<{ limits: { targets: number } }>('SELECT p.limits FROM tenants t JOIN plans p ON p.code = t.plan_code WHERE t.id = $1', [auth!.tenantId]);

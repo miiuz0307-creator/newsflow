@@ -23,6 +23,8 @@ export class FakeTelegramServer {
   private updateSeq = 1000;
   private msgSeq = 1;
   private revoked = new Set<string>();
+  /** Delay before every answer (simulates a slow or stuck Telegram). */
+  responseDelayMs = 0;
   readonly botId: number;
   readonly token: string;
   url = '';
@@ -66,9 +68,13 @@ export class FakeTelegramServer {
   }
 
   /** Someone posts in a chat; the bot receives it if it's a member. */
-  userPost(chatId: number, content: { text?: string; photo?: Buffer; caption?: string }): number {
+  userPost(chatId: number, content: { text?: string; photo?: Buffer; caption?: string; replyTo?: number }): number {
     const c = this.mustChat(chatId);
     const m: TgMessage = { message_id: this.msgSeq++, date: this.ts(), chat: c.chat, from: { id: 42, is_bot: false, first_name: 'Editor' } };
+    if (content.replyTo !== undefined) {
+      const orig = c.posts.find((p) => p.message_id === content.replyTo);
+      if (orig) m.reply_to_message = orig;
+    }
     if (content.text) m.text = content.text;
     if (content.photo) {
       const fid = `F${randomBytes(6).toString('hex')}`;
@@ -81,6 +87,23 @@ export class FakeTelegramServer {
     return m.message_id;
   }
 
+  /** The editor edits their own post; the bot receives edited_message. */
+  userEdit(chatId: number, messageId: number, text: string): void {
+    const c = this.mustChat(chatId);
+    const m = c.posts.find((p) => p.message_id === messageId);
+    if (!m) throw new Error(`no message ${messageId}`);
+    if (m.photo || m.video || m.document || m.audio) m.caption = text;
+    else m.text = text;
+    m.edit_date = this.ts();
+    if (this.botIn(c)) this.push(c.chat.type === 'channel' ? { edited_channel_post: { ...m } } : { edited_message: { ...m } });
+  }
+
+  /** Makes a message look older (to test Telegram's 48-hour delete limit). */
+  ageMessage(chatId: number, messageId: number, seconds: number): void {
+    const m = this.mustChat(chatId).posts.find((p) => p.message_id === messageId);
+    if (m) m.date -= seconds;
+  }
+
   setRateLimit(chatId: number, max: number, windowMs: number) {
     this.mustChat(chatId).rate = { max, windowMs, times: [] };
   }
@@ -89,6 +112,7 @@ export class FakeTelegramServer {
     this.revoked.add(this.token);
   }
 
+  /** Messages currently visible in the chat (deleted ones are gone, as in Telegram). */
   posts(chatId: number): TgMessage[] {
     return this.mustChat(chatId).posts;
   }
@@ -127,6 +151,7 @@ export class FakeTelegramServer {
         else files[k] = Buffer.from(await (v as Blob).arrayBuffer());
       }
     }
+    if (this.responseDelayMs) await new Promise((r) => setTimeout(r, this.responseDelayMs));
     try {
       send(200, { ok: true, result: await this.dispatch(method!, params, files) });
     } catch (e) {
@@ -195,6 +220,33 @@ export class FakeTelegramServer {
         }
         c.posts.push(msg);
         return msg;
+      }
+      case 'editMessageText':
+      case 'editMessageCaption': {
+        const c = this.chatFor(p.chat_id);
+        const msg = c.posts.find((x) => x.message_id === Number(p.message_id));
+        if (!msg) throw { code: 400, description: 'Bad Request: message to edit not found' };
+        if (msg.from?.id !== this.botId) throw { code: 400, description: "Bad Request: message can't be edited" };
+        const field = method === 'editMessageText' ? 'text' : 'caption';
+        if (method === 'editMessageText' && msg.text === undefined) throw { code: 400, description: 'Bad Request: there is no text in the message to edit' };
+        const value = String(p[field] ?? '');
+        if (msg[field] === value) throw { code: 400, description: 'Bad Request: message is not modified: specified new message content and reply markup are exactly the same' };
+        msg[field] = value;
+        msg.edit_date = this.ts();
+        return msg;
+      }
+      case 'deleteMessage': {
+        const c = this.chatFor(p.chat_id);
+        const i = c.posts.findIndex((x) => x.message_id === Number(p.message_id));
+        if (i < 0) throw { code: 400, description: 'Bad Request: message to delete not found' };
+        const msg = c.posts[i]!;
+        const me = c.members.get(this.botId);
+        const isAdmin = me?.status === 'administrator' || me?.status === 'creator';
+        if (msg.from?.id !== this.botId && !isAdmin) throw { code: 400, description: "Bad Request: message can't be deleted" };
+        // The Bot API documents the 48-hour limit first; we apply it to everyone (conservative).
+        if (this.ts() - msg.date > 48 * 3600) throw { code: 400, description: "Bad Request: message can't be deleted for everyone" };
+        c.posts.splice(i, 1);
+        return true;
       }
       default:
         throw { code: 404, description: `Not Found: method ${method}` };

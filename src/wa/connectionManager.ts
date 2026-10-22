@@ -10,7 +10,7 @@
  * the customer is told and decides. There is no number switching, no
  * fingerprint changing and no other attempt to get around a restriction.
  */
-import type { ChannelSender, ChatInfo, InboundMessage, MessageContent, SendResult } from '../core/types.js';
+import type { ChannelSender, ChatInfo, InboundMessage, MessageContent, SendResult, SyncEvent } from '../core/types.js';
 import { SendError } from '../core/types.js';
 import type { Logger } from '../logger.js';
 import { silentLogger } from '../logger.js';
@@ -82,6 +82,7 @@ export class ConnectionManager {
   private readonly entries = new Map<string, Entry>();
   private readonly statusListeners = new Set<(e: StatusEvent) => void>();
   private readonly messageListeners = new Set<(m: InboundMessage) => void>();
+  private readonly syncListeners = new Set<(e: SyncEvent) => void>();
   private readonly safetyListeners = new Set<(s: SafetySignal) => void>();
   private readonly log: Logger;
   private readonly backoff: number[];
@@ -100,6 +101,11 @@ export class ConnectionManager {
   onMessage(fn: (m: InboundMessage) => void): () => void {
     this.messageListeners.add(fn);
     return () => this.messageListeners.delete(fn);
+  }
+  /** Edits and "delete for everyone" seen by any connected account. */
+  onSync(fn: (e: SyncEvent) => void): () => void {
+    this.syncListeners.add(fn);
+    return () => this.syncListeners.delete(fn);
   }
   onSafetySignal(fn: (s: SafetySignal) => void): () => void {
     this.safetyListeners.add(fn);
@@ -186,14 +192,16 @@ export class ConnectionManager {
     return {
       platform: 'wa',
       accountId,
-      send: (chatId: string, content: MessageContent): Promise<SendResult> => {
-        const e = this.entries.get(accountId);
-        if (!e || e.state.status !== 'connected') {
-          return Promise.reject(new SendError('disconnected', `account ${accountId} is ${e?.state.status ?? 'unknown'}`));
-        }
-        return e.transport.send(chatId, content);
-      },
+      send: (chatId: string, content: MessageContent): Promise<SendResult> => this.connected(accountId).then((t) => t.send(chatId, content)),
+      edit: (chatId: string, messageId: string, content: MessageContent) => this.connected(accountId).then((t) => t.edit(chatId, messageId, content)),
+      remove: (chatId: string, messageId: string) => this.connected(accountId).then((t) => t.remove(chatId, messageId)),
     };
+  }
+
+  private async connected(accountId: string) {
+    const e = this.entries.get(accountId);
+    if (!e || e.state.status !== 'connected') throw new SendError('disconnected', `account ${accountId} is ${e?.state.status ?? 'unknown'}`);
+    return e.transport;
   }
 
   async shutdown(): Promise<void> {
@@ -245,6 +253,23 @@ export class ConnectionManager {
         }
       }
     });
+    const sync = (ev: SyncEvent) => {
+      for (const fn of this.syncListeners) {
+        try {
+          fn(ev);
+        } catch (err) {
+          this.log.error('sync listener failed', { err: String(err) });
+        }
+      }
+    };
+    t.on('message_edited', (raw) => sync({
+      type: 'edit', tenantId: e.state.tenantId, source: { platform: 'wa', accountId: e.state.accountId, chatId: raw.chatId },
+      messageId: raw.messageId, senderId: raw.senderId, content: raw.content, at: raw.timestamp,
+    }));
+    t.on('message_revoked', (raw) => sync({
+      type: 'delete', tenantId: e.state.tenantId, source: { platform: 'wa', accountId: e.state.accountId, chatId: raw.chatId },
+      messageId: raw.messageId, senderId: raw.senderId, at: raw.timestamp,
+    }));
     t.on('close', ({ reason, detail }) => void this.handleClose(e, reason, detail));
   }
 

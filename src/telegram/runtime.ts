@@ -3,7 +3,7 @@
  * (decrypting their tokens with the tenant key), persists the polling offset,
  * and hands inbound messages to the worker.
  */
-import type { ChatInfo, InboundMessage } from '../core/types.js';
+import type { ChatInfo, InboundMessage, SyncEvent } from '../core/types.js';
 import type { Sql } from '../db/pg.js';
 import type { TenantKeys } from '../db/pgStores.js';
 import type { Logger } from '../logger.js';
@@ -16,6 +16,8 @@ export interface TelegramRuntimeOptions {
   keys: TenantKeys;
   apiOptions: BotApiOptions;
   onMessage: (m: InboundMessage) => void;
+  /** Edits seen by a bot (PUSH Sync). */
+  onSync?: (e: SyncEvent) => void;
   /** Called so the worker can send through the bot. */
   onStarted?: (acc: TelegramAccount) => void;
   onStopped?: (botId: string) => void;
@@ -50,6 +52,7 @@ export class TelegramRuntime {
       logger: this.o.logger,
       pollTimeoutSec: this.o.pollTimeoutSec,
       onMessage: (m) => this.o.onMessage(m),
+      onSync: (e) => this.o.onSync?.(e),
       onChatsChanged: (chats) => void this.saveChats(tenantId, botId, chats).catch((e) => this.log.error('save chats failed', { err: String(e) })),
       loadOffset: async () => {
         const r = await sql.query<{ update_offset: number | null }>('SELECT update_offset FROM tg_bots WHERE id = $1', [botId]);

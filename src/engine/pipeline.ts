@@ -12,6 +12,7 @@ import type { Logger } from '../logger.js';
 import { silentLogger } from '../logger.js';
 import type { Router } from '../routing/router.js';
 import type { Route, RoutingPlan, Template } from '../routing/types.js';
+import type { SourceMessageStore } from './sync.js';
 
 export interface RouteSource {
   /** Enabled and disabled routes that list `chat` as a source. */
@@ -44,6 +45,8 @@ export interface PipelineOptions {
   router: Router;
   queue: JobQueue;
   media?: MediaStore;
+  /** Remembers control-group messages so later edits and deletes can find their copies. */
+  sources?: SourceMessageStore;
   logger?: Logger;
   /** Largest media we accept for forwarding, in bytes. */
   maxMediaBytes?: number;
@@ -68,6 +71,11 @@ export class InboundPipeline {
     try {
       if (plan.jobs.length && msg.content.media) {
         await this.storeMediaOnce(msg, plan);
+      }
+      // Recorded before the jobs exist, so an edit arriving right after finds the message.
+      const control = new Set(routes.filter((r) => r.control).map((r) => r.id));
+      if (this.o.sources && plan.jobs.some((j) => control.has(j.routeId))) {
+        await this.o.sources.record(msg.tenantId, msg.source, msg.messageId, msg.content.text);
       }
       inserted = plan.jobs.length ? (await this.o.queue.enqueue(plan.jobs)).inserted : 0;
     } catch (err) {

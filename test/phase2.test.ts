@@ -279,7 +279,7 @@ describe('phase 2 API', { skip: !available && 'local test Postgres not running' 
       assert.equal(d.status, 200);
       assert.equal(d.body.tenants.active, 2);
       assert.equal(d.body.activeByPlan.premium, 1);
-      assert.equal(d.body.monthlyRevenueEstimateIls, 250);
+      assert.equal(d.body.monthlyRevenueEstimateIls, 300, "premium is 300 ₪ (migration 011)");
     });
 
     test('search tenants, view details, suspend and reactivate (superadmin only)', async () => {

@@ -32,6 +32,8 @@ export interface TgMessage {
   sticker?: TgFileRef;
   forward_origin?: unknown;
   forward_date?: number;
+  reply_to_message?: TgMessage;
+  edit_date?: number;
 }
 
 export interface TgChatMember {
@@ -94,6 +96,9 @@ export class TelegramBotApi {
         signal: AbortSignal.timeout(timeoutMs ?? this.o.timeoutMs ?? 30_000),
       });
     } catch (err) {
+      // A timeout means the request may have reached Telegram: the outcome is unknown, not failed.
+      const name = (err as Error)?.name;
+      if (name === 'TimeoutError' || name === 'AbortError') throw new SendError('unknown', `telegram ${method}: no answer in time`);
       throw new SendError('transient', `telegram ${method}: ${(err as Error).message}`);
     }
     let body: { ok: boolean; result?: T; error_code?: number; description?: string; parameters?: { retry_after?: number; migrate_to_chat_id?: number } };
@@ -113,7 +118,7 @@ export class TelegramBotApi {
   getUpdates(offset: number | undefined, timeoutSec = 25) {
     return this.call<TgUpdate[]>(
       'getUpdates',
-      { offset, timeout: timeoutSec, allowed_updates: ['message', 'channel_post', 'my_chat_member'] },
+      { offset, timeout: timeoutSec, allowed_updates: ['message', 'channel_post', 'edited_message', 'edited_channel_post', 'my_chat_member'] },
       (timeoutSec + 10) * 1000,
     );
   }
@@ -147,6 +152,30 @@ export class TelegramBotApi {
     return this.call<TgMessage>(method, form, 120_000);
   }
 
+  /** Changes the text of a text message the bot sent. "Not modified" counts as done. */
+  async editMessageText(chatId: string | number, messageId: string | number, text: string): Promise<void> {
+    await this.notModifiedIsOk(() => this.call('editMessageText', { chat_id: chatId, message_id: Number(messageId), text }));
+  }
+
+  /** Changes the caption of a photo / video / audio / document the bot sent. */
+  async editMessageCaption(chatId: string | number, messageId: string | number, caption: string): Promise<void> {
+    await this.notModifiedIsOk(() => this.call('editMessageCaption', { chat_id: chatId, message_id: Number(messageId), caption }));
+  }
+
+  /** Deletes a message for everyone. Telegram allows this within 48 hours (any age for admins with delete rights). */
+  async deleteMessage(chatId: string | number, messageId: string | number): Promise<void> {
+    await this.call('deleteMessage', { chat_id: chatId, message_id: Number(messageId) });
+  }
+
+  private async notModifiedIsOk(fn: () => Promise<unknown>) {
+    try {
+      await fn();
+    } catch (e) {
+      if (e instanceof SendError && /message is not modified/i.test(e.message)) return;
+      throw e;
+    }
+  }
+
   async downloadFile(fileId: string): Promise<Buffer> {
     const f = await this.call<{ file_path?: string; file_size?: number }>('getFile', { file_id: fileId });
     if (!f.file_path) throw new SendError('not_found', 'file not available');
@@ -162,6 +191,8 @@ export function mapTelegramError(method: string, code: number, description: stri
   if (code === 401) return new SendError('account_blocked', msg); // token revoked or wrong
   if (code === 403) return new SendError('forbidden', msg); // kicked, not admin in channel, blocked by user
   if (code === 400 && /chat not found|chat_id is empty|group chat was upgraded/i.test(description)) return new SendError('not_found', msg);
+  if (code === 400 && /message to (edit|delete) not found|message_id_invalid/i.test(description)) return new SendError('not_found', msg);
+  if (code === 400 && /message can't be (deleted|edited)/i.test(description)) return new SendError('window_closed', msg);
   if (code === 400 && /not enough rights|have no rights|CHAT_WRITE_FORBIDDEN|need administrator/i.test(description)) return new SendError('forbidden', msg);
   if (code === 400) return new SendError('invalid', msg);
   if (code >= 500) return new SendError('transient', msg);
