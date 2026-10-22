@@ -20,7 +20,7 @@ import { CAPABILITIES, chatKey } from '../core/types.js';
 import type { JobQueue, StoredJob } from '../delivery/queue.js';
 import type { Logger } from '../logger.js';
 import { silentLogger } from '../logger.js';
-import { renderCopy } from '../routing/router.js';
+import { renderCopy, senderAllowed } from '../routing/router.js';
 import type { PlannedJob, Route } from '../routing/types.js';
 import type { RouteSource } from './pipeline.js';
 
@@ -68,7 +68,7 @@ export class MemorySourceMessageStore implements SourceMessageStore {
   }
 }
 
-export type SyncIgnoredReason = 'not_control_group' | 'sync_disabled' | 'unknown_message' | 'already_deleted';
+export type SyncIgnoredReason = 'not_control_group' | 'sync_disabled' | 'sender_not_allowed' | 'unknown_message' | 'already_deleted';
 
 export type SyncOutcome =
   | { handled: false; reason: SyncIgnoredReason }
@@ -122,7 +122,11 @@ export class SyncPlanner {
     if (!routes.length) return { handled: false, reason: 'not_control_group' };
     const active = routes.filter((r) => (ev.type === 'edit' ? r.control!.syncEdits !== false : r.control!.syncDeletes !== false));
     if (!active.length) return { handled: false, reason: 'sync_disabled' };
-    const byId = new Map(active.map((r) => [r.id, r]));
+    // The allowed-senders list guards edits and deletes too: a group admin (or, in Telegram, any member
+    // replying "מחק") who may not distribute may not delete or change copies either.
+    const allowed = active.filter((r) => senderAllowed(r, { senderId: ev.senderId, fromSelf: !!ev.fromSelf }));
+    if (!allowed.length) return { handled: false, reason: 'sender_not_allowed' };
+    const byId = new Map(allowed.map((r) => [r.id, r]));
     return ev.type === 'edit' ? this.edit(ev, byId) : this.remove(ev, byId);
   }
 
@@ -152,6 +156,8 @@ export class SyncPlanner {
         }
         // It started sending in the meantime: fall through and plan an edit.
       } else if (copy.status === 'unknown') {
+        // Its message id is unknown, so it can't be edited; but a later manual retry must send the new text.
+        await this.o.queue.replaceUnsentContent(copy.id, content, version);
         out.unknownCopies++;
         continue;
       } else if (copy.status !== 'sending' && copy.status !== 'sent') {

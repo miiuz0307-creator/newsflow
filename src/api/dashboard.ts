@@ -134,8 +134,9 @@ async function loadDetail(key,box){
   var vers=r.versions.length>1?h('ul',{cls:'versions'},r.versions.map(function(v){return h('li',{cls:'small',text:'גרסה '+v.version+' · '+when(v.at)+(v.text?' · '+v.text.slice(0,120):'')})})):null;
   var rows=r.copies.map(function(c){
     var act=null;
-    if(c.status==='failed')act=h('button',{cls:'retry',text:'נסו שוב',onclick:function(){retry(c.jobId,false,key,box)}});
-    if(c.status==='unknown')act=h('button',{cls:'retry warnbtn',text:'לא בקבוצה — שלחו שוב',title:'רק אחרי שבדקתם שההודעה לא הגיעה לקבוצה',onclick:function(){retry(c.jobId,true,key,box)}});
+    if(r.deleted)act=null;
+    else if(c.status==='failed')act=h('button',{cls:'retry',text:'נסו שוב',onclick:function(){retry(c.jobId,false,key,box)}});
+    else if(c.status==='unknown')act=h('button',{cls:'retry warnbtn',text:'לא בקבוצה — שלחו שוב',title:'רק אחרי שבדקתם שההודעה לא הגיעה לקבוצה',onclick:function(){retry(c.jobId,true,key,box)}});
     var editCell=c.edit?h('span',null,[chip(c.edit.status),h('span',{cls:'small',text:' גרסה '+c.edit.version+(c.edit.error?' · '+(REASON[c.edit.error]||c.edit.error):'')})]):h('span',{cls:'small',text:'—'});
     var delCell=c.delete?h('span',null,[chip(c.delete.status),h('span',{cls:'small',text:c.delete.error?' '+(REASON[c.delete.error]||c.delete.error):''})]):h('span',{cls:'small',text:'—'});
     return h('tr',null,[h('td',{text:(c.target.title||c.target.chatId)}),h('td',{text:PL[c.target.platform]||c.target.platform}),

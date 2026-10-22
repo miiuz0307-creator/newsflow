@@ -283,7 +283,7 @@ export class FakeWaNetwork {
     e.deleted = true;
     for (const member of g.members) {
       for (const t of this.live.get(member) ?? []) {
-        t.emitPublic('message_revoked', { chatId: jid, messageId, senderId: `${phone}@s.whatsapp.net`, timestamp: new Date(this.clock()) });
+        t.emitPublic('message_revoked', { chatId: jid, messageId, senderId: `${phone}@s.whatsapp.net`, fromSelf: member === phone, timestamp: new Date(this.clock()) });
       }
     }
   }

@@ -373,7 +373,7 @@ describe('PUSH Sync — units', () => {
   });
 
   test('report wording', () => {
-    const s = { total: 50, sent: 48, failed: 2, skipped: 0, cancelled: 0, unknown: 0, pending: 0, reasons: { forbidden: 2 }, failedTargets: ['א', 'ב'] };
+    const s = { total: 50, sent: 48, failed: 2, skipped: 0, cancelled: 0, unknown: 0, pending: 0, reasons: { forbidden: 2 }, cancelledReasons: {}, failedTargets: ['א', 'ב'] };
     const t = finalReportText('send', s);
     assert.match(t, /^⚠️ PUSH · ההודעה נשלחה ל-48 מתוך 50 קבוצות\./);
     assert.match(t, /2 לא הצליחו: א, ב/);

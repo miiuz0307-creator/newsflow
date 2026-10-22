@@ -138,7 +138,8 @@ export class Router {
         plan.skipped.push({ routeId: route.id, reason: 'route_disabled' });
         continue;
       }
-      if (route.control && isOwnReport(msg)) {
+      // A PUSH status message is never content, for any route reading this group.
+      if (isOwnReport(msg)) {
         plan.skipped.push({ routeId: route.id, reason: 'own_report' });
         continue;
       }

@@ -62,8 +62,8 @@ export interface InboundMessage {
  * "delete for everyone". "Delete for me" never reaches us and is never an event.
  */
 export type SyncEvent =
-  | { type: 'edit'; tenantId: string; source: ChatRef; messageId: string; senderId: string; content: MessageContent; at: Date }
-  | { type: 'delete'; tenantId: string; source: ChatRef; messageId: string; senderId: string; at: Date };
+  | { type: 'edit'; tenantId: string; source: ChatRef; messageId: string; senderId: string; fromSelf?: boolean; content: MessageContent; at: Date }
+  | { type: 'delete'; tenantId: string; source: ChatRef; messageId: string; senderId: string; fromSelf?: boolean; at: Date };
 
 export type ChatType = 'group' | 'channel' | 'private' | 'community';
 

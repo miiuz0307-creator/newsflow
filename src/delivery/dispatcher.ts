@@ -159,6 +159,16 @@ export class Dispatcher {
       return report('deferred', rsv.reason);
     }
 
+    // The control group is the source of truth at the moment of sending: a message deleted there
+    // is never sent, even from a batch claimed before the delete or from a retry.
+    if (job.action === 'send' && this.o.sourceState) {
+      const st = await this.o.sourceState(job);
+      if (st?.deleted) {
+        await q.skip(job.id, 'source_deleted');
+        return report('skipped', 'source_deleted');
+      }
+    }
+
     let content: MessageContent = job.content;
     try {
       if (content.media?.ref && !content.media.data) {

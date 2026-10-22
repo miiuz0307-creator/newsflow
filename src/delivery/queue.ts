@@ -26,6 +26,8 @@ export interface ActionSummary {
   pending: number;
   /** Error kind → count, for failed and skipped jobs. */
   reasons: Record<string, number>;
+  /** Reason → count, for cancelled jobs (e.g. source_deleted, superseded). */
+  cancelledReasons: Record<string, number>;
   /** Titles of targets that failed (for the report), at most 10. */
   failedTargets: string[];
 }
@@ -76,22 +78,22 @@ export interface JobQueue {
   copiesOf(tenantId: string, source: ChatRef, messageId: string): Promise<StoredJob[]>;
   /**
    * Replaces the content of a copy that has not gone out yet (queued, held for
-   * approval, or failed and waiting for a manual retry). False if it already
-   * left that state — the caller then plans an edit instead.
+   * approval, failed or unknown — the last two wait for a manual retry). False
+   * if it already left that state — the caller then plans an edit instead.
    */
   replaceUnsentContent(id: string, content: MessageContent, version: number): Promise<boolean>;
   /** Cancels jobs of a source message that have not gone out; returns how many. */
   cancelUnsent(tenantId: string, source: ChatRef, messageId: string, actions: JobAction[], reason: string): Promise<number>;
   /** Cancels queued edits of one copy that carry an older version than `version`. */
   cancelOlderEdits(parentJobId: string, version: number): Promise<number>;
-  /** Outcome counts for one action on one source message (edits: one version). */
-  summary(tenantId: string, source: ChatRef, messageId: string, action: JobAction, version?: number): Promise<ActionSummary>;
+  /** Outcome counts for one action on one source message (edits: one version; optionally one route). */
+  summary(tenantId: string, source: ChatRef, messageId: string, action: JobAction, version?: number, routeId?: string): Promise<ActionSummary>;
   /** Manual retry of a failed or unknown job by the customer. */
   requeue(tenantId: string, id: string): Promise<boolean>;
 }
 
 export function emptySummary(): ActionSummary {
-  return { total: 0, sent: 0, failed: 0, skipped: 0, cancelled: 0, unknown: 0, pending: 0, reasons: {}, failedTargets: [] };
+  return { total: 0, sent: 0, failed: 0, skipped: 0, cancelled: 0, unknown: 0, pending: 0, reasons: {}, cancelledReasons: {}, failedTargets: [] };
 }
 
 /** Adds one job to a summary. Shared by the memory and database queues. */
@@ -106,6 +108,7 @@ export function addToSummary(s: ActionSummary, status: JobStatus, errorKind: str
     default: s.pending += n;
   }
   if ((status === 'failed' || status === 'skipped') && errorKind) s.reasons[errorKind] = (s.reasons[errorKind] ?? 0) + n;
+  if (status === 'cancelled' && errorKind) s.cancelledReasons[errorKind] = (s.cancelledReasons[errorKind] ?? 0) + n;
 }
 
 const sameSource = (j: PlannedJob, tenantId: string, source: ChatRef, messageId: string) =>
@@ -241,7 +244,7 @@ export class MemoryJobQueue implements JobQueue {
 
   async replaceUnsentContent(id: string, content: MessageContent, version: number) {
     const j = this.jobs.get(id);
-    if (!j || !['queued', 'pending_approval', 'failed'].includes(j.status) || j.version > version) return false;
+    if (!j || !['queued', 'pending_approval', 'failed', 'unknown'].includes(j.status) || j.version > version) return false;
     Object.assign(j, { content, version });
     return true;
   }
@@ -268,10 +271,11 @@ export class MemoryJobQueue implements JobQueue {
     return n;
   }
 
-  async summary(tenantId: string, source: ChatRef, messageId: string, action: JobAction, version?: number) {
+  async summary(tenantId: string, source: ChatRef, messageId: string, action: JobAction, version?: number, routeId?: string) {
     const s = emptySummary();
     for (const j of this.jobs.values()) {
       if (j.action !== action || !sameSource(j, tenantId, source, messageId)) continue;
+      if (routeId !== undefined && j.routeId !== routeId) continue;
       if (version !== undefined && j.version !== version) continue;
       addToSummary(s, j.status, j.errorKind, j.target.title ?? j.target.chatId);
     }

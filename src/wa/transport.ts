@@ -71,6 +71,8 @@ export interface RawRevoke {
   messageId: string;
   /** Who deleted it (the author, or a group admin). */
   senderId: string;
+  /** The linked number itself deleted it (from another of its devices). */
+  fromSelf: boolean;
   timestamp: Date;
 }
 

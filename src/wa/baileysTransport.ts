@@ -108,6 +108,7 @@ export function parseMessageUpdate(u: any, now = Date.now()): { edit?: RawEdit; 
         chatId: jid,
         messageId: key.id,
         senderId: update.key?.participant ?? key.participant ?? jid,
+        fromSelf: !!(update.key?.fromMe ?? key.fromMe),
         timestamp: new Date(now),
       },
     };

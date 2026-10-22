@@ -50,8 +50,18 @@ function reasonsLine(s: ActionSummary): string {
   return parts.length ? `\nסיבות: ${parts.join(', ')}` : '';
 }
 
+/** What a wave's own jobs don't show: copies handled before sending, and copies that could not be reached. */
+export interface ReportExtra {
+  /** Edit: copies that carried the new text before they were sent. */
+  changedBeforeSend?: number;
+  /** Delete: sends cancelled before they went out. */
+  cancelledBeforeSend?: number;
+  /** Copies in "pending verification", which an edit or delete cannot reach. */
+  unknownCopies?: number;
+}
+
 /** Hebrew text of a final report. Exported for tests. */
-export function finalReportText(action: Exclude<JobAction, 'report'>, s: ActionSummary): string {
+export function finalReportText(action: Exclude<JobAction, 'report'>, s: ActionSummary, extra: ReportExtra = {}): string {
   const done = s.sent;
   // Jobs that merged into a send or were made moot don't count as targets of this wave.
   const moot = (s.reasons.superseded ?? 0) + (s.reasons.merged_into_send ?? 0) + (s.reasons.cancelled_before_send ?? 0);
@@ -61,17 +71,25 @@ export function finalReportText(action: Exclude<JobAction, 'report'>, s: ActionS
   if (action === 'send') {
     lines.push(bad || s.unknown ? `${tag('⚠️')}ההודעה נשלחה ל-${done} מתוך ${total} קבוצות.` : `${tag('✅')}ההודעה נשלחה בהצלחה ל-${done} מתוך ${total} קבוצות.`);
   } else if (action === 'edit') {
-    lines.push(`${tag('✏️')}ההודעה עודכנה ב-${done} קבוצות.`);
+    const before = extra.changedBeforeSend ?? 0;
+    lines.push(`${tag('✏️')}ההודעה עודכנה ב-${done + before} קבוצות${before ? ` (${before} מהן עוד לפני השליחה)` : ''}.`);
   } else {
-    lines.push(`${tag('🗑️')}ההודעה נמחקה ב-${done} קבוצות.`);
+    const cancelled = extra.cancelledBeforeSend ?? 0;
+    lines.push(`${tag('🗑️')}ההודעה נמחקה ב-${done} קבוצות.${cancelled ? ` ${cancelled} שליחות שטרם יצאו בוטלו.` : ''}`);
   }
   if (bad > 0) {
     const names = s.failedTargets.length ? `: ${s.failedTargets.slice(0, 5).join(', ')}${s.failedTargets.length > 5 ? '…' : ''}` : '';
     lines.push(`${bad} לא הצליחו${names}${reasonsLine(s)}`);
   }
   if (s.unknown > 0) lines.push(`⏳ ${s.unknown} ממתינות לאימות — בדקו בלוח הבקרה לפני שליחה חוזרת.`);
+  if (action !== 'send' && extra.unknownCopies) {
+    lines.push(`⏳ ${extra.unknownCopies} עותקים ממתינים לאימות, ולכן לא ${action === 'edit' ? 'עודכנו' : 'נמחקו'} — בדקו בקבוצות האלה ידנית.`);
+  }
   return lines.join('\n');
 }
+
+/** Idempotency stage of a wave's final report: one per send, one per edit version, one per delete. */
+const finalStage = (action: Exclude<JobAction, 'report'>, version: number) => (action === 'edit' ? `edit|v${version}|final` : `${action}|final`);
 
 export interface ReporterOptions {
   queue: JobQueue;
@@ -151,14 +169,25 @@ export class Reporter {
     if (!route) return;
     const mode = this.mode(route);
     if (mode === 'off') return;
+    // Counted per route: another route reading the same group never mixes into this report.
+    const q = this.o.queue;
     const version = job.action === 'edit' ? job.version : undefined;
-    const s = await this.o.queue.summary(job.tenantId, job.source, job.sourceMessageId, job.action, version);
+    const s = await q.summary(job.tenantId, job.source, job.sourceMessageId, job.action, version, route.id);
     if (s.pending > 0) return;
-    const bad = s.failed + s.unknown;
+    const extra: ReportExtra = {};
+    if (job.action !== 'send') {
+      const sends = await q.summary(job.tenantId, job.source, job.sourceMessageId, 'send', undefined, route.id);
+      extra.unknownCopies = sends.unknown;
+      if (job.action === 'delete') extra.cancelledBeforeSend = sends.cancelledReasons.source_deleted ?? 0;
+      if (job.action === 'edit') {
+        const atVersion = await q.summary(job.tenantId, job.source, job.sourceMessageId, 'send', job.version, route.id);
+        extra.changedBeforeSend = atVersion.sent + atVersion.pending;
+      }
+    }
+    const bad = s.failed + s.unknown + (extra.unknownCopies ?? 0);
     if (mode === 'failures' && bad === 0) return;
-    if (job.action === 'edit' && s.sent === 0 && bad === 0) return; // all merged or superseded: nothing visible happened
-    const text = finalReportText(job.action, s);
-    await this.post(route, job.source, job.sourceMessageId, `${job.action}|v${job.version}|final`, text, job.version);
+    if (job.action === 'edit' && s.sent === 0 && bad === 0 && !extra.changedBeforeSend) return; // nothing visible happened
+    await this.post(route, job.source, job.sourceMessageId, finalStage(job.action, job.version), finalReportText(job.action, s, extra), job.version);
   }
 
   private async post(route: Route, source: ChatRef, messageId: string, stage: string, text: string, version: number): Promise<void> {

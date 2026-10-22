@@ -257,7 +257,8 @@ describe('PostgreSQL integration', { skip: !available && 'local test Postgres no
       const r = await db.worker.query<{ jobs_cleared: number }>('SELECT * FROM purge_expired(7)');
       assert.equal(Number(r.rows[0]!.jobs_cleared), 1);
       const c = await db.worker.query<{ content: unknown }>('SELECT content FROM outbound_jobs');
-      assert.equal(c.rows[0]!.content, null);
+      // The text is gone; only the kind of message and a "purged" mark remain (migration 011).
+      assert.deepEqual(c.rows[0]!.content, { kind: 'text', purged: true });
     });
   });
 });

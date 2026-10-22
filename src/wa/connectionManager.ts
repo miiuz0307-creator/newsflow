@@ -264,11 +264,11 @@ export class ConnectionManager {
     };
     t.on('message_edited', (raw) => sync({
       type: 'edit', tenantId: e.state.tenantId, source: { platform: 'wa', accountId: e.state.accountId, chatId: raw.chatId },
-      messageId: raw.messageId, senderId: raw.senderId, content: raw.content, at: raw.timestamp,
+      messageId: raw.messageId, senderId: raw.senderId, fromSelf: raw.fromSelf, content: raw.content, at: raw.timestamp,
     }));
     t.on('message_revoked', (raw) => sync({
       type: 'delete', tenantId: e.state.tenantId, source: { platform: 'wa', accountId: e.state.accountId, chatId: raw.chatId },
-      messageId: raw.messageId, senderId: raw.senderId, at: raw.timestamp,
+      messageId: raw.messageId, senderId: raw.senderId, fromSelf: raw.fromSelf, at: raw.timestamp,
     }));
     t.on('close', ({ reason, detail }) => void this.handleClose(e, reason, detail));
   }

@@ -160,6 +160,39 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
     assert.equal(top.edits.sent, 2);
   });
 
+  test('a message deleted in the control group cannot be retried, and its copies stay hidden', async () => {
+    net.loseNextAck(LINKED);
+    const id = net.humanPost(CUSTOMER, ctrl, { kind: 'text', text: 'נמחק אחר כך' });
+    await drain();
+    net.humanDeleteForEveryone(CUSTOMER, ctrl, id);
+    await drain();
+    const path = `/v1/distributions/wa/${acc}/${encodeURIComponent(ctrl)}/${encodeURIComponent(id)}`;
+    const d = (await call('GET', path, undefined, tokA)).body;
+    assert.equal(d.deleted, true);
+    const unknown = d.copies.find((c: any) => c.status === 'unknown');
+    assert.ok(unknown);
+    const r = await call('POST', `/v1/jobs/${unknown.jobId}/retry`, { confirmNotDelivered: true }, tokA);
+    assert.equal(r.status, 409);
+    assert.equal(r.body.error.code, 'source_deleted');
+    // The queue refuses it too, even if called directly.
+    assert.equal(await new PgJobQueue(db.worker, db.app).requeue(tA, unknown.jobId), false);
+  });
+
+  test('retention keeps the message kind and blocks retries of purged content', async () => {
+    net.humanPost(CUSTOMER, ctrl, { kind: 'text', text: 'ישן מאוד' });
+    await drain();
+    await db.worker.query(`UPDATE outbound_jobs SET status = 'failed', updated_at = now() - interval '8 days' WHERE content->>'text' = 'ישן מאוד' AND action = 'send'`);
+    await db.worker.query('SELECT * FROM purge_expired(7)');
+    const rows = await db.worker.query<{ id: string; content: any }>(`SELECT id::text, content FROM outbound_jobs WHERE content ? 'purged'`);
+    assert.ok(rows.rowCount >= 2);
+    assert.ok(rows.rows.every((r) => r.content.kind === 'text' && r.content.text === undefined));
+    const again = await db.worker.query('SELECT * FROM purge_expired(7)');
+    assert.equal(Number((again.rows[0] as any).jobs_cleared), 0, 'purging is not repeated every hour');
+    const r = await call('POST', `/v1/jobs/${rows.rows[0]!.id}/retry`, {}, tokA);
+    assert.equal(r.status, 409);
+    assert.equal(r.body.error.code, 'purged');
+  });
+
   test('capabilities are public; the dashboard page is served with a strict CSP', async () => {
     const caps = await call('GET', '/v1/capabilities');
     assert.equal(caps.status, 200);

@@ -398,7 +398,7 @@ export class PgJobQueue implements JobQueue {
   async replaceUnsentContent(id: string, content: MessageContent, version: number) {
     const r = await this.sql.query(
       `UPDATE outbound_jobs SET content = $2, version = $3, updated_at = now()
-        WHERE id = $1 AND status IN ('queued', 'pending_approval', 'failed') AND version <= $3`,
+        WHERE id = $1 AND status IN ('queued', 'pending_approval', 'failed', 'unknown') AND version <= $3`,
       [id, storableContent(content), version]);
     return r.rowCount > 0;
   }
@@ -419,14 +419,14 @@ export class PgJobQueue implements JobQueue {
     return r.rowCount;
   }
 
-  async summary(tenantId: string, source: ChatRef, messageId: string, action: JobAction, version?: number): Promise<ActionSummary> {
+  async summary(tenantId: string, source: ChatRef, messageId: string, action: JobAction, version?: number, routeId?: string): Promise<ActionSummary> {
     const r = await this.sql.query<{ status: JobStatus; error_kind: string | null; n: number; titles: string[] | null }>(
       `SELECT status, error_kind, count(*)::int AS n,
               (array_agg(COALESCE(target_title, target_chat_id) ORDER BY id) FILTER (WHERE status = 'failed'))[1:10] AS titles
          FROM outbound_jobs
-        WHERE ${PgJobQueue.SAME_SOURCE} AND action = $6 AND ($7::int IS NULL OR version = $7)
+        WHERE ${PgJobQueue.SAME_SOURCE} AND action = $6 AND ($7::int IS NULL OR version = $7) AND ($8::uuid IS NULL OR route_id = $8)
         GROUP BY status, error_kind`,
-      [tenantId, messageId, source.platform, source.accountId, source.chatId, action, version ?? null]);
+      [tenantId, messageId, source.platform, source.accountId, source.chatId, action, version ?? null, routeId || null]);
     const s = emptySummary();
     for (const row of r.rows) {
       addToSummary(s, row.status, row.error_kind ?? undefined, undefined, row.n);
@@ -440,8 +440,14 @@ export class PgJobQueue implements JobQueue {
     const run = async (c: Sql) => {
       const r = await c.query(
         // A manual retry is a new decision by the customer: its age starts now (otherwise it would be skipped as stale).
-        `UPDATE outbound_jobs SET status = 'queued', attempts = 0, not_before = now(), created_at = now(), error_kind = NULL, last_error = NULL, updated_at = now()
-          WHERE id = $1 AND tenant_id = $2 AND status IN ('failed', 'unknown')`, [id, tenantId]);
+        // Never for a message deleted in the control group, and never once its content was purged.
+        `UPDATE outbound_jobs j SET status = 'queued', attempts = 0, not_before = now(), created_at = now(), error_kind = NULL, last_error = NULL, updated_at = now()
+          WHERE j.id = $1 AND j.tenant_id = $2 AND j.status IN ('failed', 'unknown')
+            AND j.content IS NOT NULL AND NOT (j.content ? 'purged')
+            AND NOT EXISTS (SELECT 1 FROM source_messages sm
+                             WHERE sm.platform = j.source->>'platform' AND sm.account_id::text = j.source->>'accountId'
+                               AND sm.chat_id = j.source->>'chatId' AND sm.message_id = j.source_message_id AND sm.deleted_at IS NOT NULL)`,
+        [id, tenantId]);
       if (r.rowCount) await c.query(`INSERT INTO audit_log (tenant_id, actor, action, target) VALUES ($1, 'customer', 'job.requeued', $2)`, [tenantId, id]);
       return r.rowCount > 0;
     };

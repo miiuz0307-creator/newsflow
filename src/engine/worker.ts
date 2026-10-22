@@ -177,7 +177,7 @@ export class Worker {
     // Telegram does not tell bots about deletions, so in a Telegram control group the customer
     // replies "/delete" (or "מחק") to the message. Outside control groups the reply is a normal message.
     if (m.source.platform === 'tg' && m.replyToMessageId && m.content.kind === 'text' && isDeleteCommand(m.content.text)) {
-      const e: SyncEvent = { type: 'delete', tenantId: m.tenantId, source: m.source, messageId: m.replyToMessageId, senderId: m.senderId, at: m.receivedAt };
+      const e: SyncEvent = { type: 'delete', tenantId: m.tenantId, source: m.source, messageId: m.replyToMessageId, senderId: m.senderId, fromSelf: m.fromSelf, at: m.receivedAt };
       const out = await this.sync.handle(e);
       if (out.handled || out.reason !== 'not_control_group') {
         if (out.handled) await this.reporter.onSyncPlanned(e.tenantId, e.source, e.messageId, out);

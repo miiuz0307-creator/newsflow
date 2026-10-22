@@ -140,11 +140,15 @@ export function pushModule() {
             ORDER BY s.id`,
           [msg, plat, acct, chat]);
         if (!copies.rowCount) throw new HttpError(404, 'not_found', 'distribution not found');
+        const src = await c.query<{ deleted: boolean }>(
+          `SELECT deleted_at IS NOT NULL AS deleted FROM source_messages WHERE platform = $1 AND account_id = $2 AND chat_id = $3 AND message_id = $4`,
+          [plat, acct, chat, msg]);
         const versions = await c.query<{ version: number; text: string | null; created_at: Date }>(
           `SELECT version, text, created_at FROM message_versions
             WHERE platform = $1 AND account_id = $2 AND chat_id = $3 AND message_id = $4 ORDER BY version`,
           [plat, acct, chat, msg]);
         return {
+          deleted: !!src.rows[0]?.deleted,
           versions: versions.rows.map((v) => ({ version: v.version, text: v.text, at: v.created_at })),
           copies: copies.rows.map((r) => ({
             jobId: r.id,
@@ -166,10 +170,17 @@ export function pushModule() {
     api.on('POST', '/v1/jobs/:id/retry', true, async ({ auth, params, body }) => {
       api.requireRole(auth!, 'owner', 'admin', 'editor');
       const job = await api.tenantTx(auth!, (c) =>
-        c.query<{ status: string; action: string }>('SELECT status, action FROM outbound_jobs WHERE id = $1', [params.id]));
+        c.query<{ status: string; action: string; deleted: boolean; purged: boolean }>(
+          `SELECT j.status, j.action, (j.content IS NULL OR j.content ? 'purged') AS purged,
+                  EXISTS (SELECT 1 FROM source_messages sm
+                           WHERE sm.platform = j.source->>'platform' AND sm.account_id::text = j.source->>'accountId'
+                             AND sm.chat_id = j.source->>'chatId' AND sm.message_id = j.source_message_id AND sm.deleted_at IS NOT NULL) AS deleted
+             FROM outbound_jobs j WHERE j.id = $1`, [params.id]));
       const row = job.rows[0];
       if (!row) throw new HttpError(404, 'not_found', 'job not found');
       if (row.action === 'report') throw new HttpError(400, 'not_retryable', 'דיווחים אינם נשלחים מחדש');
+      if (row.deleted && row.action !== 'delete') throw new HttpError(409, 'source_deleted', 'ההודעה נמחקה בקבוצת השליטה, ולכן לא תישלח שוב');
+      if (row.purged) throw new HttpError(409, 'purged', 'תוכן ההודעה כבר נמחק לפי מדיניות השמירה; שלחו אותה מחדש בקבוצת השליטה');
       if (row.status === 'unknown' && row.action === 'send' && body.confirmNotDelivered !== true) {
         throw new HttpError(409, 'confirm_required', 'לא ידוע אם ההודעה הגיעה לקבוצה. בדקו בקבוצה, ושלחו שוב רק אם היא לא שם (confirmNotDelivered: true).');
       }

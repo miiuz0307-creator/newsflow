@@ -81,7 +81,9 @@ BEGIN
   END LOOP;
 END $$;
 
--- Retention: also clear old version texts, and treat 'unknown' as finished.
+-- Retention: also clear old version texts, and treat 'unknown' as finished. The kind of
+-- message (text / image …) is kept, so a late Telegram edit still uses the right method;
+-- a purged job is marked and can no longer be retried.
 CREATE OR REPLACE FUNCTION purge_expired(content_days integer DEFAULT 7) RETURNS TABLE (jobs_cleared bigint, dedup_deleted bigint)
   LANGUAGE plpgsql
   AS $$
@@ -90,8 +92,8 @@ DECLARE
   b bigint;
 BEGIN
   UPDATE outbound_jobs
-     SET content = NULL
-   WHERE content IS NOT NULL
+     SET content = jsonb_build_object('kind', content->>'kind', 'purged', true)
+   WHERE content IS NOT NULL AND NOT (content ? 'purged')
      AND status IN ('sent', 'failed', 'skipped', 'cancelled', 'unknown')
      AND updated_at < now() - make_interval(days => content_days);
   GET DIAGNOSTICS a = ROW_COUNT;
