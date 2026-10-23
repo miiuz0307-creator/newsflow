@@ -224,7 +224,7 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
 
   test('the fixed signature is saved per account and added under every copy, also on edits', async () => {
     const empty = await call('GET', '/v1/push/settings', undefined, tokA);
-    assert.equal(empty.status, 200);
+    assert.equal(empty.status, 200, JSON.stringify(empty.body));
     assert.equal(empty.body.signature, '');
     assert.equal(empty.body.controlGroups.length, 1);
 
@@ -280,4 +280,39 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
     assert.equal(r.rows[0]!.limits.targets, 10);
     assert.equal(r.rows[0]!.limits.tgBots, 1);
   });
+
+  test('linking a number: risk first, then a QR the app can draw; the list shows each number', async () => {
+    const created = await call('POST', '/v1/wa/accounts', { label: 'B' }, tokB);
+    assert.equal(created.status, 200, JSON.stringify(created.body));
+    const id = created.body.id as string;
+    const early = await call('POST', `/v1/wa/accounts/${id}/connect`, { method: 'qr' }, tokB);
+    assert.equal(early.status, 412, 'the risk explanation must be accepted first');
+    assert.equal((await call('POST', '/v1/risk/accept', {}, tokB)).status, 200);
+    const linking = await call('POST', `/v1/wa/accounts/${id}/connect`, { method: 'qr' }, tokB);
+    assert.equal(linking.status, 200);
+    await waitFor(() => !!conns.getState(id)?.qr);
+    const list = await call('GET', '/v1/wa/accounts', undefined, tokB);
+    assert.equal(list.body.length, 1);
+    assert.equal(list.body[0].status, 'linking_qr');
+    assert.ok(list.body[0].qrRows.length >= 21 && list.body[0].qrRows.every((r: string) => /^[01]+$/.test(r)));
+
+    net.scanQr('972500000777', list.body[0].qr);
+    await waitFor(() => conns.getState(id)?.status === 'connected');
+    const after = await call('GET', `/v1/wa/accounts/${id}`, undefined, tokB);
+    assert.equal(after.body.status, 'connected');
+    assert.equal(after.body.qrRows, null, 'no code once linked');
+    assert.equal(after.body.phoneNumber, '972500000777');
+
+    const mine = await call('GET', '/v1/wa/accounts', undefined, tokA);
+    assert.deepEqual(mine.body.map((a: any) => a.id), [acc], 'each tenant sees only its own numbers');
+    await call('DELETE', `/v1/wa/accounts/${id}`, undefined, tokB);
+  });
+
+  test('settings return the control group and its targets for the connect screen', async () => {
+    const r = await call('GET', '/v1/push/settings', undefined, tokA);
+    const g = r.body.controlGroups[0];
+    assert.deepEqual(g.source, { platform: 'wa', accountId: acc, chatId: ctrl });
+    assert.deepEqual(g.targets.map((t: any) => t.title).sort(), ['יעד 1', 'יעד 2']);
+  });
 });
+
