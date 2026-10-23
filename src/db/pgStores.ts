@@ -654,14 +654,27 @@ export async function recordSafetyEvent(sql: Sql, e: SafetyEvent): Promise<void>
   ]);
 }
 
-export async function recordConnectionEvent(sql: Sql, tenantId: string, accountId: string, status: string, reason?: string): Promise<void> {
+export async function recordConnectionEvent(sql: Sql, tenantId: string, accountId: string, status: string, reason?: string, phoneNumber?: string): Promise<void> {
   await sql.query('INSERT INTO connection_events (tenant_id, account_id, status, reason) VALUES ($1, $2, $3, $4)', [tenantId, accountId, status, reason ?? null]);
   await sql.query(
-    `UPDATE wa_accounts SET status = $2,
+    `UPDATE wa_accounts SET status = $2, phone_number = COALESCE($4, phone_number),
        last_connected_at = CASE WHEN $2 = 'connected' THEN now() ELSE last_connected_at END,
        last_disconnect_reason = COALESCE($3, last_disconnect_reason),
        last_disconnect_at = CASE WHEN $3 IS NOT NULL THEN now() ELSE last_disconnect_at END
      WHERE id = $1`,
-    [accountId, status, reason ?? null],
+    [accountId, status, reason ?? null, status === 'connected' && phoneNumber ? phoneNumber : null],
   );
+}
+
+/**
+ * Numbers that were linked before a restart. They reconnect with their saved
+ * session (no new QR); a number unlinked from the phone in the meantime ends up
+ * "logged_out" and is not retried.
+ */
+export async function linkedAccounts(sql: Sql): Promise<{ id: string; tenant_id: string }[]> {
+  const r = await sql.query<{ id: string; tenant_id: string }>(
+    `SELECT a.id, a.tenant_id FROM wa_accounts a
+      WHERE a.phone_number IS NOT NULL AND a.status NOT IN ('deleted', 'logged_out', 'blocked', 'needs_relink')
+        AND EXISTS (SELECT 1 FROM wa_auth w WHERE w.account_id = a.id AND w.key = 'creds')`);
+  return r.rows;
 }

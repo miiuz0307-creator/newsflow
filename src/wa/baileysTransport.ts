@@ -214,7 +214,18 @@ export class BaileysTransport implements WaTransport {
       set: async (data: Record<string, Record<string, unknown | null>>) => this.store.setKeys(data),
     };
 
+    // The WhatsApp Web version bundled with a Baileys release goes stale; WhatsApp then refuses
+    // the connection. Ask for the current one, and fall back to the bundled one if that fails.
+    let version: number[] | undefined;
+    try {
+      const latest = B.fetchLatestWaWebVersion ? await B.fetchLatestWaWebVersion({}) : B.fetchLatestBaileysVersion ? await B.fetchLatestBaileysVersion() : undefined;
+      if (Array.isArray(latest?.version)) version = latest.version;
+    } catch (err) {
+      this.log.warn('could not fetch the current WhatsApp Web version; using the bundled one', { err: String(err) });
+    }
+
     const sock = makeWASocket({
+      ...(version ? { version } : {}),
       auth: { creds, keys: B.makeCacheableSignalKeyStore ? B.makeCacheableSignalKeyStore(keys) : keys },
       printQRInTerminal: false,
       markOnlineOnConnect: false,

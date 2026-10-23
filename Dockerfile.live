@@ -1,0 +1,28 @@
+# PUSH live: the real product with REAL WhatsApp linking (src/live/server.ts → src/main.ts).
+FROM node:22-slim AS build
+WORKDIR /app
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci --no-audit --no-fund
+COPY src ./src
+COPY scripts ./scripts
+COPY test ./test
+RUN npx tsc -p tsconfig.json
+
+# Runtime packages only (Baileys and what it needs), installed from the lockfile.
+FROM node:22-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund && npm ls baileys
+
+FROM node:22-slim
+ENV NODE_ENV=production
+WORKDIR /app
+RUN useradd --system --uid 10001 app && mkdir -p /app/.media && chown app /app/.media
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
+COPY db ./db
+COPY public ./public
+COPY package.json ./
+USER app
+EXPOSE 8787
+CMD ["node", "dist/src/live/server.js"]
