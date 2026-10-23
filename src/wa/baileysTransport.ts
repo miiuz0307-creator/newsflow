@@ -20,7 +20,7 @@ import type { Logger } from '../logger.js';
 import { silentLogger } from '../logger.js';
 import type { AuthStore } from './authStore.js';
 import { BufferJSON } from './authStore.js';
-import type { DisconnectReason, RawEdit, RawInbound, RawRevoke, StartOptions, TransportEvents, TransportFactory, WaTransport } from './transport.js';
+import type { DisconnectReason, RawEdit, RawInbound, RawReceipt, RawRevoke, StartOptions, TransportEvents, TransportFactory, WaTransport } from './transport.js';
 import { normalizePhone } from './transport.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -114,6 +114,18 @@ export function parseMessageUpdate(u: any, now = Date.now()): { edit?: RawEdit; 
     };
   }
   return null;
+}
+
+/**
+ * Reads one entry of Baileys' 'message-receipt.update' (group messages this
+ * number sent): { key, receipt: { userJid, readTimestamp, receiptTimestamp } }.
+ * Only reads count; delivery receipts are ignored. NOT yet run on a real number.
+ */
+export function parseReceipt(u: any): RawReceipt | null {
+  const key = u?.key;
+  const r = u?.receipt;
+  if (!key?.remoteJid || !key.id || !key.fromMe || !r?.userJid || !r.readTimestamp) return null;
+  return { chatId: key.remoteJid, messageId: key.id, readerId: String(r.userJid), timestamp: new Date(Number(r.readTimestamp) * 1000) };
 }
 
 /** Maps a Baileys send/edit/delete error onto our error kinds. */
@@ -286,6 +298,13 @@ export class BaileysTransport implements WaTransport {
         const parsed = parseMessageUpdate(u);
         if (parsed?.edit) this.emit('message_edited', parsed.edit);
         if (parsed?.revoke) this.emit('message_revoked', parsed.revoke);
+      }
+    });
+
+    sock.ev.on('message-receipt.update', (updates: any[]) => {
+      for (const u of updates ?? []) {
+        const r = parseReceipt(u);
+        if (r) this.emit('receipt', r);
       }
     });
 

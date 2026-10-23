@@ -57,6 +57,17 @@ export interface InboundMessage {
   replyToMessageId?: string;
 }
 
+/** A group member read a message this system sent (WhatsApp read receipt). */
+export interface ReadReceipt {
+  platform: Platform;
+  accountId: string;
+  chatId: string;
+  messageId: string;
+  /** Who read it (phone or LID); counted once per copy. */
+  readerId: string;
+  at: Date;
+}
+
 /**
  * A change to a message that was already received: an edit, or a
  * "delete for everyone". "Delete for me" never reaches us and is never an event.
@@ -150,6 +161,8 @@ export interface Capabilities {
   media: CapabilityLevel;
   groupDiscovery: CapabilityLevel;
   deliveryStatus: CapabilityLevel;
+  /** Who read a sent message (only members who keep read receipts on). */
+  reads: CapabilityLevel;
   /** After this long a sent message can no longer be edited. Undefined = no limit. */
   editWindowMs?: number;
   /** After this long a sent message can no longer be deleted for everyone. */
@@ -176,6 +189,7 @@ export const CAPABILITIES: Record<Platform, Capabilities> = {
     media: 'documented',
     groupDiscovery: 'documented',
     deliveryStatus: 'untested',
+    reads: 'untested',
     editWindowMs: 15 * 60_000,
     deleteWindowMs: 60 * 60 * 60_000,
   },
@@ -190,6 +204,7 @@ export const CAPABILITIES: Record<Platform, Capabilities> = {
     media: 'documented',
     groupDiscovery: false,
     deliveryStatus: false,
+    reads: false,
     deleteWindowMs: 48 * 60 * 60_000,
   },
 };

@@ -44,6 +44,8 @@ export interface StoredJob extends PlannedJob {
   sentMessageId?: string;
   createdAt: Date;
   sentAt?: Date;
+  /** Members who read this copy (WhatsApp read receipts). */
+  readCount?: number;
 }
 
 export interface JobQueue {
@@ -90,6 +92,8 @@ export interface JobQueue {
   summary(tenantId: string, source: ChatRef, messageId: string, action: JobAction, version?: number, routeId?: string): Promise<ActionSummary>;
   /** Manual retry of a failed or unknown job by the customer. */
   requeue(tenantId: string, id: string): Promise<boolean>;
+  /** Counts one reader of a copy this system sent. False if unknown or already counted. */
+  recordRead(platform: string, chatId: string, messageId: string, reader: string): Promise<boolean>;
 }
 
 export function emptySummary(): ActionSummary {
@@ -227,6 +231,21 @@ export class MemoryJobQueue implements JobQueue {
   async wasSentByUs(platform: string, chatId: string, messageId: string) {
     for (const j of this.jobs.values()) {
       if ((j.action === 'send' || j.action === 'report') && j.sentMessageId === messageId && j.target.chatId === chatId && j.target.platform === platform) return true;
+    }
+    return false;
+  }
+
+  private readonly readers = new Map<string, Set<string>>();
+  async recordRead(platform: string, chatId: string, messageId: string, reader: string) {
+    for (const j of this.jobs.values()) {
+      if (j.action === 'send' && j.sentMessageId === messageId && j.target.chatId === chatId && j.target.platform === platform) {
+        let set = this.readers.get(j.id);
+        if (!set) this.readers.set(j.id, (set = new Set()));
+        if (set.has(reader)) return false;
+        set.add(reader);
+        j.readCount = (j.readCount ?? 0) + 1;
+        return true;
+      }
     }
     return false;
   }

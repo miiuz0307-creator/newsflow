@@ -90,7 +90,12 @@ const keys = new TenantKeys(new MasterKey('mk-demo', Buffer.from(derive('master-
 // ------------------------------------------------------------ simulated WhatsApp world
 const net = new FakeWaNetwork({ connectDelayMs: 1 });
 net.createGroup('קבוצת שליטה — PUSH', { members: [DEMO.linked, DEMO.customer], jid: DEMO.controlJid });
-for (const g of DEMO.targets) net.createGroup(g.title, { members: g.member ? [DEMO.linked] : [], jid: g.jid });
+for (const g of DEMO.targets) {
+  net.createGroup(g.title, { members: [DEMO.linked], jid: g.jid });
+  net.addMembers(g.jid, g.members - 1);
+}
+// About two thirds of the simulated members read each message, within a minute.
+net.readSim = { probability: 0.66, minDelayMs: 1500, maxDelayMs: 60_000 };
 
 const conns = new ConnectionManager({
   transportFactory: fakeTransportFactory(net),
@@ -150,6 +155,22 @@ async function seed(): Promise<{ tenantId: string; accountId: string }> {
 }
 
 const demo = await seed();
+// The simulated WhatsApp lives in memory, so messages from an earlier boot can no
+// longer be edited or deleted. Start every boot with a clean history instead.
+try {
+  for (const table of ['message_versions', 'source_messages', 'outbound_jobs', 'dedup_keys']) {
+    await pools.owner.query(`DELETE FROM ${table} WHERE tenant_id = $1`, [demo.tenantId]);
+  }
+} catch (e) {
+  log.warn('demo history not cleared', { error: String(e) });
+}
+// Keep group titles and sizes in step with DEMO on every boot (older demo databases had other titles).
+await withTenant(pools.app, demo.tenantId, async (c) => {
+  for (const g of DEMO.targets) {
+    await c.query('UPDATE chats SET title = $2, participant_count = $3, can_send = true WHERE chat_id = $1', [g.jid, g.title, g.members]);
+    await c.query('UPDATE route_targets SET title = $2 WHERE chat_id = $1', [g.jid, g.title]);
+  }
+});
 
 // The simulated number links itself (QR scanned by the simulation on first boot).
 await conns.connect(demo.tenantId, demo.accountId, { method: 'qr' });
@@ -178,6 +199,20 @@ await api.listen(Number(process.env.PORT ?? 8787), '0.0.0.0');
 worker.dispatcher.start();
 setInterval(() => void pools.worker.query('SELECT * FROM purge_expired(7)').catch(() => {}), 3_600_000).unref();
 log.info('PUSH demo started', { url: api.url });
+
+// A few sample messages so the dashboard is not empty after a deploy. They go
+// through the control group like anything the visitor posts.
+const SAMPLES = [
+  '🔴 מבזק: עומסים כבדים בכביש 4 לכיוון צפון בעקבות תאונה סמוך למחלף פולג. מומלץ להשתמש בדרכים חלופיות.',
+  'חיפה: הפסקת מים מתוכננת בשכונת כרמל צרפתי מחר בין 09:00 ל‑14:00.',
+  'נהריה: נפתח מרכז מידע עירוני לתושבים ברחוב הגעתון 12. שעות פעילות 08:00–20:00.',
+];
+void (async () => {
+  for (const text of SAMPLES) {
+    await new Promise((r) => setTimeout(r, 4000));
+    try { net.humanPost(DEMO.customer, DEMO.controlJid, { kind: 'text', text }); } catch (e) { log.warn('sample not posted', { error: String(e) }); }
+  }
+})();
 
 async function shutdown() {
   await api.close();

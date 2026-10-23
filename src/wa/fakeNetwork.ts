@@ -77,6 +77,13 @@ export class FakeWaNetwork {
   readonly timings: FakeTimings;
   /** The network's clock (tests move it forward to pass edit / delete windows). */
   clock: () => number = Date.now;
+  /**
+   * Simulated readers: after a send, each other member reads it with this
+   * probability, after a random delay, and the sender gets a read receipt.
+   * Off by default (tests stay deterministic).
+   */
+  readSim: { probability: number; minDelayMs: number; maxDelayMs: number } | null = null;
+  random: () => number = Math.random;
 
   constructor(timings: Partial<FakeTimings> = {}) {
     this.timings = { ...DEFAULT_TIMINGS, ...timings };
@@ -243,6 +250,7 @@ export class FakeWaNetwork {
       p.sendTimes.push(now);
     }
     const id = this.deliver(g, phone, content);
+    this.simulateReads(g, phone, id);
     if (p.loseNextAck) {
       p.loseNextAck = false;
       throw new SendError('unknown', 'no answer from WhatsApp after sending');
@@ -285,6 +293,33 @@ export class FakeWaNetwork {
       for (const t of this.live.get(member) ?? []) {
         t.emitPublic('message_revoked', { chatId: jid, messageId, senderId: `${phone}@s.whatsapp.net`, fromSelf: member === phone, timestamp: new Date(this.clock()) });
       }
+    }
+  }
+
+  /** Adds `count` simulated members (they never send; they only read when readSim is on). */
+  addMembers(jid: string, count: number): void {
+    const g = this.mustGroup(jid);
+    const base = 972540000000 + [...jid].reduce((a, c) => (a * 31 + c.charCodeAt(0)) % 900_000, 0) * 1000;
+    for (let i = 0; i < count; i++) g.members.add(String(base + i));
+  }
+
+  /** A read receipt from one member, delivered to the author's devices (tests use it directly). */
+  read(jid: string, messageId: string, reader: string): void {
+    const g = this.mustGroup(jid);
+    const e = g.log.find((x) => x.id === messageId);
+    if (!e || e.deleted || reader === e.from) return;
+    for (const t of this.live.get(e.from) ?? []) {
+      t.emitPublic('receipt', { chatId: jid, messageId, readerId: `${reader}@s.whatsapp.net`, timestamp: new Date(this.clock()) });
+    }
+  }
+
+  private simulateReads(g: FakeGroup, from: string, messageId: string) {
+    const sim = this.readSim;
+    if (!sim) return;
+    for (const m of g.members) {
+      if (m === from || this.random() > sim.probability) continue;
+      const delay = sim.minDelayMs + this.random() * (sim.maxDelayMs - sim.minDelayMs);
+      setTimeout(() => this.read(g.jid, messageId, m), delay).unref?.();
     }
   }
 

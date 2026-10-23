@@ -195,6 +195,57 @@ main{padding:34px 40px 80px;min-width:0}
 .caps th,.caps td{text-align:right;padding:11px 10px;border-bottom:1px solid var(--line)}
 .caps th{font-size:12px;color:var(--muted);font-weight:600}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* ---------- overview: today ---------- */
+.hero-band{position:relative;overflow:hidden;border-radius:22px;color:#fff;padding:26px 28px 28px;background:radial-gradient(700px 360px at 12% 0%,rgba(25,198,180,.28) 0%,transparent 60%),radial-gradient(800px 420px at 95% 110%,#1d4a86 0%,transparent 60%),var(--ink)}
+.hero-band::after{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.07) 1px,transparent 1px);background-size:22px 22px;pointer-events:none;mask-image:linear-gradient(180deg,#000,transparent 85%)}
+.hb-head{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:22px}
+.hb-head h1{font-size:40px}.hb-head p{color:rgba(255,255,255,.66);margin-top:2px}
+.hb-body{position:relative;z-index:1;display:grid;grid-template-columns:1.4fr 1fr;gap:18px;align-items:stretch}
+.hstats{display:grid;grid-template-columns:repeat(3,1fr);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:16px}
+.hstat{padding:18px 20px}.hstat+.hstat{border-inline-start:1px solid rgba(255,255,255,.12)}
+.hv{font-family:var(--display);font-size:46px;line-height:1.05;color:#fff}
+.hstat:last-child .hv{color:var(--teal)}
+.hk{font-size:14px;color:rgba(255,255,255,.82);margin-top:4px}
+.hs{font-size:11.5px;color:rgba(255,255,255,.5);margin-top:2px;line-height:1.35}
+.top{background:linear-gradient(160deg,rgba(25,198,180,.2),rgba(25,198,180,.05));border:1px solid rgba(25,198,180,.4);border-radius:16px;padding:18px 20px;display:flex;flex-direction:column}
+.top-k{font-size:12.5px;font-weight:700;color:var(--teal);letter-spacing:.02em}
+.top-t{margin:8px 0 12px;font-size:16px;line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;flex:1}
+.top-n{display:flex;align-items:baseline;gap:8px;color:rgba(255,255,255,.7);font-size:13px}
+.top-n b{font-family:var(--display);font-weight:400;font-size:30px;color:#fff}
+.empty-top .top-t{color:rgba(255,255,255,.66);font-size:14px}
+@media (max-width:1100px){.hb-body{grid-template-columns:1fr}}
+@media (max-width:620px){.hero-band{padding:20px 18px;border-radius:18px}.hb-head h1{font-size:32px}.hstats{grid-template-columns:1fr}.hstat+.hstat{border-inline-start:0;border-top:1px solid rgba(255,255,255,.12)}.hstat{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:12px 16px}.hv{font-size:34px}.hs{flex-basis:100%}}
+.alert{display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;padding:12px 16px;border-radius:12px;background:var(--warn-soft);color:var(--warn);border:1px solid transparent;font:inherit;font-size:14px;cursor:pointer;text-align:start}
+.alert span{text-decoration:underline;text-underline-offset:3px}
+.board{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px;counter-reset:b}
+.board li{counter-increment:b;position:relative;padding-inline-start:34px}
+.board li::before{content:counter(b);position:absolute;inset-inline-start:0;top:0;width:24px;height:24px;border-radius:8px;background:var(--teal-mist);color:var(--teal-deep);font-family:var(--display);display:grid;place-items:center;font-size:14px}
+.board li:first-child::before{background:var(--teal);color:var(--ink)}
+.bt{display:flex;justify-content:space-between;gap:12px;align-items:baseline}
+.btx{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14.5px}
+.bt b{font-family:var(--display);font-weight:400;font-size:18px;flex:none}
+.btrack{display:block;height:5px;border-radius:99px;background:var(--line);margin:6px 0 4px;overflow:hidden}
+.bfill{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--teal-deep),var(--teal))}
+.bm{font-size:12px;color:var(--muted)}
+.chart .bsent{fill:var(--navy)}.chart .bread{fill:var(--teal)}
+.lg-read{background:var(--teal)}
+.chart .val{fill:var(--text);font-weight:600}
+.lg-num{font-size:11px;color:var(--text);margin-inline-end:6px}
+.kbd-hint{font-size:12px;color:var(--muted)}
+.grid-2>*,.hb-body>*,.board li,.bt,.btx{min-width:0}
+.reads{display:inline-flex;align-items:center;gap:5px;color:var(--teal-deep);font-weight:600}
+.reads svg{width:15px;height:15px}
+.copies .num{font-variant-numeric:tabular-nums}
+/* ---------- settings ---------- */
+.hint.left{text-align:start;margin:4px 0 14px}
+textarea.sig{resize:vertical;min-height:110px;line-height:1.5}
+select.i{width:100%;padding:11px 12px;border:1px solid var(--line);border-radius:11px;background:var(--soft);color:var(--text);font:inherit}
+label.f.mode{margin-top:18px}
+.save-row{display:flex;align-items:center;gap:14px}.save-row .hint{margin:0}
+.preview{background:var(--soft);background-image:radial-gradient(var(--line) 1px,transparent 1px);background-size:16px 16px;border-radius:14px;padding:22px 16px;margin-top:14px;display:flex;flex-direction:column}
+.b.pv{align-self:flex-end;background:var(--card);border:1px solid var(--line);border-start-end-radius:3px;max-width:92%}
+.pv-s{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);color:var(--teal-deep)}
+.settings .panel h2{margin-bottom:6px}
 </style>
 </head>
 <body>
@@ -213,7 +264,9 @@ var ICON={
   home:'M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z',
   send:'M4 12 20 4l-4 16-4-6-8-2zm8 2 4-6',
   lab:'M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3',
-  info:'M12 8h.01M11 12h1v5h1M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z'
+  info:'M12 8h.01M11 12h1v5h1M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
+  pen:'M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3',
+  eye:'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'
 };
 function icon(name){return s('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.8','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'},[s('path',{d:ICON[name]})])}
 async function api(method,path,body,retried){
@@ -274,7 +327,7 @@ function showAuth(mode,msg){
 
 // ---------------- app shell
 var me=null,demo=false,timer=null,route='overview',dists=[],caps=null;
-var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'caps',label:'יכולות',icon:'info'}];
+var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'settings',label:'חתימה',icon:'pen'},{id:'caps',label:'יכולות',icon:'info'}];
 async function start(){
   try{me=await api('GET','/v1/me')}catch(e){return showAuth('login')}
   try{await api('GET','/v1/demo/state');demo=true}catch(e){demo=false}
@@ -307,39 +360,77 @@ async function refresh(){
 function draw(full){
   if(route==='sim'){if(full||!simEl)mainEl.replaceChildren(simPage());else simDraw();return}
   simEl=null;
+  if(route==='settings'){if(full)mainEl.replaceChildren(settingsPage());return} // a form: never redrawn under the user
   mainEl.replaceChildren(route==='dists'?distsPage():route==='caps'?capsPage():overviewPage());
 }
 
 // ---------------- overview
-function totals(list){var t={d:list.length,sent:0,all:0,unk:0,fail:0,edits:0,dels:0};
-  list.forEach(function(d){t.sent+=d.copies.sent;t.all+=d.copies.total-d.copies.cancelled-d.copies.skipped;t.unk+=d.copies.unknown;t.fail+=d.copies.failed;t.edits+=d.edits.sent;t.dels+=d.deletes.sent});return t}
-function kpi(k,v,sub,tone){return h('div',{cls:'kpi'+(tone?' '+tone:'')},[h('div',{cls:'k',text:k}),h('div',{cls:'v',text:String(v)}),sub?h('div',{cls:'s',text:sub}):null])}
+function isToday(d){var x=new Date(d),n=new Date();return x.toDateString()===n.toDateString()}
+function fmt(n){return Number(n||0).toLocaleString('he-IL')}
 function overviewPage(){
-  var t=totals(dists),rate=t.all?Math.round(100*t.sent/t.all)+'%':'—';
-  var hello=h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'שלום, '+me.tenant.name}),h('p',{text:'מה קרה בהפצות שלכם ב‑30 הימים האחרונים.'})])]);
-  var k=h('div',{cls:'kpis'},[kpi('הודעות שהופצו',t.d,null),kpi('עותקים שנשלחו',t.sent,'שיעור הצלחה '+rate,'good'),kpi('נכשלו',t.fail,t.fail?'אפשר לנסות שוב מתוך ההפצה':'אין כשלים',t.fail?'bad':null),kpi('ממתינים לאימות',t.unk,t.unk?'בדקו בקבוצה לפני שליחה חוזרת':'הכול מאומת',t.unk?'warn':null)]);
-  var chartPanel=h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'עותקים ביום'}),h('span',{cls:'hint',text:'14 הימים האחרונים'})]),chart(dists),
-    h('div',{cls:'legend'},[h('span',null,[h('i',{cls:'lg-ok'}),'נשלחו']),h('span',null,[h('i',{cls:'lg-bad'}),'נכשלו'])])]);
+  var today=dists.filter(function(d){return isToday(d.createdAt)});
+  var sentToday=0,readsToday=0;today.forEach(function(d){sentToday+=d.copies.sent;readsToday+=d.reads||0});
+  var top=today.slice().sort(function(a,b){return (b.reads||0)-(a.reads||0)})[0];
+  var dateLine=new Date().toLocaleDateString('he-IL',{weekday:'long',day:'numeric',month:'long'});
+  var stat=function(v,k,sub){return h('div',{cls:'hstat'},[h('div',{cls:'hv',text:fmt(v)}),h('div',{cls:'hk',text:k}),sub?h('div',{cls:'hs',text:sub}):null])};
+  var topCard=top&&top.reads?h('div',{cls:'top'},[
+      h('div',{cls:'top-k',text:'הנקראת ביותר היום'}),h('p',{cls:'top-t',text:top.preview}),
+      h('div',{cls:'top-n'},[h('b',{text:fmt(top.reads)}),h('span',{text:'קריאות · '+top.copies.sent+' קבוצות · '+timeOf(top.createdAt)})])])
+    :h('div',{cls:'top empty-top'},[h('div',{cls:'top-k',text:'הנקראת ביותר היום'}),h('p',{cls:'top-t',text:today.length?'הקריאות מתעדכנות תוך דקה מהשליחה.':'עוד לא נשלחו הודעות היום.'})]);
+  var hero=h('section',{cls:'hero-band'},[
+    h('div',{cls:'hb-head'},[h('div',null,[h('h1',{text:'היום'}),h('p',{text:dateLine+' · '+me.tenant.name})]),
+      demo?h('button',{cls:'btn btn-primary',type:'button',text:'שליחת הודעה',onclick:function(){go('sim')}}):null]),
+    h('div',{cls:'hb-body'},[h('div',{cls:'hstats'},[stat(today.length,'הודעות הופצו'),stat(sentToday,'עותקים נשלחו'),stat(readsToday,'קריאות','לפחות; רק מי שלא כיבה אישורי קריאה')]),topCard])]);
+  var bad=0,unk=0;dists.forEach(function(d){bad+=d.copies.failed;unk+=d.copies.unknown});
+  var alert=bad||unk?h('button',{cls:'alert',type:'button',onclick:function(){go('dists')}},[h('b',{text:(bad?bad+' עותקים לא הגיעו':'')+(bad&&unk?' · ':'')+(unk?unk+' ממתינים לאימות':'')}),h('span',{text:'לפרטים ולשליחה חוזרת'})]):null;
+  var most=dists.filter(function(d){return d.reads}).sort(function(a,b){return b.reads-a.reads}).slice(0,5);
+  var maxR=most.length?most[0].reads:1;
+  var board=h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'הנקראות ביותר'}),h('span',{cls:'hint',text:'30 הימים האחרונים'})]),
+    most.length?h('ol',{cls:'board'},most.map(function(d){var bar=h('span',{cls:'bfill'});bar.style.width=(100*d.reads/maxR)+'%';
+      return h('li',null,[h('div',{cls:'bt'},[h('span',{cls:'btx',text:d.preview}),h('b',{text:fmt(d.reads)})]),h('span',{cls:'btrack','aria-hidden':'true'},[bar]),h('span',{cls:'bm',text:whenOf(d.createdAt)+' · '+d.copies.sent+' קבוצות'})])}))
+    :h('p',{cls:'hint',text:'כשההודעות ייקראו, הן יופיעו כאן לפי מספר הקריאות.'})]);
+  var chartPanel=h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'14 הימים האחרונים'})]),chart(dists),
+    h('div',{cls:'legend'},[h('span',null,[h('i',{cls:'lg-read'}),'קריאות ביום']),h('span',null,[h('b',{cls:'lg-num',text:'3'}),'מספר ההודעות שהופצו'])])]);
   var recent=h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'הפצות אחרונות'}),h('a',{href:'#dists',text:'לכל ההפצות',onclick:function(e){e.preventDefault();go('dists')}})]),distList(dists.slice(0,5),true)]);
-  var sync=h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'סנכרון'})]),
-    h('div',{cls:'kpis',style:null},[kpi('עותקים שנערכו',t.edits,'אחרי עריכה בקבוצת השליטה'),kpi('עותקים שנמחקו',t.dels,'אחרי "מחק לכולם"')])]);
-  // A new account (not the demo) has no WhatsApp number yet: say plainly what comes next.
   var notice=!demo&&!dists.length?h('div',{cls:'notice'},[h('h3',{text:'השלב הבא: חיבור מספר WhatsApp'}),
     h('p',{text:'בקרוב תוכלו לסרוק כאן קוד QR, לבחור קבוצת שליטה וקבוצות יעד, ולהתחיל להפיץ. החיבור למספרים אמיתיים נפתח אחרי שלב הבדיקות.'})]):null;
-  return h('div',null,[hello,notice,k,h('div',{cls:'grid-2'},[chartPanel,sync]),h('div',{cls:'grid-2 one'},[recent])]);
+  return h('div',null,[hero,notice,alert,h('div',{cls:'grid-2'},[chartPanel,board]),h('div',{cls:'grid-2 one'},[recent])]);
 }
 function chart(list){
   var days=[],now=new Date();now.setHours(0,0,0,0);
-  for(var i=13;i>=0;i--){var d=new Date(now.getTime()-i*864e5);days.push({d:d,ok:0,bad:0})}
-  list.forEach(function(x){var d=new Date(x.createdAt);d.setHours(0,0,0,0);var day=days.find(function(y){return y.d.getTime()===d.getTime()});if(day){day.ok+=x.copies.sent;day.bad+=x.copies.failed}});
-  var W=640,H=190,pad=26,max=Math.max(4,Math.max.apply(null,days.map(function(x){return x.ok+x.bad})));
-  var step=(W-pad)/days.length,bw=Math.min(26,step*.62),kids=[];
-  [0,.5,1].forEach(function(f){var y=H-pad-(H-pad-10)*f;kids.push(s('line',{x1:0,x2:W-pad,y1:y,y2:y,'class':'grid'}));kids.push(s('text',{x:W-4,y:y+4,'class':'axis','text-anchor':'end'},[String(Math.round(max*f))]))});
-  days.forEach(function(x,i){var cx=(W-pad)-(i+.5)*step,hh=(H-pad-10)*(x.ok/max),hb=(H-pad-10)*(x.bad/max);
-    if(x.ok)kids.push(s('rect',{x:cx-bw/2,y:H-pad-hh,width:bw,height:hh,rx:4,'class':'bar'},[s('title',{},[x.d.toLocaleDateString('he-IL')+': '+x.ok+' נשלחו'])]));
-    if(x.bad)kids.push(s('rect',{x:cx-bw/2,y:H-pad-hh-hb,width:bw,height:hb,rx:3,'class':'barbad'}));
-    if(i%2===0)kids.push(s('text',{x:cx,y:H-8,'class':'axis','text-anchor':'middle'},[x.d.getDate()+'.'+(x.d.getMonth()+1)]))});
-  return s('svg',{'class':'chart',direction:'ltr',viewBox:'0 0 '+W+' '+H,role:'img','aria-label':'עותקים שנשלחו בכל יום ב‑14 הימים האחרונים'},kids);
+  for(var i=13;i>=0;i--){var d=new Date(now.getTime()-i*864e5);days.push({d:d,sent:0,reads:0,msgs:0})}
+  list.forEach(function(x){var d=new Date(x.createdAt);d.setHours(0,0,0,0);var day=days.find(function(y){return y.d.getTime()===d.getTime()});if(day){day.msgs++;day.sent+=x.copies.sent;day.reads+=x.reads||0}});
+  var W=640,H=210,pad=30,top=22,max=Math.max(10,Math.max.apply(null,days.map(function(x){return x.reads})));
+  var step=(W-pad)/days.length,bw=Math.min(24,step*.56),kids=[],y=function(v){return H-pad-(H-pad-top)*(v/max)};
+  [0,.5,1].forEach(function(f){var yy=y(max*f);kids.push(s('line',{x1:0,x2:W-pad,y1:yy,y2:yy,'class':'grid'}));kids.push(s('text',{x:W-2,y:yy+4,'class':'axis','text-anchor':'end'},[fmt(Math.round(max*f))]))});
+  days.forEach(function(x,i){var cx=(W-pad)-(i+.5)*step,label=x.d.toLocaleDateString('he-IL')+': '+x.msgs+' הודעות, '+x.sent+' עותקים, '+fmt(x.reads)+' קריאות';
+    if(x.msgs){var hgt=Math.max(3,H-pad-y(x.reads));kids.push(s('rect',{x:cx-bw/2,y:H-pad-hgt,width:bw,height:hgt,rx:4,'class':'bread'},[s('title',{},[label])]));
+      kids.push(s('text',{x:cx,y:H-pad-hgt-6,'class':'axis val','text-anchor':'middle'},[String(x.msgs)]))}
+    if(i%2===1||i===13)kids.push(s('text',{x:cx,y:H-9,'class':'axis','text-anchor':'middle'},[i===13?'היום':x.d.getDate()+'.'+(x.d.getMonth()+1)]))});
+  return s('svg',{'class':'chart',direction:'ltr',viewBox:'0 0 '+W+' '+H,role:'img','aria-label':'קריאות והודעות בכל יום ב‑14 הימים האחרונים'},kids);
+}
+
+// ---------------- settings (signature)
+var settings=null;
+function settingsPage(){
+  var wrap=h('div',null,[h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'חתימה והגדרות'}),h('p',{text:'מה מתווסף מתחת לכל הודעה, ואיזה דיווח מגיע לקבוצת השליטה.'})])]),h('p',{cls:'hint',text:'טוען…'})]);
+  (async function(){
+    try{settings=await api('GET','/v1/push/settings')}catch(e){wrap.replaceChildren(h('p',{cls:'err',text:e.message}));return}
+    if(!settings.controlGroups.length){wrap.lastChild.replaceWith(h('div',{cls:'notice'},[h('h3',{text:'עדיין אין קבוצת שליטה'}),h('p',{text:'אחרי חיבור WhatsApp ובחירת קבוצת שליטה, כאן קובעים את החתימה.'})]));return}
+    var sig=h('textarea',{cls:'i sig',rows:'4',maxlength:'1000',placeholder:'לדוגמה:\\n📲 להצטרפות לקבוצה: https://chat.whatsapp.com/...\\n✈️ בטלגרם: https://t.me/...'});sig.value=settings.signature;
+    var sample='🔴 מבזק: כביש 4 נחסם לתנועה לכיוון צפון בעקבות תאונה.';
+    var prevText=h('div',{cls:'pv-t'});var prevSig=h('div',{cls:'pv-s'});
+    var upd=function(){prevText.textContent=sample;prevSig.textContent=sig.value.trim();prevSig.hidden=!sig.value.trim()};sig.addEventListener('input',upd);upd();
+    var mode=h('select',{cls:'i'},[['summary','סיכום בסוף כל הפצה'],['all','כל שלב: התקבלה, נשלחה, נערכה'],['failures','רק כשמשהו לא הצליח'],['off','בלי דיווחים']].map(function(o){return h('option',{value:o[0],text:o[1]})}));mode.value=settings.reportMode;
+    var msg=h('p',{cls:'hint save-msg',role:'status'});
+    var save=h('button',{cls:'btn btn-primary',type:'button',text:'שמירה',onclick:async function(){save.disabled=true;msg.textContent='';
+      try{await api('PUT','/v1/push/settings',{signature:sig.value,reportMode:mode.value});msg.textContent='נשמר. ההודעות הבאות יישלחו עם החתימה.'}catch(e){msg.textContent=e.message}save.disabled=false}});
+    wrap.lastChild.replaceWith(h('div',{cls:'grid-2 settings'},[
+      h('section',{cls:'panel'},[h('h2',{text:'חתימה קבועה'}),h('p',{cls:'hint left',text:'טקסט או קישור שיופיעו מתחת לכל הודעה, בכל הקבוצות. אפשר להשתמש גם ב-{תאריך} וב-{שעה}.'}),
+        sig,h('label',{cls:'f mode'},[h('span',{text:'דיווח בקבוצת השליטה'}),mode]),h('div',{cls:'save-row'},[save,msg])]),
+      h('section',{cls:'panel'},[h('h2',{text:'כך זה ייראה בקבוצות'}),h('div',{cls:'preview'},[h('div',{cls:'b copy pv'},[prevText,prevSig,h('div',{cls:'t',text:'12:00'})])])])]));
+  })();
+  return wrap;
 }
 
 // ---------------- distributions
@@ -366,7 +457,7 @@ function distRow(d,compact){
   var btn=h('button',{'aria-expanded':String(!!open[k]),onclick:function(){if(compact){go('dists');open={};open[k]=true;draw(true);return}
     if(open[k]){delete open[k];box.hidden=true;btn.setAttribute('aria-expanded','false')}else{open[k]=true;box.hidden=false;btn.setAttribute('aria-expanded','true');loadDetail(k,box)}}},[
     h('span',{cls:'txt',text:d.preview||'(מדיה)'}),h('span',{cls:'when',text:whenOf(d.createdAt)}),
-    h('span',{cls:'meta'},[dbar(c),h('span',{text:c.sent+' מתוך '+total+' קבוצות'})].concat(tags))]);
+    h('span',{cls:'meta'},[dbar(c),h('span',{text:c.sent+' מתוך '+total+' קבוצות'}),d.reads?h('span',{cls:'reads'},[icon('eye'),fmt(d.reads)+' קריאות']):null].concat(tags))]);
   if(open[k]&&!compact)loadDetail(k,box);
   return h('div',{cls:'dist'},[btn,box]);
 }
@@ -382,9 +473,10 @@ async function loadDetail(key,box){
       h('td',{text:c.target.title||c.target.chatId}),
       h('td',{cls:'c-plat'},[h('span',{cls:'plat'+(c.target.platform==='tg'?' tg':'')},[h('i',{'aria-hidden':'true'}),c.target.platform==='tg'?'Telegram':'WhatsApp'])]),
       h('td',null,[pill(c.status),c.error?h('span',{cls:'why',text:REASON[c.error]||c.error}):null]),
+      h('td',{cls:'num',text:c.status==='sent'?fmt(c.reads||0):'—'}),
       h('td',null,[chg(c.edit)]),h('td',null,[chg(c.delete)]),h('td',null,[act])]);
   });
-  box.replaceChildren.apply(box,[vers,h('div',{cls:'tablewrap'},[h('table',{cls:'copies'},[h('thead',null,[h('tr',null,['קבוצה','פלטפורמה','שליחה','עריכה','מחיקה',''].map(function(t,i){return h('th',{cls:i===1?'c-plat':null,text:t})}))]),h('tbody',null,rows)])])].filter(Boolean));
+  box.replaceChildren.apply(box,[vers,h('div',{cls:'tablewrap'},[h('table',{cls:'copies'},[h('thead',null,[h('tr',null,['קבוצה','פלטפורמה','שליחה','קריאות','עריכה','מחיקה',''].map(function(t,i){return h('th',{cls:i===1?'c-plat':null,text:t})}))]),h('tbody',null,rows)])])].filter(Boolean));
 }
 async function retry(id,confirmNotDelivered,key,box){try{await api('POST','/v1/jobs/'+id+'/retry',confirmNotDelivered?{confirmNotDelivered:true}:{});await loadDetail(key,box)}catch(e){box.insertBefore(h('p',{cls:'err',text:e.message}),box.firstChild)}}
 function distsPage(){return h('div',null,[h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'הפצות'}),h('p',{text:'כל הודעה מקבוצת השליטה, ומה קרה איתה בכל קבוצה. לחצו על הודעה לפרטים.'})])]),h('section',{cls:'panel'},[distList(dists,false)])])}
@@ -396,18 +488,16 @@ function say(t,bad){if(simMsg){simMsg.textContent=t;simMsg.className='status'+(b
 async function act(path,body,ok){try{await api('POST',path,body);say(ok||'');await refresh()}catch(e){say(e.message,true)}}
 function simPage(){
   var ta=h('textarea',{cls:'i',placeholder:'כתבו הודעה, כמו בקבוצת השליטה ב‑WhatsApp…','aria-label':'הודעה לקבוצת השליטה'});
-  var lose=h('input',{type:'checkbox',id:'lose'});
   var sendBtn=h('button',{cls:'btn btn-primary',type:'button',text:'שליחה',onclick:async function(){
     if(!ta.value.trim())return say('כתבו טקסט לפני השליחה',true);
-    if(lose.checked){await act('/v1/demo/lose-ack',{});lose.checked=false}
     await act('/v1/demo/post',{text:ta.value},'נשלח לקבוצת השליטה. PUSH מפיצה עכשיו…');ta.value=''}});
   ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&(e.ctrlKey||e.metaKey))sendBtn.click()});
-  composer=h('div',{cls:'compose'},[ta,h('div',{cls:'row'},[h('label',{for:'lose'},[lose,'לדמות שליחה בלי תשובה']),sendBtn])]);
+  composer=h('div',{cls:'compose'},[ta,h('div',{cls:'row'},[h('span',{cls:'kbd-hint',text:'Ctrl+Enter לשליחה'}),sendBtn])]);
   simMsg=h('div',{cls:'status',role:'status'});
   chatBox=h('div',{cls:'chat','aria-live':'polite'});groupsBox=h('div',{cls:'tgrid'});
   simEl=h('div',null,[
     h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'סימולציה'}),h('p',{text:'נסו את PUSH בלי מספר אמיתי: כתבו, ערכו ומחקו בקבוצת השליטה, וראו מה קורה בכל קבוצה.'})])]),
-    h('div',{cls:'banner',text:'זו סימולציה של WhatsApp. שום הודעה לא נשלחת ל‑WhatsApp אמיתי. ב"מבזקים — גליל" המספר לא חבר בקבוצה, כדי שתראו איך נראה כשל.'}),
+    h('div',{cls:'banner',text:'זו סימולציה של WhatsApp. שום הודעה לא נשלחת ל‑WhatsApp אמיתי. הקריאות מדומות לפי מספר החברים בכל קבוצה ומגיעות בדקה הראשונה.'}),
     h('div',{cls:'sim'},[
       h('div',{cls:'phone'},[h('div',{cls:'bar'},[h('span',{cls:'av',text:'P'}),h('div',null,[h('b',{text:'קבוצת שליטה'}),h('small',{text:'אתם ו‑PUSH'})])]),chatBox,simMsg,composer]),
       h('div',null,[groupsBox])])]);

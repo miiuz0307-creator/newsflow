@@ -47,6 +47,11 @@ export interface ControlSettings {
    * Empty or missing = anyone in the control group.
    */
   allowedSenders?: string[];
+  /**
+   * Fixed text added under every message (a link, a line about the channel…).
+   * Placeholders such as {תאריך} work here too.
+   */
+  signature?: string;
 }
 
 export interface Route {

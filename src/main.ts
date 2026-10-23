@@ -130,7 +130,7 @@ const api = new ApiServer({
     authModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate() }),
     manageModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate() }),
     supportModule(),
-    pushModule(),
+    pushModule({ onRoutesChanged: () => routeSource.invalidate() }),
     fontsModule(),
     ...adminModules,
   ],

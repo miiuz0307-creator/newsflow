@@ -200,6 +200,7 @@ interface JobRow {
   action: JobAction;
   version: number;
   parent_job_id: number | string | null;
+  read_count?: number;
 }
 
 function toJob(r: JobRow): StoredJob {
@@ -225,6 +226,7 @@ function toJob(r: JobRow): StoredJob {
     ...(r.sent_message_id ? { sentMessageId: r.sent_message_id } : {}),
     createdAt: r.created_at,
     ...(r.sent_at ? { sentAt: r.sent_at } : {}),
+    ...(r.read_count ? { readCount: r.read_count } : {}),
   };
 }
 
@@ -371,6 +373,19 @@ export class PgJobQueue implements JobQueue {
       `SELECT 1 FROM outbound_jobs WHERE target_chat_id = $1 AND sent_message_id = $2 AND target_platform = $3
           AND action IN ('send', 'report') LIMIT 1`,
       [chatId, messageId, platform]);
+    return r.rowCount > 0;
+  }
+
+  // ---- reads
+
+  async recordRead(platform: string, chatId: string, messageId: string, reader: string) {
+    const r = await this.sql.query<{ job_id: string }>(
+      `WITH j AS (SELECT id, tenant_id FROM outbound_jobs
+                   WHERE target_chat_id = $2 AND sent_message_id = $3 AND target_platform = $1 AND action = 'send' LIMIT 1),
+            ins AS (INSERT INTO message_reads (job_id, tenant_id, reader) SELECT id, tenant_id, $4 FROM j
+                     ON CONFLICT DO NOTHING RETURNING job_id)
+       UPDATE outbound_jobs SET read_count = read_count + 1 WHERE id IN (SELECT job_id FROM ins) RETURNING id::text AS job_id`,
+      [platform, chatId, messageId, reader.slice(0, 120)]);
     return r.rowCount > 0;
   }
 

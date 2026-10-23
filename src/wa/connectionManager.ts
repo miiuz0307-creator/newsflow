@@ -10,7 +10,7 @@
  * the customer is told and decides. There is no number switching, no
  * fingerprint changing and no other attempt to get around a restriction.
  */
-import type { ChannelSender, ChatInfo, InboundMessage, MessageContent, SendResult, SyncEvent } from '../core/types.js';
+import type { ChannelSender, ChatInfo, InboundMessage, MessageContent, ReadReceipt, SendResult, SyncEvent } from '../core/types.js';
 import { SendError } from '../core/types.js';
 import type { Logger } from '../logger.js';
 import { silentLogger } from '../logger.js';
@@ -83,6 +83,7 @@ export class ConnectionManager {
   private readonly statusListeners = new Set<(e: StatusEvent) => void>();
   private readonly messageListeners = new Set<(m: InboundMessage) => void>();
   private readonly syncListeners = new Set<(e: SyncEvent) => void>();
+  private readonly receiptListeners = new Set<(r: ReadReceipt) => void>();
   private readonly safetyListeners = new Set<(s: SafetySignal) => void>();
   private readonly log: Logger;
   private readonly backoff: number[];
@@ -101,6 +102,11 @@ export class ConnectionManager {
   onMessage(fn: (m: InboundMessage) => void): () => void {
     this.messageListeners.add(fn);
     return () => this.messageListeners.delete(fn);
+  }
+  /** Read receipts for messages the connected accounts sent. */
+  onReceipt(fn: (r: ReadReceipt) => void): () => void {
+    this.receiptListeners.add(fn);
+    return () => this.receiptListeners.delete(fn);
   }
   /** Edits and "delete for everyone" seen by any connected account. */
   onSync(fn: (e: SyncEvent) => void): () => void {
@@ -270,6 +276,16 @@ export class ConnectionManager {
       type: 'delete', tenantId: e.state.tenantId, source: { platform: 'wa', accountId: e.state.accountId, chatId: raw.chatId },
       messageId: raw.messageId, senderId: raw.senderId, fromSelf: raw.fromSelf, at: raw.timestamp,
     }));
+    t.on('receipt', (raw) => {
+      const r: ReadReceipt = { platform: 'wa', accountId: e.state.accountId, chatId: raw.chatId, messageId: raw.messageId, readerId: raw.readerId, at: raw.timestamp };
+      for (const fn of this.receiptListeners) {
+        try {
+          fn(r);
+        } catch (err) {
+          this.log.error('receipt listener failed', { err: String(err) });
+        }
+      }
+    });
     t.on('close', ({ reason, detail }) => void this.handleClose(e, reason, detail));
   }
 

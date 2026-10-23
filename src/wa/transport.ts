@@ -76,6 +76,14 @@ export interface RawRevoke {
   timestamp: Date;
 }
 
+/** A member read a message this number sent. */
+export interface RawReceipt {
+  chatId: string;
+  messageId: string;
+  readerId: string;
+  timestamp: Date;
+}
+
 export interface TransportEvents {
   qr: (qr: string) => void;
   pairing_code: (code: string) => void;
@@ -84,6 +92,7 @@ export interface TransportEvents {
   message: (msg: RawInbound) => void;
   message_edited: (e: RawEdit) => void;
   message_revoked: (e: RawRevoke) => void;
+  receipt: (e: RawReceipt) => void;
   /** Group list or a group's settings changed; the manager refreshes its cache. */
   chats_changed: () => void;
 }

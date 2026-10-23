@@ -231,6 +231,23 @@ for (const kind of ['memory', 'pg'] as const) {
       assert.match(reports(w).at(-1)!, /✏️ PUSH · ההודעה עודכנה ב-4 קבוצות/);
     });
 
+    test('read receipts count once per reader on the copy that was read', async () => {
+      const id = w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'מי קרא?' });
+      await w.drain();
+      const [g1, g2] = w.waTargets as [string, string];
+      const c1 = w.net.groupLog(g1).at(-1)!.id, c2 = w.net.groupLog(g2).at(-1)!.id;
+      w.net.read(g1, c1, '972540000011');
+      w.net.read(g1, c1, '972540000011');
+      w.net.read(g2, c2, '972540000012');
+      w.net.read(w.ctrl, id, '972540000013');
+      await w.drain();
+      const copies = await w.queue.copiesOf(w.tenantId, { platform: 'wa', accountId: w.acc, chatId: w.ctrl }, id);
+      const byChat = new Map(copies.filter((j) => j.action === 'send').map((j) => [j.target.chatId, j.readCount ?? 0]));
+      assert.equal(byChat.get(g1), 1);
+      assert.equal(byChat.get(g2), 1);
+      assert.equal([...byChat.values()].reduce((a, b) => a + b, 0), 2, 'the control-group read and the repeat are not counted');
+    });
+
     test('rapid edits: only the newest version ends up in the groups', async () => {
       const id = w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'גרסה 1' });
       await w.drain();
