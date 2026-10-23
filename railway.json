@@ -1,5 +1,5 @@
 {
   "$schema": "https://railway.com/railway.schema.json",
-  "build": { "builder": "DOCKERFILE", "dockerfilePath": "Dockerfile.feasibility" },
-  "deploy": { "restartPolicyType": "ON_FAILURE", "restartPolicyMaxRetries": 10 }
+  "build": { "builder": "DOCKERFILE", "dockerfilePath": "Dockerfile.demo" },
+  "deploy": { "healthcheckPath": "/v1/health", "healthcheckTimeout": 120, "restartPolicyType": "ON_FAILURE", "restartPolicyMaxRetries": 10 }
 }
