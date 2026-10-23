@@ -88,8 +88,8 @@ export class FakeWaNetwork {
     if (!this.phones.has(phone)) this.phones.set(phone, { phone, banned: false, sendTimes: [] });
   }
 
-  createGroup(title: string, opts: { members: string[]; admins?: string[]; adminsOnly?: boolean }): string {
-    const jid = `1203${randomBytes(6).readUIntBE(0, 6)}@g.us`;
+  createGroup(title: string, opts: { members: string[]; admins?: string[]; adminsOnly?: boolean; jid?: string }): string {
+    const jid = opts.jid ?? `1203${randomBytes(6).readUIntBE(0, 6)}@g.us`;
     for (const p of opts.members) this.addPhone(p);
     this.groups.set(jid, {
       jid,

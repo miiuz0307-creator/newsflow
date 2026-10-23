@@ -167,8 +167,10 @@ export class Router {
 
       const targets = route.targets.filter((t) => chatKey(t) !== srcKey); // a group never feeds itself
       const keyOf = (t: RouteTarget) => `fp:${route.tenantId}:${chatKey(t)}:${fingerprint}`;
-      const claimed = await this.claimAll(route.tenantId, targets.map(keyOf));
-      for (const k of claimed) plan.claimedKeys.push({ tenantId: route.tenantId, key: k });
+      // A control group is the customer posting on purpose: the same text sent twice goes out twice.
+      // (A redelivered message is still caught by the job's idempotency key, which uses the message id.)
+      const claimed = route.control ? new Set(targets.map(keyOf)) : await this.claimAll(route.tenantId, targets.map(keyOf));
+      if (!route.control) for (const k of claimed) plan.claimedKeys.push({ tenantId: route.tenantId, key: k });
 
       for (const target of targets) {
         const tKey = chatKey(target);

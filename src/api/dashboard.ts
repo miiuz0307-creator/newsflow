@@ -53,6 +53,21 @@ input{width:100%;padding:10px 12px;border:1px solid var(--line);border-radius:8p
 .empty{color:var(--muted);text-align:center;padding:30px;background:var(--card);border:1px dashed var(--line);border-radius:12px}
 .small{font-size:12px;color:var(--muted)}
 .versions{margin:8px 0 12px;padding:0;list-style:none}.versions li{margin:2px 0}
+.demo{background:var(--card);border:2px solid var(--teal);border-radius:14px;padding:16px;margin-bottom:22px}
+.demo h2{margin:0 0 4px}.demo .note{color:var(--muted);font-size:13px;margin:0 0 12px}
+.demo textarea,.demo .ein{width:100%;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink);font:inherit;resize:vertical}
+.btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;align-items:center}
+.btn{background:var(--teal);color:#fff;border:0;border-radius:8px;padding:8px 14px;cursor:pointer;font-weight:600}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}.btn.danger{background:var(--bad)}
+.btn.sm{padding:3px 9px;font-size:12px;font-weight:500}
+.msg{border:1px solid var(--line);border-radius:10px;padding:8px 10px;margin:6px 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.msg.push{background:var(--teal-soft)}.msg .meta{font-size:12px;color:var(--muted);margin-top:4px}
+.msg.del{color:var(--muted);font-style:italic}
+.groups{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px;margin-top:8px}
+.grp{border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--bg);max-height:260px;overflow:auto}
+.grp h3{font-size:13px;margin:0 0 6px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}@media (max-width:760px){.cols{grid-template-columns:1fr}}
+
 </style>
 </head>
 <body>
@@ -98,11 +113,16 @@ function showLogin(msg){
   main.replaceChildren(h('div',{cls:'login'},[h('h1',{text:'כניסה ל-PUSH'}),h('p',{text:'לוח הבקרה של ההפצות שלך'}),form]));
 }
 var open={};var timer;
+var demo=false;
 async function start(){
   try{var me=await api('GET','/v1/me')}catch(e){return showLogin()}
   document.getElementById('who').textContent=me.tenant.name+' · '+me.tenant.plan.name;document.getElementById('logout').hidden=false;
-  render();clearInterval(timer);timer=setInterval(render,10000);
+  try{await api('GET','/v1/demo/state');demo=true}catch(e){demo=false}
+  dashHost=h('div');
+  main.replaceChildren.apply(main,[demo?demoSection():null,dashHost].filter(Boolean));
+  render();clearInterval(timer);timer=setInterval(render,demo?3000:10000);
 }
+var dashHost=null;
 async function render(){
   var dists,caps;
   try{dists=await api('GET','/v1/distributions?limit=50');caps=await api('GET','/v1/capabilities')}catch(e){return}
@@ -111,7 +131,9 @@ async function render(){
   var rate=tot.all?Math.round(100*tot.sent/tot.all)+'%':'—';
   var cards=h('div',{cls:'cards'},[card('הפצות (30 יום)',tot.d),card('עותקים שנשלחו',tot.sent),card('שיעור הצלחה',rate),card('נכשלו',tot.fail),card('ממתינים לאימות',tot.unk)]);
   var list=dists.length?h('div',null,dists.map(distView)):h('div',{cls:'empty',text:'עדיין אין הפצות. שלחו הודעה בקבוצת השליטה, והיא תופיע כאן.'});
-  main.replaceChildren(cards,h('h2',{text:'הפצות אחרונות'}),list,h('h2',{text:'מה כל פלטפורמה תומכת'}),capsView(caps));
+  if(demo)await demoRefresh();
+  if(!dashHost)return;
+  dashHost.replaceChildren(cards,h('h2',{text:'הפצות אחרונות'}),list,h('h2',{text:'מה כל פלטפורמה תומכת'}),capsView(caps));
   for(var k in open){var el=document.getElementById('d-'+k);if(el)loadDetail(open[k],el)}
 }
 function card(k,v){return h('div',{cls:'card'},[h('div',{cls:'k',text:k}),h('div',{cls:'v',text:String(v)})])}
@@ -146,6 +168,62 @@ async function loadDetail(key,box){
 }
 async function retry(id,confirmNotDelivered,key,box){
   try{await api('POST','/v1/jobs/'+id+'/retry',confirmNotDelivered?{confirmNotDelivered:true}:{});await loadDetail(key,box)}catch(e){alert(e.message)}
+}
+
+// ---------- demo (simulated WhatsApp) ----------
+var composer=null,editing=null,demoMsg=null,lastState=null;
+function redrawDemo(){if(lastState)drawDemo(lastState)}
+function say(t,bad){if(demoMsg){demoMsg.textContent=t;demoMsg.className='small'+(bad?' err':'')}}
+async function act(path,body,ok){try{await api('POST',path,body);say(ok||'');render()}catch(e){say(e.message,true)}}
+function buildComposer(){
+  var ta=h('textarea',{rows:'3',placeholder:'כתבו הודעה כמו שהייתם כותבים בקבוצת השליטה ב-WhatsApp…'});
+  var lose=h('input',{type:'checkbox',id:'lose'});
+  demoMsg=h('div',{cls:'small'});
+  var send=h('button',{cls:'btn',type:'button',text:'שליחה לקבוצת השליטה',onclick:async function(){
+    if(!ta.value.trim())return say('יש לכתוב טקסט',true);
+    if(lose.checked){await act('/v1/demo/lose-ack',{});lose.checked=false}
+    await act('/v1/demo/post',{text:ta.value},'נשלח לקבוצת השליטה. PUSH מפיץ עכשיו לקבוצות…');ta.value='';}});
+  composer=h('div',null,[ta,h('div',{cls:'btns'},[send,h('label',{cls:'small',for:'lose'},[lose,' לדמות שליחה שלא קיבלה תשובה (ממתין לאימות)'])]),demoMsg]);
+  return composer;
+}
+function msgView(m,own){
+  if(m.deleted)return h('div',{cls:'msg del',text:'🚫 ההודעה נמחקה'});
+  var meta=new Date(m.at).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})+(m.edited?' · נערכה':'');
+  var kids=[h('div',{text:m.text}),h('div',{cls:'meta',text:meta})];
+  if(own&&!m.fromPush){
+    if(editing&&editing.id===m.id){
+      var inp=h('textarea',{cls:'ein',rows:'2'});inp.value=editing.text;inp.addEventListener('input',function(){editing.text=inp.value});
+      kids.push(inp);
+      kids.push(h('div',{cls:'btns'},[h('button',{cls:'btn sm',type:'button',text:'שמירת העריכה',onclick:function(){var t=inp.value;editing=null;act('/v1/demo/edit',{id:m.id,text:t},'נערך. PUSH מעדכן את כל העותקים…')}}),
+        h('button',{cls:'btn ghost sm',type:'button',text:'ביטול',onclick:function(){editing=null;redrawDemo()}})]));
+      setTimeout(function(){inp.focus()},0);
+    }else{
+      kids.push(h('div',{cls:'btns'},[h('button',{cls:'btn ghost sm',type:'button',text:'✏️ עריכה',onclick:function(){editing={id:m.id,text:m.text};redrawDemo()}}),
+        h('button',{cls:'btn danger sm',type:'button',text:'🗑️ מחיקה לכולם',onclick:function(){act('/v1/demo/delete',{id:m.id},'נמחק. PUSH מוחק מכל הקבוצות…')}})]));
+    }
+  }
+  return h('div',{cls:'msg'+(m.fromPush?' push':'')},kids);
+}
+var demoLive=null,demoSec=null;
+function demoSection(){
+  if(demoSec)return demoSec;
+  demoLive=h('div');
+  demoSec=h('section',{cls:'demo'},[h('h2',{text:'🧪 סימולציה — נסו את PUSH'}),
+    h('p',{cls:'note',text:'זו גרסת ניסיון עם WhatsApp מדומה. שום הודעה לא נשלחת ל-WhatsApp אמיתי. כתבו הודעה, ערכו אותה או מחקו אותה, וראו מה קורה בקבוצות.'}),
+    buildComposer(),demoLive]);
+  return demoSec;
+}
+async function demoRefresh(){
+  if(editing||!demoLive)return; // don't redraw while the customer is typing an edit
+  try{lastState=await api('GET','/v1/demo/state')}catch(e){return}
+  drawDemo(lastState);
+}
+function drawDemo(st){
+  var ctrl=st.control.messages.slice().reverse().map(function(m){return msgView(m,true)});
+  var groups=h('div',{cls:'groups'},st.groups.map(function(g){var ms=g.messages.slice().reverse();
+    return h('div',{cls:'grp'},[h('h3',{text:g.title})].concat(ms.length?ms.map(function(m){return msgView(m,false)}):[h('div',{cls:'small',text:'עדיין ריק'})]))}));
+  demoLive.replaceChildren(h('div',{cls:'cols'},[h('div',null,[h('h3',{text:'קבוצת השליטה (אתם + דיווחי PUSH)'})].concat(ctrl.length?ctrl:[h('div',{cls:'small',text:'עדיין אין הודעות'})])),
+      h('div',null,[h('h3',{text:'מה רואים בקבוצות היעד'}),groups])]));
 }
 var CAPN={send:'שליחה',edit:'עריכה',editCaption:'עריכת כיתוב למדיה',delete:'מחיקה לכולם',receive:'קבלת הודעות',receiveEdits:'זיהוי עריכות',receiveDeletes:'זיהוי מחיקות',media:'מדיה',groupDiscovery:'רשימת קבוצות',deliveryStatus:'אישורי מסירה'};
 var LV={verified:['נבדק','ok'],documented:['מתועד, טרם נבדק כאן','info'],untested:['דורש בדיקה','warn'],false:['לא נתמך','bad']};

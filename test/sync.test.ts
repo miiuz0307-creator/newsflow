@@ -331,6 +331,14 @@ for (const kind of ['memory', 'pg'] as const) {
       assert.match(last, /חלון הזמן של הפלטפורמה נסגר \(3\)/);
     });
 
+    test('the same text posted twice in a control group goes out twice (no silent duplicate skip)', async () => {
+      w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'עדכון חוזר' });
+      await w.drain();
+      w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'עדכון חוזר' });
+      await w.drain();
+      for (const g of w.waTargets) assert.equal(text(w.net, g).filter((t) => t === 'עדכון חוזר').length, 2);
+    });
+
     test('only allowed senders distribute from a control group', async () => {
       await w.saveRoute({
         id: w.routeWa, name: 'PUSH WhatsApp', enabled: true, filters: {}, requireApproval: false,
