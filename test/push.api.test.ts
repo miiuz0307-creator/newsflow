@@ -198,6 +198,11 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
     assert.equal(caps.status, 200);
     assert.equal(caps.body.tg.receiveDeletes, false);
     assert.equal(caps.body.wa.editWindowMs, 15 * 60_000);
+    const home = await call('GET', '/');
+    assert.equal(home.status, 200);
+    assert.match(home.headers.get('content-security-policy') ?? '', /font-src 'self'/);
+    assert.match(home.text, /הודעה אחת\./);
+    assert.ok(!/style="/.test(home.text), 'no inline style attributes (blocked by the CSP)');
     const page = await call('GET', '/app');
     assert.equal(page.status, 200);
     assert.match(page.headers.get('content-type') ?? '', /text\/html/);

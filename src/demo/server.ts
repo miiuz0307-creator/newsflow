@@ -19,6 +19,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { authModule } from '../api/modules/auth.js';
 import { pushModule } from '../api/modules/push.js';
+import { fontsModule } from '../api/fonts.js';
 import { ApiServer } from '../api/server.js';
 import { hashPassword } from '../auth/password.js';
 import { MasterKey } from '../crypto/keyring.js';
@@ -169,14 +170,8 @@ const api = new ApiServer({
   killSwitches: new PgKillSwitchStore(pools.worker),
   tokenSecret: derive('token-secret', 43),
   trustProxyHops: 1,
-  modules: [authModule({ keys }), pushModule(), demoModule({ net, tenantId: demo.tenantId })],
+  modules: [authModule({ keys }), pushModule(), fontsModule(), demoModule({ net, tenantId: demo.tenantId })],
   logger: log,
-});
-// The root address opens the dashboard.
-api.on('GET', '/', false, async ({ res }) => {
-  res.writeHead(302, { location: '/app' });
-  res.end();
-  return undefined;
 });
 
 await api.listen(Number(process.env.PORT ?? 8787), '0.0.0.0');

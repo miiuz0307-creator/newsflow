@@ -10,6 +10,7 @@ import { randomBytes } from 'node:crypto';
 import { CAPABILITIES } from '../../core/types.js';
 import { HttpError, type ApiServer } from '../server.js';
 import { dashboardHtml } from '../dashboard.js';
+import { siteHtml } from '../site.js';
 
 interface DistRow {
   platform: string;
@@ -187,6 +188,18 @@ export function pushModule() {
       if (!['failed', 'unknown'].includes(row.status)) throw new HttpError(409, 'not_retryable', 'אפשר לנסות שוב רק פעולה שנכשלה או שממתינה לאימות');
       if (!(await api.o.queue.requeue(auth!.tenantId, params.id!))) throw new HttpError(409, 'not_retryable', 'המצב השתנה בינתיים; רעננו את הדף');
       return { requeued: true };
+    });
+
+    // The marketing site (home page).
+    api.on('GET', '/', false, async ({ res }) => {
+      const nonce = randomBytes(16).toString('base64');
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        'referrer-policy': 'no-referrer',
+      });
+      res.end(siteHtml(nonce));
+      return undefined;
     });
 
     // The basic dashboard (Hebrew, RTL). The page is static; it talks to the API with the user's token.
