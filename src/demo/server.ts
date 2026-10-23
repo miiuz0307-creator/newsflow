@@ -191,7 +191,7 @@ const api = new ApiServer({
   killSwitches: new PgKillSwitchStore(pools.worker),
   tokenSecret: derive('token-secret', 43),
   trustProxyHops: 1,
-  modules: [authModule({ keys }), pushModule(), fontsModule(), demoModule({ net, tenantId: demo.tenantId })],
+  modules: [authModule({ keys }), pushModule(), fontsModule(), demoModule({ net, tenantId: demo.tenantId, connections: conns })],
   logger: log,
 });
 

@@ -69,8 +69,17 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
         const r = await c.query<{ id: string; name: string; control: Record<string, unknown> }>(
           `SELECT id, name, control FROM routes WHERE control IS NOT NULL ORDER BY created_at`);
         const first = r.rows[0]?.control ?? {};
+        const src = await c.query<{ route_id: string; platform: string; account_id: string; chat_id: string }>(
+          `SELECT s.route_id, s.platform, s.account_id, s.chat_id FROM route_sources s JOIN routes r ON r.id = s.route_id WHERE r.control IS NOT NULL`);
+        const tgt = await c.query<{ route_id: string; platform: string; account_id: string; chat_id: string; title: string | null }>(
+          `SELECT t.route_id, t.platform, t.account_id, t.chat_id, t.title FROM route_targets t JOIN routes r ON r.id = t.route_id WHERE r.control IS NOT NULL ORDER BY t.title`);
+        const ref = (x: { platform: string; account_id: string; chat_id: string }) => ({ platform: x.platform, accountId: x.account_id, chatId: x.chat_id });
         return {
-          controlGroups: r.rows.map((x) => ({ id: x.id, name: x.name })),
+          controlGroups: r.rows.map((x) => ({
+            id: x.id, name: x.name, control: x.control,
+            source: src.rows.filter((y) => y.route_id === x.id).map(ref)[0] ?? null,
+            targets: tgt.rows.filter((y) => y.route_id === x.id).map((y) => ({ ...ref(y), title: y.title })),
+          })),
           signature: (first.signature as string | undefined) ?? '',
           reportMode: (first.reportMode as string | undefined) ?? 'summary',
         };

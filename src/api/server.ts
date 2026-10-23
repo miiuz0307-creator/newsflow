@@ -27,6 +27,7 @@ import type { Route } from '../routing/types.js';
 import type { ConnectionManager, StatusEvent } from '../wa/connectionManager.js';
 import { normalizePhone } from '../wa/transport.js';
 import { signToken, verifyToken, type TokenClaims } from './auth.js';
+import { qrRows } from './qr.js';
 
 export interface ApiOptions {
   appPool: PgPool;
@@ -92,6 +93,14 @@ async function readJson(req: http.IncomingMessage, limit = 256 * 1024): Promise<
 }
 
 /** Public view of an account state: never includes credentials. */
+function safeQrRows(text: string): string[] | null {
+  try {
+    return qrRows(text);
+  } catch {
+    return null;
+  }
+}
+
 function accountView(s: StatusEvent['state'] | undefined) {
   if (!s) return null;
   return {
@@ -101,6 +110,8 @@ function accountView(s: StatusEvent['state'] | undefined) {
     lastConnectedAt: s.lastConnectedAt ?? null,
     lastDisconnect: s.lastDisconnect ?? null,
     qr: s.qr ?? null,
+    // The same code as rows of modules ("1" = dark), drawn by the app without any library.
+    qrRows: s.qr && s.status !== 'connected' ? safeQrRows(s.qr) : null,
     pairingCode: s.pairingCode ?? null,
   };
 }
@@ -201,6 +212,19 @@ export class ApiServer {
         return { id: r.rows[0]!.id };
       }));
 
+    // The tenant's numbers, with the live connection state when there is one.
+    this.on('GET', '/v1/wa/accounts', true, async ({ auth }) => {
+      const r = await this.tenantTx(auth!, (c) => c.query<{ id: string; label: string; status: string; phone_number: string | null; last_connected_at: Date | null }>(
+        `SELECT id, label, status, phone_number, last_connected_at FROM wa_accounts WHERE status <> 'deleted' ORDER BY created_at`));
+      return r.rows.map((row) => {
+        const live = accountView(o.connections.getState(row.id));
+        return live ? { ...live, label: row.label } : {
+          id: row.id, label: row.label, status: row.status, phoneNumber: row.phone_number, lastConnectedAt: row.last_connected_at,
+          lastDisconnect: null, qr: null, qrRows: null, pairingCode: null,
+        };
+      });
+    });
+
     this.on('POST', '/v1/wa/accounts/:id/connect', true, async ({ auth, params, body }) => {
       await this.ownAccount(auth!, params.id!);
       const accepted = await this.tenantTx(auth!, (c) => c.query<{ risk_accepted_at: Date | null }>('SELECT risk_accepted_at FROM tenants WHERE id = $1', [auth!.tenantId]));
@@ -211,7 +235,7 @@ export class ApiServer {
         try {
           phoneNumber = normalizePhone(String(body.phoneNumber ?? ''));
         } catch (e) {
-          throw new HttpError(400, 'bad_phone', (e as Error).message);
+          throw new HttpError(400, 'bad_phone', 'מספר הטלפון לא תקין. כתבו אותו עם קידומת, למשל 050‑1234567 או ‎+972501234567');
         }
       }
       const state = await o.connections.connect(auth!.tenantId, params.id!, { method, ...(phoneNumber ? { phoneNumber } : {}) });

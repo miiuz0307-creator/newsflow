@@ -246,6 +246,51 @@ label.f.mode{margin-top:18px}
 .b.pv{align-self:flex-end;background:var(--card);border:1px solid var(--line);border-start-end-radius:3px;max-width:92%}
 .pv-s{margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);color:var(--teal-deep)}
 .settings .panel h2{margin-bottom:6px}
+/* ---------- connect ---------- */
+.steps-bar{list-style:none;display:flex;gap:10px;margin:0 0 20px;padding:0;flex-wrap:wrap}
+.steps-bar li{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:14px;font-weight:600}
+.steps-bar li+li::before{content:"";width:28px;height:2px;background:var(--line);border-radius:2px;margin-inline-end:2px}
+.steps-bar .n{width:26px;height:26px;border-radius:50%;display:grid;place-items:center;background:var(--soft);border:1px solid var(--line);font-size:13px}
+.steps-bar .n svg{width:15px;height:15px}
+.steps-bar .cur{color:var(--text)}.steps-bar .cur .n{background:var(--ink);color:#fff;border-color:var(--ink)}
+.steps-bar .done .n{background:var(--teal);color:var(--ink);border-color:var(--teal)}
+.risk{max-width:720px}
+.risk-list{list-style:none;padding:0;margin:14px 0 18px;display:flex;flex-direction:column;gap:12px}
+.risk-list li{padding-inline-start:16px;border-inline-start:3px solid var(--teal);line-height:1.5}
+.risk-list b{display:block;font-size:15.5px}.risk-list span{color:var(--muted);font-size:14px}
+.panel.link{display:grid;grid-template-columns:auto 1fr;gap:34px;align-items:start}
+.qr-col{display:flex;flex-direction:column;align-items:center;gap:10px;width:300px}
+.qr-box{width:300px;height:300px;border-radius:18px;background:var(--soft);border:1px solid var(--line);display:grid;place-items:center;overflow:hidden}
+.qr-box .qr{width:100%;height:100%;display:block}
+.qr-empty{display:grid;place-items:center;padding:20px;text-align:center}
+.qr-wait{width:38px;height:38px;border-radius:50%;border:3px solid var(--line);border-top-color:var(--teal);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.qr-wait{animation:none}}
+.qr-state{font-size:13px;color:var(--muted);text-align:center;min-height:1.4em;margin:0}
+.pair-code{font-family:var(--display);font-size:40px;letter-spacing:.08em;color:var(--text)}
+.qr-side h2{font-size:24px;margin-bottom:10px}
+.how{margin:0 0 18px;padding-inline-start:22px;display:flex;flex-direction:column;gap:8px;font-size:15px}
+.how li::marker{color:var(--teal-deep);font-weight:700}
+.pair-form{display:flex;gap:10px;align-items:flex-end;max-width:420px}.pair-form label.f{flex:1;margin:0}
+.linkish{background:none;border:0;padding:0;margin-top:16px;color:var(--teal-deep);font:inherit;font-weight:600;cursor:pointer;text-decoration:underline;text-underline-offset:3px}
+.sim-scan{width:100%}
+@media (max-width:820px){.panel.link{grid-template-columns:1fr}.qr-col{width:100%}.qr-box{width:min(300px,100%);height:auto;aspect-ratio:1}}
+.conn-head{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+.conn-num{display:flex;gap:10px;flex-wrap:wrap;align-items:baseline}.conn-num span{color:var(--muted)}
+.conn-ok{display:flex;align-items:center;gap:12px}.conn-ok .dot{width:12px;height:12px;border-radius:50%;background:var(--ok);box-shadow:0 0 0 5px var(--ok-soft)}
+.btn-sm{padding:7px 12px;font-size:13px}
+.glist{display:flex;flex-direction:column;max-height:420px;overflow-y:auto;margin-top:10px;border:1px solid var(--line);border-radius:12px}
+.grow{display:flex;align-items:center;gap:10px;padding:11px 12px;cursor:pointer;border-top:1px solid var(--line)}
+.grow:first-child{border-top:0}.grow.on{background:var(--teal-mist)}.grow.dis{opacity:.5;cursor:not-allowed}
+.grow input{accent-color:var(--teal-deep);width:17px;height:17px;flex:none}
+.gt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.gm{font-size:12px;color:var(--muted);flex:none}
+.gcount{font-size:13px;color:var(--muted)}
+.save-bar{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:18px}
+.save-bar .err{margin:0}
+.ok-msg{color:var(--ok);font-weight:600;margin:0}
+@media (max-width:620px){.steps-bar{gap:6px}.steps-bar li+li::before{width:12px}.steps-bar li{font-size:13px}}
+.notice.cta{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:20px;margin-bottom:0}
+@media (max-width:620px){.notice.cta{flex-direction:column;align-items:stretch}}
 </style>
 </head>
 <body>
@@ -265,6 +310,8 @@ var ICON={
   send:'M4 12 20 4l-4 16-4-6-8-2zm8 2 4-6',
   lab:'M9 3h6M10 3v6l-5 9a2 2 0 0 0 1.8 3h10.4A2 2 0 0 0 19 18l-5-9V3',
   info:'M12 8h.01M11 12h1v5h1M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
+  link:'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
+  check:'M5 12.5l4.5 4.5L19 7',
   pen:'M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3',
   eye:'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'
 };
@@ -277,7 +324,7 @@ async function api(method,path,body,retried){
     clearTok();showAuth('login','יש להתחבר מחדש');throw new Error('יש להתחבר מחדש');
   }
   var data=await res.json().catch(function(){return {}});
-  if(!res.ok)throw Object.assign(new Error((data.error&&data.error.message)||('שגיאה '+res.status)),{code:data.error&&data.error.code,status:res.status});
+  if(!res.ok)throw Object.assign(new Error((data.error&&data.error.message)||('שגיאה '+res.status)),{code:data.error&&data.error.code,details:data.error&&data.error.details,status:res.status});
   return data;
 }
 var root=document.getElementById('root');
@@ -326,11 +373,12 @@ function showAuth(mode,msg){
 }
 
 // ---------------- app shell
-var me=null,demo=false,timer=null,route='overview',dists=[],caps=null;
-var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'settings',label:'חתימה',icon:'pen'},{id:'caps',label:'יכולות',icon:'info'}];
+var me=null,demo=false,simulated=false,timer=null,route='overview',dists=[],caps=null;
+var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'connect',label:'חיבור',icon:'link'},{id:'settings',label:'חתימה',icon:'pen'},{id:'caps',label:'יכולות',icon:'info'}];
 async function start(){
   try{me=await api('GET','/v1/me')}catch(e){return showAuth('login')}
   try{await api('GET','/v1/demo/state');demo=true}catch(e){demo=false}
+  try{simulated=!!(await api('GET','/v1/demo/env')).simulated}catch(e){simulated=false}
   var r=(location.hash||'').slice(1);route=ROUTES.some(function(x){return x.id===r&&(!x.demo||demo)})?r:(demo?'sim':'overview');
   buildShell();await refresh();
   clearInterval(timer);timer=setInterval(refresh,demo?3000:10000);
@@ -360,7 +408,8 @@ async function refresh(){
 function draw(full){
   if(route==='sim'){if(full||!simEl)mainEl.replaceChildren(simPage());else simDraw();return}
   simEl=null;
-  if(route==='settings'){if(full)mainEl.replaceChildren(settingsPage());return} // a form: never redrawn under the user
+  if(route==='settings'){if(full)mainEl.replaceChildren(settingsPage());return}
+  if(route==='connect'){if(full)mainEl.replaceChildren(connectPage());return} // a form: never redrawn under the user
   mainEl.replaceChildren(route==='dists'?distsPage():route==='caps'?capsPage():overviewPage());
 }
 
@@ -392,8 +441,9 @@ function overviewPage(){
   var chartPanel=h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'14 הימים האחרונים'})]),chart(dists),
     h('div',{cls:'legend'},[h('span',null,[h('i',{cls:'lg-read'}),'קריאות ביום']),h('span',null,[h('b',{cls:'lg-num',text:'3'}),'מספר ההודעות שהופצו'])])]);
   var recent=h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'הפצות אחרונות'}),h('a',{href:'#dists',text:'לכל ההפצות',onclick:function(e){e.preventDefault();go('dists')}})]),distList(dists.slice(0,5),true)]);
-  var notice=!demo&&!dists.length?h('div',{cls:'notice'},[h('h3',{text:'השלב הבא: חיבור מספר WhatsApp'}),
-    h('p',{text:'בקרוב תוכלו לסרוק כאן קוד QR, לבחור קבוצת שליטה וקבוצות יעד, ולהתחיל להפיץ. החיבור למספרים אמיתיים נפתח אחרי שלב הבדיקות.'})]):null;
+  var notice=!demo&&!dists.length?h('div',{cls:'notice cta'},[h('div',null,[h('h3',{text:'השלב הבא: חיבור מספר WhatsApp'}),
+    h('p',{text:'סורקים קוד QR מהטלפון, בוחרים קבוצת שליטה וקבוצות יעד, ומתחילים להפיץ. לוקח שתי דקות.'})]),
+    h('button',{cls:'btn btn-primary',type:'button',text:'לחיבור',onclick:function(){go('connect')}})]):null;
   return h('div',null,[hero,notice,alert,h('div',{cls:'grid-2'},[chartPanel,board]),h('div',{cls:'grid-2 one'},[recent])]);
 }
 function chart(list){
@@ -408,6 +458,161 @@ function chart(list){
       kids.push(s('text',{x:cx,y:H-pad-hgt-6,'class':'axis val','text-anchor':'middle'},[String(x.msgs)]))}
     if(i%2===1||i===13)kids.push(s('text',{x:cx,y:H-9,'class':'axis','text-anchor':'middle'},[i===13?'היום':x.d.getDate()+'.'+(x.d.getMonth()+1)]))});
   return s('svg',{'class':'chart',direction:'ltr',viewBox:'0 0 '+W+' '+H,role:'img','aria-label':'קריאות והודעות בכל יום ב‑14 הימים האחרונים'},kids);
+}
+
+// ---------------- connect WhatsApp
+var cn={acc:null,poll:null,pairPhone:''};
+function connectPage(){
+  var body=h('div',null,[h('p',{cls:'hint',text:'טוען…'})]);
+  var steps=h('ol',{cls:'steps-bar'});
+  var wrap=h('div',null,[h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'חיבור WhatsApp'}),h('p',{text:'מחברים את המספר שיפיץ את ההודעות, ובוחרים מאיזו קבוצה לאילו קבוצות.'})])]),steps,body]);
+  var setStep=function(n){steps.replaceChildren.apply(steps,['אישור','חיבור המספר','בחירת קבוצות'].map(function(t,i){
+    return h('li',{cls:i+1<n?'done':i+1===n?'cur':''},[h('span',{cls:'n'},[i+1<n?icon('check'):String(i+1)]),h('span',{text:t})])}))};
+  var stopPoll=function(){clearTimeout(cn.poll);cn.poll=null};
+  var linked=function(a){return a&&a.status==='connected'};
+  async function load(){
+    stopPoll();
+    try{var list=await api('GET','/v1/wa/accounts');cn.acc=list[0]||null}catch(e){body.replaceChildren(h('p',{cls:'err',text:e.message}));return}
+    if(!me.tenant.riskAccepted){setStep(1);body.replaceChildren(riskStep());return}
+    if(!linked(cn.acc)){setStep(2);body.replaceChildren(linkStep());return}
+    setStep(3);body.replaceChildren(await groupsStep());
+  }
+  // ---- step 1
+  function riskStep(){
+    var ok=h('input',{type:'checkbox',id:'risk-ok'});
+    var err=h('p',{cls:'err'});
+    var go2=h('button',{cls:'btn btn-primary',type:'button',text:'הבנתי, ממשיכים',onclick:async function(){
+      if(!ok.checked){err.textContent='סמנו שקראתם לפני שממשיכים';return}
+      go2.disabled=true;try{await api('POST','/v1/risk/accept',{});me.tenant.riskAccepted=true;load()}catch(e){err.textContent=e.message;go2.disabled=false}}});
+    var li=function(t,b){return h('li',null,[h('b',{text:t}),h('span',{text:b})])};
+    return h('section',{cls:'panel risk'},[h('h2',{text:'לפני שמחברים מספר'}),
+      h('ul',{cls:'risk-list'},[
+        li('חיבור כמו WhatsApp Web.','PUSH מתחבר למספר כ"מכשיר מקושר", כמו WhatsApp במחשב. זה לא ממשק רשמי של WhatsApp.'),
+        li('עדיף מספר ייעודי.','WhatsApp עלול להגביל או לחסום מספר ששולח הרבה הודעות. מומלץ לחבר מספר של העסק, לא את המספר האישי.'),
+        li('קצב מבוקר.','PUSH שולח בהפרשים, עוצר לבד כשיש סימנים לחסימה, ומודיע לכם.'),
+        li('ניתוק בכל רגע.','מכאן, או בטלפון: הגדרות ← מכשירים מקושרים.')]),
+      h('label',{cls:'check',for:'risk-ok'},[ok,'קראתי והבנתי']),h('div',{cls:'save-row'},[go2]),err]);
+  }
+  // ---- step 2
+  function linkStep(){
+    var box=h('div',{cls:'qr-box'});
+    var info=h('p',{cls:'qr-state',role:'status'});
+    var err=h('p',{cls:'err'});
+    var mode='qr';
+    var startBtn=h('button',{cls:'btn btn-primary',type:'button',text:'הצגת קוד QR',onclick:function(){start('qr')}});
+    var phone=h('input',{cls:'i',type:'tel',dir:'ltr',placeholder:'050-1234567',autocomplete:'tel'});phone.value=cn.pairPhone;
+    var pairBtn=h('button',{cls:'btn btn-dark',type:'button',text:'קבלת קוד',onclick:function(){cn.pairPhone=phone.value;start('pairing_code')}});
+    var sim=simulated?h('button',{cls:'btn btn-ghost sim-scan',type:'button',text:'סימולציה: סריקה מהטלפון',hidden:true,onclick:async function(){
+      sim.disabled=true;try{await api('POST','/v1/demo/scan',{accountId:cn.acc.id,phone:intlPhone(cn.pairPhone)});poll(300)}catch(e){err.textContent=e.message}sim.disabled=false}}):null;
+    var qrSteps=h('ol',{cls:'how'},[h('li',{text:'פותחים WhatsApp בטלפון של המספר שרוצים לחבר'}),h('li',{text:'הגדרות ← מכשירים מקושרים ← קישור מכשיר'}),h('li',{text:'מכוונים את המצלמה לקוד שעל המסך'})]);
+    var pairSteps=h('ol',{cls:'how'},[h('li',{text:'פותחים WhatsApp בטלפון של המספר הזה'}),h('li',{text:'הגדרות ← מכשירים מקושרים ← קישור מכשיר'}),h('li',{text:'בוחרים "קישור עם מספר טלפון במקום זאת" ומקלידים את הקוד'})]);
+    var pairForm=h('div',{cls:'pair-form',hidden:true},[h('label',{cls:'f'},[h('span',{text:'המספר שרוצים לחבר'}),phone]),pairBtn]);
+    var swap=h('button',{cls:'linkish',type:'button',onclick:function(){mode=mode==='qr'?'pair':'qr';paint()}});
+    var side=h('div',{cls:'qr-side'});
+    function paint(){
+      var pair=mode==='pair';
+      side.replaceChildren.apply(side,[h('h2',{text:pair?'חיבור עם קוד':'סורקים מהטלפון'}),pair?pairSteps:qrSteps,pair?pairForm:null,swap,err].filter(Boolean));
+      pairForm.hidden=!pair;
+      swap.textContent=pair?'חזרה לסריקת קוד QR':'מחברים מהטלפון עצמו? חיבור עם קוד במקום סריקה';
+      drawCode();
+    }
+    function drawCode(){
+      var a=cn.acc,st=a&&a.status;
+      var pair=mode==='pair';
+      if(sim)sim.hidden=!(a&&(a.qrRows&&!pair||a.pairingCode&&pair));
+      if(!pair&&a&&a.qrRows){box.replaceChildren(qrSvg(a.qrRows));info.textContent='הקוד מתחלף כל כ-20 שניות. ממתינים לסריקה…'}
+      else if(pair&&a&&a.pairingCode){box.replaceChildren(h('div',{cls:'pair-code',dir:'ltr',text:a.pairingCode.replace(/[^0-9A-Za-z]/g,'').replace(/^(.{4})(.{4})$/,'$1-$2')}));info.textContent='הקלידו את הקוד בטלפון. ממתינים…'}
+      else if(st==='connecting'||st==='reconnecting'){box.replaceChildren(h('div',{cls:'qr-wait'}));info.textContent='מתחבר…'}
+      else if(st==='link_expired'||st==='needs_relink'||st==='logged_out'){box.replaceChildren(h('div',{cls:'qr-empty'},[pair?pairForm:startBtn]));info.textContent='הקוד פג. אפשר להציג קוד חדש.'}
+      else if(st==='blocked'){box.replaceChildren(h('div',{cls:'qr-empty'}));info.textContent='WhatsApp חסם את המספר הזה. אי אפשר לחבר אותו.'}
+      else{box.replaceChildren(h('div',{cls:'qr-empty'},[pair?h('p',{cls:'hint',text:'הזינו את המספר ולחצו "קבלת קוד"'}):startBtn]));info.textContent=''}
+    }
+    async function start(method){
+      err.textContent='';startBtn.disabled=pairBtn.disabled=true;
+      try{
+        if(!cn.acc)cn.acc=Object.assign({id:(await api('POST','/v1/wa/accounts',{label:'PUSH'})).id});
+        var b={method:method};if(method==='pairing_code')b.phoneNumber=intlPhone(phone.value);
+        cn.acc=Object.assign(cn.acc,await api('POST','/v1/wa/accounts/'+cn.acc.id+'/connect',b));
+        drawCode();poll(1500);
+      }catch(e){err.textContent=e.message}
+      startBtn.disabled=pairBtn.disabled=false;
+    }
+    function poll(ms){
+      stopPoll();cn.poll=setTimeout(async function(){
+        if(route!=='connect')return;
+        try{var a=await api('GET','/v1/wa/accounts/'+cn.acc.id);if(a)cn.acc=Object.assign(cn.acc,a)}catch(e){}
+        if(linked(cn.acc)){load();return}
+        drawCode();poll(2000);
+      },ms);
+    }
+    paint();
+    if(cn.acc&&/linking|connecting/.test(cn.acc.status||''))poll(500);
+    return h('section',{cls:'panel link'},[h('div',{cls:'qr-col'},[box,info,sim]),side]);
+  }
+  // ---- step 3
+  async function groupsStep(){
+    var a=cn.acc,chats,settingsRes;
+    try{chats=await api('GET','/v1/wa/accounts/'+a.id+'/chats');settingsRes=await api('GET','/v1/push/settings')}catch(e){return h('p',{cls:'err',text:e.message})}
+    var groups=chats.filter(function(c){return c.type==='group'||c.type==='community'}).sort(function(x,y){return x.title.localeCompare(y.title,'he')});
+    var existing=(settingsRes.controlGroups||[]).find(function(r){return r.source&&r.source.accountId===a.id})||null;
+    var max=(me.tenant.plan.limits&&me.tenant.plan.limits.targets)||10;
+    var guess=groups.find(function(g){return g.title.indexOf('שליטה')>=0});
+    var ctrl=existing?existing.source.chatId:guess?guess.chatId:null;
+    var picked=new Set(existing?existing.targets.map(function(t){return t.chatId}):[]);
+    var q=h('input',{cls:'i',type:'search',placeholder:'חיפוש קבוצה…','aria-label':'חיפוש קבוצה'});
+    var listEl=h('div',{cls:'glist'}),ctrlEl=h('div',{cls:'glist ctrl'});
+    var count=h('span',{cls:'gcount'}),err=h('p',{cls:'err'}),done=h('p',{cls:'ok-msg',role:'status'});
+    var save=h('button',{cls:'btn btn-primary',type:'button',text:existing?'שמירת השינויים':'שמירה והפעלה',onclick:async function(){
+      err.textContent='';done.textContent='';
+      if(!ctrl){err.textContent='בחרו קבוצת שליטה';return}
+      if(!picked.size){err.textContent='בחרו לפחות קבוצת יעד אחת';return}
+      save.disabled=true;
+      var cg=groups.find(function(g){return g.chatId===ctrl});
+      var payload={name:'PUSH — '+(cg?cg.title:'קבוצת שליטה'),control:(existing&&existing.control)||{reportMode:'summary'},
+        sources:[{platform:'wa',accountId:a.id,chatId:ctrl}],
+        targets:groups.filter(function(g){return picked.has(g.chatId)}).map(function(g){return {platform:'wa',accountId:a.id,chatId:g.chatId,title:g.title}})};
+      if(existing)payload.id=existing.id;
+      try{var r=await api('POST','/v1/routes',payload);existing=Object.assign(existing||{},{id:r.id,control:payload.control});save.textContent='שמירת השינויים';
+        done.textContent='מוכן. כל הודעה שתכתבו ב"'+(cg?cg.title:'')+'" תופץ ל-'+picked.size+' קבוצות.'}
+      catch(e){err.textContent=(e.details&&e.details.length?e.details.map(function(p){return p.message}).join(' · '):e.message)}
+      save.disabled=false}});
+    var row=function(g,kind){
+      var isCtrl=kind==='ctrl',on=isCtrl?ctrl===g.chatId:picked.has(g.chatId);
+      var dis=!isCtrl&&(g.chatId===ctrl||!g.canSend||(!on&&picked.size>=max));
+      var why=!isCtrl&&g.chatId===ctrl?'קבוצת השליטה':!isCtrl&&!g.canSend?'רק מנהלים כותבים בה':'';
+      var inp=h('input',{type:isCtrl?'radio':'checkbox',name:isCtrl?'ctrl':null,checked:on,disabled:dis,onchange:function(){
+        if(isCtrl){ctrl=g.chatId;picked.delete(g.chatId)}else{if(inp.checked)picked.add(g.chatId);else picked.delete(g.chatId)}paintLists()}});
+      return h('label',{cls:'grow'+(on?' on':'')+(dis?' dis':'')},[inp,h('span',{cls:'gt',text:g.title}),
+        h('span',{cls:'gm',text:why||(g.participantCount?fmt(g.participantCount)+' חברים':'')})]);
+    };
+    function paintLists(){
+      var f=q.value.trim();var match=function(g){return !f||g.title.indexOf(f)>=0};
+      ctrlEl.replaceChildren.apply(ctrlEl,groups.filter(match).map(function(g){return row(g,'ctrl')}));
+      listEl.replaceChildren.apply(listEl,groups.filter(match).map(function(g){return row(g,'t')}));
+      count.textContent=picked.size+' מתוך '+max+' קבוצות במסלול שלכם';
+    }
+    q.addEventListener('input',paintLists);paintLists();
+    var discon=h('button',{cls:'btn btn-ghost btn-sm',type:'button',text:'ניתוק המספר',onclick:async function(){
+      if(discon.getAttribute('data-sure')!=='1'){discon.setAttribute('data-sure','1');discon.textContent='לחצו שוב לאישור הניתוק';return}
+      discon.disabled=true;try{await api('DELETE','/v1/wa/accounts/'+a.id);cn.acc=null;load()}catch(e){err.textContent=e.message;discon.disabled=false}}});
+    if(!groups.length)return h('section',{cls:'panel'},[h('div',{cls:'conn-head'},[h('div',null,[h('h2',{text:'המספר מחובר'}),h('p',{cls:'hint left',text:'+'+(a.phoneNumber||'')})]),discon]),
+      h('p',{text:'לא מצאנו קבוצות במספר הזה. הוסיפו את המספר לקבוצות ב-WhatsApp, ואז רעננו את העמוד.'})]);
+    return h('div',null,[
+      h('section',{cls:'panel conn-head'},[h('div',{cls:'conn-ok'},[h('span',{cls:'dot'}),h('div',{cls:'conn-num'},[h('b',{text:'המספר מחובר'}),h('span',{dir:'ltr',text:'+'+(a.phoneNumber||'')})])]),discon]),
+      h('div',{cls:'grid-2 pick'},[
+        h('section',{cls:'panel'},[h('h2',{text:'קבוצת שליטה'}),h('p',{cls:'hint left',text:'הקבוצה שבה אתם כותבים. כל מה שנכתב בה יופץ, ועריכה או מחיקה בה יעודכנו בכל הקבוצות.'}),ctrlEl]),
+        h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'קבוצות יעד'}),count]),q,listEl])]),
+      h('div',{cls:'save-bar'},[save,done,err])]);
+  }
+  load();
+  return wrap;
+}
+// 050-1234567 → 972501234567 (Israeli local format to international); +44… stays as is.
+function intlPhone(v){var d=String(v||'').replace(/[^0-9]/g,'');if(/^0[1-9]/.test(d))d='972'+d.slice(1);return d}
+function qrSvg(rows){
+  var n=rows.length,q=3,d='';
+  rows.forEach(function(r,y){for(var x=0;x<n;x++)if(r.charCodeAt(x)===49){var run=1;while(x+run<n&&r.charCodeAt(x+run)===49)run++;d+='M'+(x+q)+' '+(y+q)+'h'+run+'v1h-'+run+'z';x+=run-1}});
+  return s('svg',{'class':'qr',viewBox:'0 0 '+(n+2*q)+' '+(n+2*q),role:'img','aria-label':'קוד QR לחיבור WhatsApp','shape-rendering':'crispEdges'},[s('rect',{width:n+2*q,height:n+2*q,fill:'#fff'}),s('path',{d:d,fill:'#0A1B33'})]);
 }
 
 // ---------------- settings (signature)
