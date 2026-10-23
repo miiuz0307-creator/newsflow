@@ -11,13 +11,13 @@ export const DEMO = {
   linked: '972500009001', // the simulated number connected to PUSH
   customer: '972500009002', // the simulated customer's phone
   controlJid: '120300000000000001@g.us',
+  // Simulated group sizes; simulated members read new messages over the following minute.
   targets: [
-    { title: 'חדשות חיפה', jid: '120300000000000011@g.us', member: true },
-    { title: 'חדשות הקריות', jid: '120300000000000012@g.us', member: true },
-    { title: 'חדשות נהריה', jid: '120300000000000013@g.us', member: true },
-    { title: 'עדכוני כבישים צפון', jid: '120300000000000014@g.us', member: true },
-    // The linked number is not in this group: shows how a failure is reported.
-    { title: 'מבזקים — גליל (המספר לא בקבוצה)', jid: '120300000000000015@g.us', member: false },
+    { title: 'חדשות חיפה', jid: '120300000000000011@g.us', members: 214 },
+    { title: 'חדשות הקריות', jid: '120300000000000012@g.us', members: 168 },
+    { title: 'חדשות נהריה', jid: '120300000000000013@g.us', members: 97 },
+    { title: 'עדכוני כבישים צפון', jid: '120300000000000014@g.us', members: 256 },
+    { title: 'מבזקים גליל', jid: '120300000000000015@g.us', members: 131 },
   ],
 };
 

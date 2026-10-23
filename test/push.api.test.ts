@@ -214,4 +214,70 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
     assert.match(page.text, /\/v1\/auth\/signup/, 'the app can open an account');
     assert.ok(!/innerHTML/.test(page.text), 'no innerHTML in the page script');
   });
+
+  test('the dashboard script parses (it lives inside a template string)', async () => {
+    const page = await call('GET', '/app');
+    const scripts = [...page.text.matchAll(/<script nonce="[^"]+">([\s\S]*?)<\/script>/g)].map((m) => m[1]!);
+    assert.ok(scripts.length > 0);
+    for (const code of scripts) assert.doesNotThrow(() => new Function(code), 'a syntax error would leave the app blank');
+  });
+
+  test('the fixed signature is saved per account and added under every copy, also on edits', async () => {
+    const empty = await call('GET', '/v1/push/settings', undefined, tokA);
+    assert.equal(empty.status, 200);
+    assert.equal(empty.body.signature, '');
+    assert.equal(empty.body.controlGroups.length, 1);
+
+    assert.equal((await call('PUT', '/v1/push/settings', { signature: 'x'.repeat(1001) }, tokA)).status, 400);
+    assert.equal((await call('PUT', '/v1/push/settings', { reportMode: 'loud' }, tokA)).status, 400);
+    const none = await call('PUT', '/v1/push/settings', { signature: 'B' }, tokB);
+    assert.equal(none.status, 404, 'another tenant has no control group');
+
+    const sig = '📲 להצטרפות: chat.whatsapp.com/abc';
+    const saved = await call('PUT', '/v1/push/settings', { signature: sig, reportMode: 'failures' }, tokA);
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    const now = await call('GET', '/v1/push/settings', undefined, tokA);
+    assert.equal(now.body.signature, sig);
+    assert.equal(now.body.reportMode, 'failures');
+    const r = await withTenant(db.app, tA, (c) => c.query<{ control: any }>('SELECT control FROM routes'));
+    assert.deepEqual(r.rows[0]!.control.allowedSenders, ['972500000402'], 'other control settings are kept');
+
+    const id = net.humanPost(CUSTOMER, ctrl, { kind: 'text', text: 'כביש 6 נפתח' });
+    await drain();
+    const copy = () => net.groupLog(g1).at(-1)!;
+    assert.equal((copy().content as { text: string }).text, `כביש 6 נפתח\n\n${sig}`);
+    net.humanEdit(CUSTOMER, ctrl, id, { kind: 'text', text: 'כביש 6 נפתח לתנועה' });
+    await drain();
+    assert.equal((copy().content as { text: string }).text, `כביש 6 נפתח לתנועה\n\n${sig}`, 'the edit keeps the signature');
+
+    await call('PUT', '/v1/push/settings', { signature: '' }, tokA);
+    net.humanPost(CUSTOMER, ctrl, { kind: 'text', text: 'בלי חתימה' });
+    await drain();
+    assert.equal((copy().content as { text: string }).text, 'בלי חתימה');
+  });
+
+  test('reads are counted once per reader and shown per copy and per distribution', async () => {
+    const id = net.humanPost(CUSTOMER, ctrl, { kind: 'text', text: 'נקראה?' });
+    await drain();
+    const c1 = net.groupLog(g1).at(-1)!, c2 = net.groupLog(g2).at(-1)!;
+    net.read(g1, c1.id, '972540000001');
+    net.read(g1, c1.id, '972540000001');
+    net.read(g1, c1.id, '972540000002');
+    net.read(g2, c2.id, '972540000003');
+    net.read(ctrl, id, '972540000009'); // a read in the control group is not a read of a copy
+    const path = `/v1/distributions/wa/${acc}/${encodeURIComponent(ctrl)}/${encodeURIComponent(id)}`;
+    await worker.settle();
+    const detail = await call('GET', path, undefined, tokA);
+    assert.deepEqual(detail.body.copies.map((c: any) => [c.target.title, c.reads]), [['יעד 1', 2], ['יעד 2', 1]]);
+    const list = await call('GET', '/v1/distributions', undefined, tokA);
+    assert.equal(list.body.find((d: any) => d.preview === 'נקראה?').reads, 3);
+    const rows = await withTenant(db.app, tB, (c) => c.query('SELECT * FROM message_reads'));
+    assert.equal(rows.rowCount, 0, 'reads are tenant-scoped');
+  });
+
+  test('the free plan matches the site: 10 groups, Telegram included', async () => {
+    const r = await db.owner.query<{ limits: any }>(`SELECT limits FROM plans WHERE code = 'free'`);
+    assert.equal(r.rows[0]!.limits.targets, 10);
+    assert.equal(r.rows[0]!.limits.tgBots, 1);
+  });
 });

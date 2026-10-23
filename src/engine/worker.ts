@@ -106,6 +106,8 @@ export class Worker {
     this.inboundLimit = o.inboundConcurrency ?? 16;
     o.connections.onMessage((m) => this.enqueueInbound({ kind: 'msg', m }));
     o.connections.onSync((e) => this.enqueueInbound({ kind: 'sync', e }));
+    // Reads are counters only: no ordering needed, they go straight to the queue.
+    o.connections.onReceipt((r) => this.track(o.queue.recordRead(r.platform, r.chatId, r.messageId, r.readerId)));
     o.connections.onSafetySignal((s) => this.track(this.safety.onConnectionSignal(s)));
     if (o.onStatus) o.connections.onStatus((e) => this.track(Promise.resolve(o.onStatus!(e))));
   }

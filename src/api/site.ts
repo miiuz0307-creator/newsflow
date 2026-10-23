@@ -292,20 +292,20 @@ footer a{text-decoration:none;color:rgba(255,255,255,.75);margin-inline-start:18
 
 <section id="pricing" aria-labelledby="pricing-title">
   <div class="wrap">
-    <div class="sec-head"><h2 id="pricing-title">מחירים</h2><p class="lead">מתחילים בחינם, ועוברים ל‑Premium כשרוצים להפיץ לכל הקבוצות.</p></div>
+    <div class="sec-head"><h2 id="pricing-title">מחירים</h2><p class="lead">עד 10 קבוצות, כולל טלגרם, בחינם. כשהרשת גדלה, עוברים ל‑Premium.</p></div>
     <div class="plans">
       <div class="plan">
         <h3>חינם</h3>
         <div class="price"><b>0<span class="cur">₪</span></b></div>
-        <p class="tag">לנסות את PUSH על כמה קבוצות</p>
-        <ul><li>קבוצת שליטה אחת</li><li>עד 3 קבוצות יעד</li><li>עריכה ומחיקה מסונכרנות</li><li>דיווחים בקבוצת השליטה</li></ul>
+        <p class="tag">לרשת קטנה של קבוצות</p>
+        <ul><li>עד 10 קבוצות יעד, WhatsApp ו‑Telegram</li><li>עריכה ומחיקה מסונכרנות</li><li>חתימה קבועה מתחת לכל הודעה</li><li>דיווחים בקבוצת השליטה</li></ul>
         <a class="btn btn-dark" href="/app#signup">פתיחת חשבון</a>
       </div>
       <div class="plan main">
         <h3>Premium</h3>
         <div class="price"><b>300<span class="cur">₪</span></b><span>לחודש, לפני מע"מ</span></div>
         <p class="tag">לרשתות קבוצות שמפיצות כל יום</p>
-        <ul><li>עד 30 קבוצות יעד, WhatsApp ו‑Telegram</li><li>תבניות הודעה עם חתימה וקישורים</li><li>היסטוריה וסטטוס לכל קבוצה</li><li>תמיכה אישית</li></ul>
+        <ul><li>עד 30 קבוצות יעד, WhatsApp ו‑Telegram</li><li>כמה נקראה כל הודעה, ובאיזו קבוצה</li><li>היסטוריה וסטטוס לכל קבוצה</li><li>תמיכה אישית</li></ul>
         <a class="btn btn-primary" href="/app#signup">מתחילים ב‑Premium</a>
       </div>
     </div>

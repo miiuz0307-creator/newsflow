@@ -38,7 +38,7 @@ export function senderAllowed(route: Pick<Route, 'control'>, msg: Pick<InboundMe
 
 /** The text and media one target receives: cleanup, then the route's template. Used for sends and for edits. */
 export function renderCopy(
-  route: Pick<Route, 'filters'>,
+  route: Pick<Route, 'filters' | 'control'>,
   template: Template | undefined,
   source: { kind: MessageContent['kind']; text?: string; media?: MessageContent['media'] },
   target: RouteTarget,
@@ -47,7 +47,10 @@ export function renderCopy(
   let body = source.text ?? '';
   if (route.filters.removeInviteLinks ?? true) body = removeInviteLinks(body);
   if (source.kind === 'text' && !body.trim()) return null;
-  const rendered = renderTemplate(template, {
+  // The control group's fixed signature goes under the message (and under the template, if any).
+  const signature = route.control?.signature?.trim();
+  const tpl = signature ? { body: `${template?.body ?? '{content}'}\n\n${signature}`, vars: template?.vars ?? {} } : template;
+  const rendered = renderTemplate(tpl, {
     content: body,
     groupName: target.title,
     now,
@@ -232,11 +235,14 @@ export function parseControlSettings(input: unknown): ControlSettings | undefine
     allowed = i.allowedSenders.map((x) => String(x).replace(/[\s+\-()]/g, ''));
     if (allowed.some((x) => !/^\d{5,15}$/.test(x))) throw new Error('שולח מורשה הוא מספר טלפון עם קידומת מדינה, או מזהה משתמש בטלגרם');
   }
+  if (i.signature !== undefined && typeof i.signature !== 'string') throw new Error('החתימה חייבת להיות טקסט');
+  if (typeof i.signature === 'string' && i.signature.trim().length > 1000) throw new Error('החתימה ארוכה מדי (עד 1,000 תווים)');
   return {
     syncEdits: i.syncEdits !== false,
     syncDeletes: i.syncDeletes !== false,
     reportMode: (i.reportMode as 'all' | 'failures' | 'summary' | 'off' | undefined) ?? 'summary',
     ...(allowed?.length ? { allowedSenders: allowed } : {}),
+    ...(typeof i.signature === 'string' && i.signature.trim() ? { signature: i.signature.trim() } : {}),
   };
 }
 

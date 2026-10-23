@@ -8,6 +8,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { CAPABILITIES } from '../../core/types.js';
+import { parseControlSettings } from '../../routing/router.js';
 import { HttpError, type ApiServer } from '../server.js';
 import { dashboardHtml } from '../dashboard.js';
 import { siteHtml } from '../site.js';
@@ -34,6 +35,7 @@ interface DistRow {
   edits_failed: number;
   deletes_sent: number;
   deletes_failed: number;
+  reads: number;
 }
 
 interface CopyRow {
@@ -54,12 +56,52 @@ interface CopyRow {
   delete_status: string | null;
   delete_error: string | null;
   delete_job_id: string | null;
+  read_count: number;
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-export function pushModule() {
+export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
   return (api: ApiServer) => {
+    // Control-group settings shown in the app: the fixed signature and the report mode.
+    api.on('GET', '/v1/push/settings', true, async ({ auth }) =>
+      api.tenantTx(auth!, async (c) => {
+        const r = await c.query<{ id: string; name: string; control: Record<string, unknown> }>(
+          `SELECT id, name, control FROM routes WHERE control IS NOT NULL ORDER BY created_at`);
+        const first = r.rows[0]?.control ?? {};
+        return {
+          controlGroups: r.rows.map((x) => ({ id: x.id, name: x.name })),
+          signature: (first.signature as string | undefined) ?? '',
+          reportMode: (first.reportMode as string | undefined) ?? 'summary',
+        };
+      }));
+
+    api.on('PUT', '/v1/push/settings', true, async ({ auth, body }) => {
+      api.requireRole(auth!, 'owner', 'admin');
+      const out = await api.tenantTx(auth!, async (c) => {
+        const r = await c.query<{ id: string; control: Record<string, unknown> }>(`SELECT id, control FROM routes WHERE control IS NOT NULL`);
+        if (!r.rowCount) throw new HttpError(404, 'no_control_group', 'עדיין אין קבוצת שליטה בחשבון');
+        for (const row of r.rows) {
+          let next;
+          try {
+            next = parseControlSettings({
+              ...row.control,
+              ...(body.signature !== undefined ? { signature: String(body.signature ?? '') } : {}),
+              ...(body.reportMode !== undefined ? { reportMode: body.reportMode } : {}),
+            });
+          } catch (e) {
+            throw new HttpError(400, 'bad_settings', (e as Error).message);
+          }
+          await c.query('UPDATE routes SET control = $2, updated_at = now() WHERE id = $1', [row.id, next]);
+        }
+        await api.audit(c, auth!, 'push.settings_saved', String(r.rowCount));
+        return { saved: r.rowCount };
+      });
+      opts.onRoutesChanged?.();
+      return out;
+    });
+
+
     api.on('GET', '/v1/capabilities', false, async () => CAPABILITIES);
 
     // Recent distributions (last 30 days), newest first.
@@ -82,7 +124,8 @@ export function pushModule() {
                     count(*) FILTER (WHERE action = 'edit' AND status = 'sent')::int AS edits_sent,
                     count(*) FILTER (WHERE action = 'edit' AND status IN ('failed', 'unknown'))::int AS edits_failed,
                     count(*) FILTER (WHERE action = 'delete' AND status = 'sent')::int AS deletes_sent,
-                    count(*) FILTER (WHERE action = 'delete' AND status IN ('failed', 'unknown'))::int AS deletes_failed
+                    count(*) FILTER (WHERE action = 'delete' AND status IN ('failed', 'unknown'))::int AS deletes_failed,
+                    COALESCE(sum(read_count) FILTER (WHERE action = 'send'), 0)::int AS reads
                FROM outbound_jobs
               WHERE action IN ('send', 'edit', 'delete') AND created_at > now() - interval '30 days'
               GROUP BY 1, 2, 3, 4
@@ -90,7 +133,7 @@ export function pushModule() {
               LIMIT $1)
            SELECT d.platform, d.account_id, d.chat_id, d.source_message_id, d.created_at, d.kind,
                   d.targets, d.sent, d.failed, d.unknown, d.pending, d.cancelled, d.skipped,
-                  d.edits_sent, d.edits_failed, d.deletes_sent, d.deletes_failed,
+                  d.edits_sent, d.edits_failed, d.deletes_sent, d.deletes_failed, d.reads,
                   -- The customer's latest wording (from the control group), else the first copy's text.
                   COALESCE(mv.text, d.text) AS text,
                   sm.version, sm.deleted_at IS NOT NULL AS deleted, ch.title AS source_title
@@ -115,6 +158,7 @@ export function pushModule() {
           copies: { total: x.targets, sent: x.sent, failed: x.failed, unknown: x.unknown, pending: x.pending, cancelled: x.cancelled, skipped: x.skipped },
           edits: { sent: x.edits_sent, failed: x.edits_failed },
           deletes: { sent: x.deletes_sent, failed: x.deletes_failed },
+          reads: x.reads,
         }));
       });
     });
@@ -127,7 +171,7 @@ export function pushModule() {
       return api.tenantTx(auth!, async (c) => {
         const copies = await c.query<CopyRow>(
           `SELECT s.id::text, s.target_platform, s.target_chat_id, COALESCE(s.target_title, ch.title) AS title, s.status, s.error_kind,
-                  s.last_error, s.sent_at, s.attempts, s.version,
+                  s.last_error, s.sent_at, s.attempts, s.version, s.read_count,
                   e.status AS edit_status, e.version AS edit_version, e.error_kind AS edit_error, e.id::text AS edit_job_id,
                   d.status AS delete_status, d.error_kind AS delete_error, d.id::text AS delete_job_id
              FROM outbound_jobs s
@@ -160,6 +204,7 @@ export function pushModule() {
             sentAt: r.sent_at,
             attempts: r.attempts,
             version: r.version,
+            reads: r.read_count,
             edit: r.edit_status ? { jobId: r.edit_job_id, status: r.edit_status, version: r.edit_version, error: r.edit_error } : null,
             delete: r.delete_status ? { jobId: r.delete_job_id, status: r.delete_status, error: r.delete_error } : null,
           })),
