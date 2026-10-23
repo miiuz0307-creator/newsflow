@@ -13,6 +13,7 @@ WORKDIR /app
 RUN useradd --system --uid 10001 app && mkdir -p /app/.media && chown app /app/.media
 COPY --from=build /app/dist ./dist
 COPY db ./db
+COPY public ./public
 COPY package.json ./
 USER app
 EXPOSE 8787

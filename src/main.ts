@@ -29,6 +29,7 @@ import { authModule } from './api/modules/auth.js';
 import { manageModule } from './api/modules/manage.js';
 import { supportModule } from './api/modules/support.js';
 import { pushModule } from './api/modules/push.js';
+import { fontsModule } from './api/fonts.js';
 import { NotificationService, noticeForSafety, noticeForStatus } from './notify/notifications.js';
 import { TelegramRuntime } from './telegram/runtime.js';
 import { CachedRouteSource } from './engine/routeCache.js';
@@ -130,6 +131,7 @@ const api = new ApiServer({
     manageModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate() }),
     supportModule(),
     pushModule(),
+    fontsModule(),
     ...adminModules,
   ],
   devTokens: cfg.env === 'development' && process.env.DEV_TOKENS === '1', logger: log,
