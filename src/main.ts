@@ -20,7 +20,7 @@ import { loadConfig } from './config.js';
 import { MasterKey } from './crypto/keyring.js';
 import { PgPool } from './db/pg.js';
 import {
-  PgAuthStore, PgDedupStore, PgJobQueue, PgKillSwitchStore, PgRouteSource, PgSourceMessageStore, TenantKeys, recordConnectionEvent, recordSafetyEvent,
+  PgAuthStore, PgDedupStore, PgJobQueue, PgKillSwitchStore, PgRouteSource, PgSourceMessageStore, TenantKeys, linkedAccounts, recordConnectionEvent, recordSafetyEvent,
 } from './db/pgStores.js';
 import { CachedKillSwitches } from './delivery/killSwitch.js';
 import { FileMediaStore } from './delivery/mediaStore.js';
@@ -97,7 +97,7 @@ const worker = new Worker({
     await notifications.notify(noticeForSafety(e));
   },
   onStatus: async (e) => {
-    await recordConnectionEvent(workerPool, e.state.tenantId, e.state.accountId, e.state.status, e.state.lastDisconnect?.reason);
+    await recordConnectionEvent(workerPool, e.state.tenantId, e.state.accountId, e.state.status, e.state.lastDisconnect?.reason, e.state.phoneNumber);
     await notifications.notify(noticeForStatus(e));
   },
   logger: log,
@@ -146,6 +146,15 @@ setInterval(() => void workerPool.query('SELECT * FROM purge_expired(7)').catch(
 await api.listen(cfg.apiPort, process.env.API_HOST ?? '127.0.0.1');
 worker.dispatcher.start();
 log.info('started', { api: api.url, waMode: mode });
+
+// Reconnect the numbers that were linked before this restart (a deploy, a crash).
+for (const a of await linkedAccounts(workerPool)) {
+  try {
+    await conns.connect(a.tenant_id, a.id, { method: 'qr' });
+  } catch (e) {
+    log.warn('could not reconnect a linked number', { accountId: a.id, err: String(e) });
+  }
+}
 
 async function shutdown(signal: string) {
   log.info('shutting down', { signal });
