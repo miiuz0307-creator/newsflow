@@ -124,7 +124,9 @@ async function seed(): Promise<{ tenantId: string; accountId: string }> {
   } else {
     // Keep the password in step with DEMO_PASSWORD.
     const hash = await hashPassword(password);
-    await withTenant(pools.app, tenantId, (c) => c.query('UPDATE users SET password_hash = $2 WHERE lower(email) = $1', [email, hash]));
+    // Each boot also lifts a lockout from earlier mistyped attempts.
+    await withTenant(pools.app, tenantId, (c) =>
+      c.query('UPDATE users SET password_hash = $2, failed_logins = 0, locked_until = NULL WHERE lower(email) = $1', [email, hash]));
   }
   const t = tenantId;
   const acc = await withTenant(pools.app, t, async (c) => {
