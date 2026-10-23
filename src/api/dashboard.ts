@@ -199,7 +199,7 @@ main{padding:34px 40px 80px;min-width:0}
 .hero-band{position:relative;overflow:hidden;border-radius:22px;color:#fff;padding:26px 28px 28px;background:radial-gradient(700px 360px at 12% 0%,rgba(25,198,180,.28) 0%,transparent 60%),radial-gradient(800px 420px at 95% 110%,#1d4a86 0%,transparent 60%),var(--ink)}
 .hero-band::after{content:"";position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.07) 1px,transparent 1px);background-size:22px 22px;pointer-events:none;mask-image:linear-gradient(180deg,#000,transparent 85%)}
 .hb-head{position:relative;z-index:1;display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:22px}
-.hb-head h1{font-size:40px}.hb-head p{color:rgba(255,255,255,.66);margin-top:2px}
+.hb-head .btn{white-space:nowrap;flex:none}.hb-head h1{font-size:40px}.hb-head p{color:rgba(255,255,255,.66);margin-top:2px}
 .hb-body{position:relative;z-index:1;display:grid;grid-template-columns:1.4fr 1fr;gap:18px;align-items:stretch}
 .hstats{display:grid;grid-template-columns:repeat(3,1fr);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);border-radius:16px}
 .hstat{padding:18px 20px}.hstat+.hstat{border-inline-start:1px solid rgba(255,255,255,.12)}
