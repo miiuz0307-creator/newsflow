@@ -210,7 +210,8 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
     assert.match(csp, /default-src 'none'/);
     const nonce = /script-src 'nonce-([^']+)'/.exec(csp)?.[1];
     assert.ok(nonce && page.text.includes(`nonce="${nonce}"`));
-    assert.match(page.text, /הודעה אחת\. כל הקבוצות\./);
+    assert.match(page.text, /כל הקבוצות\./);
+    assert.match(page.text, /\/v1\/auth\/signup/, 'the app can open an account');
     assert.ok(!/innerHTML/.test(page.text), 'no innerHTML in the page script');
   });
 });

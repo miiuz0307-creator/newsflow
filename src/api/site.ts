@@ -205,7 +205,7 @@ footer a{text-decoration:none;color:rgba(255,255,255,.75);margin-inline-start:18
       <h1 id="hero-title">הודעה אחת.<span class="l2">כל הקבוצות.</span></h1>
       <p class="lead">כותבים פעם אחת בקבוצת שליטה ב‑WhatsApp, ו‑PUSH מפיצה לכל קבוצות ה‑WhatsApp וה‑Telegram שלכם. טעות כתיב? עורכים פעם אחת, וכל העותקים מתעדכנים.</p>
       <div class="ctas">
-        <a class="btn btn-primary" href="/app">התחילו עכשיו</a>
+        <a class="btn btn-primary" href="/app#signup">התחילו עכשיו</a>
         <a class="btn btn-quiet" href="#how">איך זה עובד</a>
       </div>
       <p class="fine">בלי להיכנס לאתר בכל פרסום. העבודה היומיומית נשארת ב‑WhatsApp.</p>
@@ -299,14 +299,14 @@ footer a{text-decoration:none;color:rgba(255,255,255,.75);margin-inline-start:18
         <div class="price"><b>0<span class="cur">₪</span></b></div>
         <p class="tag">לנסות את PUSH על כמה קבוצות</p>
         <ul><li>קבוצת שליטה אחת</li><li>עד 3 קבוצות יעד</li><li>עריכה ומחיקה מסונכרנות</li><li>דיווחים בקבוצת השליטה</li></ul>
-        <a class="btn btn-dark" href="/app">פתיחת חשבון</a>
+        <a class="btn btn-dark" href="/app#signup">פתיחת חשבון</a>
       </div>
       <div class="plan main">
         <h3>Premium</h3>
         <div class="price"><b>300<span class="cur">₪</span></b><span>לחודש, לפני מע"מ</span></div>
         <p class="tag">לרשתות קבוצות שמפיצות כל יום</p>
         <ul><li>עד 30 קבוצות יעד, WhatsApp ו‑Telegram</li><li>תבניות הודעה עם חתימה וקישורים</li><li>היסטוריה וסטטוס לכל קבוצה</li><li>תמיכה אישית</li></ul>
-        <a class="btn btn-primary" href="/app">מתחילים ב‑Premium</a>
+        <a class="btn btn-primary" href="/app#signup">מתחילים ב‑Premium</a>
       </div>
     </div>
   </div>
@@ -328,7 +328,7 @@ footer a{text-decoration:none;color:rgba(255,255,255,.75);margin-inline-start:18
 <section class="final">
   <div class="wrap">
     <h2>מוכנים להפסיק להעתיק ולהדביק?</h2>
-    <a class="btn btn-dark" href="/app">התחילו עכשיו</a>
+    <a class="btn btn-dark" href="/app#signup">התחילו עכשיו</a>
   </div>
 </section>
 </main>
