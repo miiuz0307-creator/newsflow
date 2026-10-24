@@ -103,6 +103,31 @@ describe('pipeline + dispatcher', () => {
     assert.ok(h.sender.sent.every((s) => s.content.media?.data?.equals(data)));
   });
 
+  test('the customer\'s logo is applied once to a video; if it fails the original goes out', async () => {
+    const h = harness();
+    const calls: string[] = [];
+    const branded = new InboundPipeline({
+      routes: h.routes, queue: h.queue, media: h.media,
+      router: new Router({ dedup: new MemoryDedupStore(h.clock.now), templates: () => undefined, now: () => new Date(h.clock.now()) }),
+      brand: async (_t, kind, data) => {
+        calls.push(kind);
+        if (data.toString() === 'BROKEN') throw new Error('ffmpeg failed');
+        return { data: Buffer.concat([Buffer.from('LOGO:'), data]), mimeType: 'video/mp4' };
+      },
+    });
+    await branded.handle(h.inbound('', { content: { kind: 'video', text: 'סרטון', media: { mimeType: 'video/quicktime', data: Buffer.from('VID') } } }));
+    assert.deepEqual(calls, ['video'], 'once per message, not per group');
+    await h.dispatcher.tick();
+    assert.equal(h.sender.sent.length, 5);
+    assert.ok(h.sender.sent.every((x) => x.content.media?.data?.toString() === 'LOGO:VID' && x.content.media?.mimeType === 'video/mp4'));
+
+    await branded.handle(h.inbound('', { content: { kind: 'video', text: 'שבור', media: { mimeType: 'video/mp4', data: Buffer.from('BROKEN') } } }));
+    await h.dispatcher.tick();
+    assert.ok(h.sender.sent.slice(5).every((x) => x.content.media?.data?.toString() === 'BROKEN'), 'the original is sent');
+    await branded.handle(h.inbound('טקסט'));
+    assert.equal(calls.length, 2, 'text messages never go through the logo step');
+  });
+
   test('rate limits space out sends instead of dropping them', async () => {
     const h = harness({ accountMinGapMs: 3000, chatMinGapMs: 0 });
     await h.pipeline.handle(h.inbound('x'));

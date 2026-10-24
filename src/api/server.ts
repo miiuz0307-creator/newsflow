@@ -63,6 +63,8 @@ interface RouteDef {
   keys: string[];
   auth: boolean;
   handler: Handler;
+  /** Largest request body accepted, in bytes (default 256 KB). */
+  bodyLimit?: number;
 }
 
 const UUID_RE = '[0-9a-fA-F-]{36}';
@@ -132,8 +134,8 @@ export class ApiServer {
   }
 
   /** Registers a route. Used by the feature modules in src/api/modules. */
-  on(method: string, path: string, auth: boolean, handler: Handler) {
-    this.routes.push({ method, ...compile(path), auth, handler });
+  on(method: string, path: string, auth: boolean, handler: Handler, opts: { bodyLimit?: number } = {}) {
+    this.routes.push({ method, ...compile(path), auth, handler, ...(opts.bodyLimit ? { bodyLimit: opts.bodyLimit } : {}) });
   }
 
   /**
@@ -453,7 +455,7 @@ export class ApiServer {
         // themselves, first confirms the tenant is active and the user still exists.
         await this.tenantTx(auth, async () => undefined);
       }
-      const body = req.method === 'GET' || req.method === 'DELETE' ? {} : await readJson(req);
+      const body = req.method === 'GET' || req.method === 'DELETE' ? {} : await readJson(req, route.bodyLimit);
       if (typeof body !== 'object' || body === null || Array.isArray(body)) throw new HttpError(400, 'bad_request', 'body must be a JSON object');
       const ip = this.clientIp(req);
       const out = await route.handler({ req, res, params, body, auth, ip });
