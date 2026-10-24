@@ -107,7 +107,14 @@ export class Worker {
     o.connections.onMessage((m) => this.enqueueInbound({ kind: 'msg', m }));
     o.connections.onSync((e) => this.enqueueInbound({ kind: 'sync', e }));
     // Reads are counters only: no ordering needed, they go straight to the queue.
-    o.connections.onReceipt((r) => this.track(o.queue.recordRead(r.platform, r.chatId, r.messageId, r.readerId)));
+    // Reads are counted per copy. A one-line summary each minute shows they arrive (no names or numbers).
+    const reads = { counted: 0, repeat: 0 };
+    o.connections.onReceipt((r) => this.track(o.queue.recordRead(r.platform, r.chatId, r.messageId, r.readerId).then((n) => { if (n) reads.counted++; else reads.repeat++; })));
+    setInterval(() => {
+      if (!reads.counted && !reads.repeat) return;
+      this.log.info('read receipts', { ...reads });
+      reads.counted = 0; reads.repeat = 0;
+    }, 60_000).unref();
     o.connections.onSafetySignal((s) => this.track(this.safety.onConnectionSignal(s)));
     if (o.onStatus) o.connections.onStatus((e) => this.track(Promise.resolve(o.onStatus!(e))));
   }
