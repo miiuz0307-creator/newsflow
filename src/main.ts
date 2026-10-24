@@ -147,6 +147,14 @@ await api.listen(cfg.apiPort, process.env.API_HOST ?? '127.0.0.1');
 worker.dispatcher.start();
 log.info('started', { api: api.url, waMode: mode });
 
+// Earlier versions stopped sending on a number when a deploy briefly ran two servers on the
+// same session ("replaced"). That was never a warning about the number: lift those stops.
+{
+  const r = await workerPool.query(
+    `UPDATE kill_switches SET active = false WHERE active AND scope = 'account' AND set_by = 'system:auto' AND reason = 'connection: replaced'`);
+  if (r.rowCount) log.info('lifted stops left by a deploy', { count: r.rowCount });
+}
+
 // Reconnect the numbers that were linked before this restart (a deploy, a crash).
 // During a deploy the previous server is still holding the WhatsApp session for a few
 // seconds; waiting lets it close cleanly instead of the two replacing each other.

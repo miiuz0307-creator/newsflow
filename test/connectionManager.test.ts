@@ -131,6 +131,15 @@ describe('after linking', () => {
     await mgr.shutdown();
   });
 
+  test('a session taken over by another PUSH server (deploy) steps aside without stopping sending', async () => {
+    const { mgr, stores, signals } = await linked();
+    (mgr as any).entries.get('acc1').transport.emitPublic('close', { reason: 'replaced' });
+    await waitFor(() => mgr.getState('acc1')?.status === 'stopped');
+    assert.deepEqual(signals, [], 'no safety stop: only PUSH holds this session');
+    assert.equal(await stores.get('acc1')!.hasCreds(), true, 'the session is kept for the other server');
+    await mgr.shutdown();
+  });
+
   test('device removed from phone wipes the session', async () => {
     const { net, mgr, stores, signals } = await linked();
     net.unlinkDevice(PHONE);
