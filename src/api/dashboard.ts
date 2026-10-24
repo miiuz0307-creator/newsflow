@@ -291,6 +291,7 @@ label.f.mode{margin-top:18px}
 @media (max-width:620px){.steps-bar{gap:6px}.steps-bar li+li::before{width:12px}.steps-bar li{font-size:13px}}
 .notice.cta{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:20px;margin-bottom:0}
 @media (max-width:620px){.notice.cta{flex-direction:column;align-items:stretch}}
+.err-alt{margin-top:6px;color:var(--text)}.err-alt .linkish{margin:0}
 </style>
 </head>
 <body>
@@ -335,10 +336,10 @@ function timeOf(d){try{return new Date(d).toLocaleTimeString('he-IL',{hour:'2-di
 function whenOf(d){try{var x=new Date(d),now=new Date();var same=x.toDateString()===now.toDateString();return same?'היום, '+timeOf(d):x.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})+', '+timeOf(d)}catch(e){return ''}}
 
 // ---------------- auth screens
-function showAuth(mode,msg){
+function showAuth(mode,msg,prefill){
   clearInterval(timer);
   var err=h('div',{cls:'err',role:'alert',text:msg||''});
-  var email=h('input',{cls:'i',type:'email',autocomplete:'username',required:true,dir:'ltr'});
+  var email=h('input',{cls:'i',type:'email',autocomplete:'username',required:true,dir:'ltr'});if(prefill)email.value=prefill;
   var pw=h('input',{cls:'i',type:'password',autocomplete:mode==='login'?'current-password':'new-password',required:true,dir:'ltr'});
   var biz=h('input',{cls:'i',type:'text',autocomplete:'organization',required:mode==='signup'});
   var terms=h('input',{type:'checkbox',id:'terms'});
@@ -349,13 +350,18 @@ function showAuth(mode,msg){
       var r=mode==='login'?await api('POST','/v1/auth/login',{email:email.value,password:pw.value})
         :await api('POST','/v1/auth/signup',{email:email.value,password:pw.value,businessName:biz.value,acceptTerms:terms.checked});
       setTok(r.accessToken,r.refreshToken);start();
-    }catch(x){err.textContent=x.message;submit.disabled=false}
+    }catch(x){
+      err.replaceChildren(x.message);submit.disabled=false;
+      // A new visitor often tries "כניסה" first: offer to open the account instead.
+      if(mode==='login'&&x.code==='bad_credentials')err.append(h('div',{cls:'err-alt'},['אין לך עדיין חשבון? ',
+        h('button',{cls:'linkish',type:'button',text:'פתיחת חשבון חדש',onclick:function(){showAuth('signup','',email.value)}})]));
+    }
   }},[
     h('h2',{text:mode==='login'?'ברוכים השבים':'פתיחת חשבון'}),
     h('p',{cls:'sub',text:mode==='login'?'התחברו כדי לראות את ההפצות שלכם.':'כמה פרטים, ואתם בפנים. אפשר להתחיל בחינם.'}),
     h('div',{cls:'seg',role:'group','aria-label':'כניסה או הרשמה'},[
-      h('button',{type:'button','aria-pressed':String(mode==='login'),text:'כניסה',onclick:function(){showAuth('login')}}),
-      h('button',{type:'button','aria-pressed':String(mode==='signup'),text:'הרשמה',onclick:function(){showAuth('signup')}})]),
+      h('button',{type:'button','aria-pressed':String(mode==='login'),text:'כניסה',onclick:function(){showAuth('login','',email.value)}}),
+      h('button',{type:'button','aria-pressed':String(mode==='signup'),text:'הרשמה',onclick:function(){showAuth('signup','',email.value)}})]),
     mode==='signup'?h('label',{cls:'f'},[h('span',{text:'שם העסק או רשת הקבוצות'}),biz]):null,
     h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),
     h('label',{cls:'f'},[h('span',{text:'סיסמה'}),pw]),
