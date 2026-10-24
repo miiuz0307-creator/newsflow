@@ -403,8 +403,11 @@ export class ApiServer {
       // Stops set by an administrator or by the system after a ban/rate-limit warning
       // are not lifted by the customer here: system stops need the account fixed first,
       // admin stops need an admin.
-      if (!own.setBy.startsWith('user:')) {
-        throw new HttpError(403, 'locked_stop', own.setBy.startsWith('admin') ? 'העצירה הופעלה על ידי מנהל המערכת' : 'העצירה הופעלה אוטומטית בגלל אזהרה; יש לפנות לתמיכה');
+      // A system stop after repeated failures or lost reconnects can be resumed by the customer
+      // once they have looked; a ban, a rate-limit warning or a logout cannot.
+      const resumable = /failed sends in a row|reconnect_exhausted/.test(own.reason);
+      if (own.setBy.startsWith('admin') || (!own.setBy.startsWith('user:') && !resumable)) {
+        throw new HttpError(403, 'locked_stop', own.setBy.startsWith('admin') ? 'העצירה הופעלה על ידי מנהל המערכת' : 'העצירה הופעלה אוטומטית בגלל אזהרה מ‑WhatsApp, ואי אפשר לחדש אותה מכאן');
       }
       await o.killSwitches.clear(scope, scopeId, `user:${auth!.userId}`);
       return { resumed: { scope, id: scopeId } };

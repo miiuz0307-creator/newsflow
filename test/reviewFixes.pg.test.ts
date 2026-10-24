@@ -90,6 +90,9 @@ describe('review fixes (database + API)', { skip: !available && 'local test Post
 
     await ks.set({ scope: 'account', scopeId: accA, tenantId: tA, reason: 'banned', setBy: 'system:auto' });
     assert.equal((await call('POST', '/v1/resume', { scope: 'account', id: accA })).status, 403);
+    // A stop after repeated failures can be lifted by the customer once they have looked.
+    await ks.set({ scope: 'account', scopeId: accA, tenantId: tA, reason: '5 failed sends in a row', setBy: 'system:auto' });
+    assert.equal((await call('POST', '/v1/resume', { scope: 'account', id: accA })).status, 200);
     await ks.clear('account', accA, 'admin');
 
     assert.equal((await call('POST', '/v1/stop', { scope: 'tenant' })).status, 200);

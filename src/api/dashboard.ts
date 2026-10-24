@@ -294,6 +294,11 @@ label.f.mode{margin-top:18px}
 .err-alt{margin-top:6px;color:var(--text)}.err-alt .linkish{margin:0}
 .refresh-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}.refresh-row .hint{margin:0}.refresh-row .linkish{margin:0}
 .picked{margin:10px 0 0;font-size:13.5px;font-weight:600;color:var(--teal-deep)}.glist-empty{padding:14px;margin:0}
+.stopwrap{padding:24px 40px 0}
+@media (max-width:760px){.stopwrap{padding:16px 16px 0}}
+.stop{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;background:var(--warn-soft);border:1px solid rgba(183,121,31,.35);border-radius:14px;padding:14px 18px}
+.stop b{display:block;color:var(--warn);font-size:15px}.stop span{font-size:14px}
+.stop-act{display:flex;align-items:center;gap:10px}.stop-err{color:var(--bad);font-size:13px}
 </style>
 </head>
 <body>
@@ -393,24 +398,44 @@ async function start(){
   buildShell();await refresh();
   clearInterval(timer);timer=setInterval(refresh,demo?3000:10000);
 }
-var mainEl,navLinks=[];
+var mainEl,stopEl,navLinks=[];
 function navItems(cls){return ROUTES.filter(function(x){return !x.demo||demo}).map(function(x){
   var a=h('a',{href:'#'+x.id,'data-r':x.id,onclick:function(e){e.preventDefault();go(x.id)}},[icon(x.icon),h('span',{text:x.label})]);navLinks.push(a);return a})}
 function buildShell(){
   navLinks=[];formDrawn=null;
-  mainEl=h('main',{id:'main'});
+  mainEl=h('main',{id:'main'});stopEl=h('div',{cls:'stopwrap',hidden:true,role:'alert'});
   var logout=h('button',{type:'button',text:'יציאה',onclick:async function(){try{await api('POST','/v1/auth/logout',{refreshToken:tok('rt')})}catch(e){}clearTok();showAuth('login')}});
   root.replaceChildren(h('div',{cls:'shell'},[
     h('aside',{cls:'side'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'PUSH']),h('nav',{cls:'nav','aria-label':'ניווט'},navItems()),
       h('div',{cls:'who'},[h('b',{text:me.tenant.name}),h('span',{text:'מסלול '+me.tenant.plan.name}),h('br'),logout])]),
     h('div',null,[h('div',{cls:'mob'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'PUSH']),
-      h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:'יציאה',style:null,onclick:function(){logout.click()}})]),mainEl]),
+      h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:'יציאה',style:null,onclick:function(){logout.click()}})]),stopEl,mainEl]),
     h('nav',{cls:'tabbar','aria-label':'ניווט'},navItems())]));
   markNav();
 }
 function markNav(){navLinks.forEach(function(a){if(a.getAttribute('data-r')===route)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')})}
 function go(r){route=r;try{history.replaceState(null,'','#'+r)}catch(e){}markNav();draw(true);window.scrollTo(0,0)}
+// A paused number (emergency stop) is shown on every screen, with the reason and, when allowed, a way to resume.
+var STOP_HE=[[/blocked/,'WhatsApp חסם או הגביל את המספר. אי אפשר לחדש מכאן; כדאי לבדוק את המספר בטלפון.',false],
+  [/rate limited twice/,'WhatsApp ביקש להאט פעמיים בשעה האחרונה. השליחה נעצרה כדי לשמור על המספר.',false],
+  [/logged_out/,'המספר נותק מ‑WhatsApp (מכשירים מקושרים). צריך לחבר אותו מחדש במסך "חיבור".',false],
+  [/failed sends in a row/,'כמה שליחות ברצף נכשלו, אז השליחה נעצרה לבדיקה.',true],
+  [/reconnect_exhausted/,'לא הצלחנו להתחבר מחדש ל‑WhatsApp לאורך זמן.',true]];
+async function refreshStops(){
+  var list=[];try{list=await api('GET','/v1/stops')}catch(e){return}
+  var s=list.filter(function(x){return x.scope==='account'||x.scope==='tenant'})[0];
+  if(!s){stopEl.hidden=true;stopEl.replaceChildren();return}
+  var m=STOP_HE.find(function(x){return x[0].test(s.reason)});
+  var mine=String(s.setBy||'').indexOf('user:')===0;
+  var canResume=mine||(String(s.setBy).indexOf('system')===0&&!!m&&m[2]);
+  var err=h('span',{cls:'stop-err'});
+  var btn=canResume?h('button',{cls:'btn btn-dark btn-sm',type:'button',text:'חידוש השליחה',onclick:async function(){btn.disabled=true;
+    try{await api('POST','/v1/resume',{scope:s.scope,id:s.id});await refreshStops();refresh()}catch(e){err.textContent=e.message;btn.disabled=false}}}):null;
+  stopEl.replaceChildren(h('div',{cls:'stop'},[h('div',null,[h('b',{text:'השליחה מושהית'}),h('span',{text:mine?'עצרתם את השליחה.':m?m[1]:'השליחה נעצרה אוטומטית לבדיקה.'})]),
+    h('div',{cls:'stop-act'},[btn,err])]));stopEl.hidden=false;
+}
 async function refresh(){
+  void refreshStops();
   try{dists=await api('GET','/v1/distributions?limit=100')}catch(e){return}
   if(route==='sim')await simFetch();
   draw(false);
