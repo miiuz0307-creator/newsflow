@@ -299,6 +299,35 @@ label.f.mode{margin-top:18px}
 .stop{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;background:var(--warn-soft);border:1px solid rgba(183,121,31,.35);border-radius:14px;padding:14px 18px}
 .stop b{display:block;color:var(--warn);font-size:15px}.stop span{font-size:14px}
 .stop-act{display:flex;align-items:center;gap:10px}.stop-err{color:var(--bad);font-size:13px}
+/* ---------- logo ---------- */
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.drop{display:grid;grid-template-columns:auto 1fr;grid-template-rows:auto auto;column-gap:14px;align-items:center;border:1.5px dashed var(--line);border-radius:14px;padding:14px 16px;margin:12px 0 18px;cursor:pointer;background:var(--soft)}
+.drop:hover,.drop:focus-within{border-color:var(--teal)}
+.drop .thumb{grid-row:1/3;width:64px;height:64px;object-fit:contain;border-radius:10px;background:repeating-conic-gradient(#e9eef4 0 25%,#fff 0 50%) 0 0/14px 14px}
+.drop-t{font-weight:700;color:var(--teal-deep)}.drop-s{font-size:12.5px;color:var(--muted)}
+.ctl{margin-top:16px}.ctl-h{display:flex;justify-content:space-between;align-items:baseline;font-size:14px;font-weight:600;margin-bottom:8px}
+.range-v{font-weight:500;color:var(--muted);font-size:13px}
+.ctl input[type=range]{width:100%;accent-color:var(--teal-deep)}
+.ctl .check{margin:6px 0;color:var(--text);font-size:14px}
+.pos-grid{display:grid;grid-template-columns:repeat(3,1fr);grid-template-rows:repeat(3,26px);gap:6px;width:150px;padding:8px;border-radius:12px;background:var(--soft);border:1px solid var(--line)}
+.pos{border:1px solid var(--line);border-radius:6px;background:var(--card);cursor:pointer;display:grid;place-items:center;padding:0}
+.pos i{width:8px;height:8px;border-radius:2px;background:var(--muted)}
+.pos[aria-pressed=true]{background:var(--teal);border-color:var(--teal)}.pos[aria-pressed=true] i{background:var(--ink)}
+.pos.top-right{grid-area:1/1}.pos.top-left{grid-area:1/3}.pos.center{grid-area:2/2}.pos.bottom-right{grid-area:3/1}.pos.bottom-left{grid-area:3/3}
+.seg.mini{margin:0;padding:3px}.seg.mini button{padding:5px 12px;font-size:12.5px;white-space:nowrap}
+.pv-stage{display:flex;justify-content:center;background:var(--soft);border-radius:14px;padding:18px}
+.pv-frame{position:relative;overflow:hidden;border-radius:12px;background:#0b1626;box-shadow:0 10px 30px rgba(10,27,51,.25)}
+.pv-frame.vert{width:min(240px,100%);aspect-ratio:9/16}.pv-frame.horiz{width:100%;aspect-ratio:16/9}
+.pv-scene{position:absolute;inset:0;background:radial-gradient(120% 80% at 70% 20%,#2a5d8f 0%,transparent 60%),radial-gradient(90% 70% at 20% 90%,#0f7e74 0%,transparent 60%),#0b1626}
+.pv-bar{position:absolute;inset-inline:12%;height:7%;border-radius:6px;background:rgba(255,255,255,.12)}.pv-bar.a{top:58%}.pv-bar.b{top:70%;inset-inline-end:35%}
+.pv-play{position:absolute;left:50%;top:38%;width:16%;aspect-ratio:1;transform:translate(-50%,-50%);border-radius:50%;background:rgba(255,255,255,.18)}
+.pv-logo{position:absolute;height:auto;max-height:60%;object-fit:contain}
+.pv-frame.vert.at-top-left .pv-logo,.pv-frame.vert.at-top-right .pv-logo{top:1.69%}.pv-frame.vert.at-bottom-left .pv-logo,.pv-frame.vert.at-bottom-right .pv-logo{bottom:1.69%}
+.pv-frame.horiz.at-top-left .pv-logo,.pv-frame.horiz.at-top-right .pv-logo{top:5.33%}.pv-frame.horiz.at-bottom-left .pv-logo,.pv-frame.horiz.at-bottom-right .pv-logo{bottom:5.33%}
+.pv-frame.at-top-left .pv-logo,.pv-frame.at-bottom-left .pv-logo{left:3%}.pv-frame.at-top-right .pv-logo,.pv-frame.at-bottom-right .pv-logo{right:3%}
+.pv-frame.at-center .pv-logo{left:50%;top:50%;transform:translate(-50%,-50%)}
+.logo-grid{grid-template-columns:1fr 1fr}
+@media (max-width:1100px){.logo-grid{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -320,6 +349,7 @@ var ICON={
   info:'M12 8h.01M11 12h1v5h1M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z',
   link:'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   check:'M5 12.5l4.5 4.5L19 7',
+  image:'M4 5h16v14H4zM4 15l4-4 4 4 3-3 5 5M15.5 9.5h.01',
   pen:'M4 20h4L18.5 9.5a2.1 2.1 0 0 0-3-3L5 17v3zM13.5 6.5l3 3',
   eye:'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z'
 };
@@ -387,7 +417,7 @@ function showAuth(mode,msg,prefill){
 
 // ---------------- app shell
 var formDrawn=null,me=null,demo=false,simulated=false,timer=null,route='overview',dists=[],caps=null;
-var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'connect',label:'חיבור',icon:'link'},{id:'settings',label:'חתימה',icon:'pen'}];
+var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'connect',label:'חיבור',icon:'link'},{id:'settings',label:'חתימה',icon:'pen'},{id:'logo',label:'לוגו',icon:'image'}];
 async function start(){
   try{me=await api('GET','/v1/me')}catch(e){return showAuth('login')}
   try{await api('GET','/v1/demo/state');demo=true}catch(e){demo=false}
@@ -444,7 +474,7 @@ function draw(full){
   if(route==='sim'){if(full||!simEl)mainEl.replaceChildren(simPage());else simDraw();return}
   simEl=null;
   // Forms are drawn once when the page is opened (also on first load or a refresh), never redrawn under the user.
-  if(route==='settings'||route==='connect'){if(full||formDrawn!==route){formDrawn=route;mainEl.replaceChildren(route==='settings'?settingsPage():connectPage())}return}
+  if(route==='settings'||route==='connect'||route==='logo'){if(full||formDrawn!==route){formDrawn=route;mainEl.replaceChildren(route==='settings'?settingsPage():route==='logo'?logoPage():connectPage())}return}
   formDrawn=null;
   mainEl.replaceChildren(route==='dists'?distsPage():overviewPage());
 }
@@ -661,6 +691,74 @@ function qrSvg(rows){
   var n=rows.length,q=3,d='';
   rows.forEach(function(r,y){for(var x=0;x<n;x++)if(r.charCodeAt(x)===49){var run=1;while(x+run<n&&r.charCodeAt(x+run)===49)run++;d+='M'+(x+q)+' '+(y+q)+'h'+run+'v1h-'+run+'z';x+=run-1}});
   return s('svg',{'class':'qr',viewBox:'0 0 '+(n+2*q)+' '+(n+2*q),role:'img','aria-label':'קוד QR לחיבור WhatsApp','shape-rendering':'crispEdges'},[s('rect',{width:n+2*q,height:n+2*q,fill:'#fff'}),s('path',{d:d,fill:'#0A1B33'})]);
+}
+
+// ---------------- logo on videos
+var POS=[['top-right','ימין למעלה'],['top-left','שמאל למעלה'],['center','מרכז'],['bottom-right','ימין למטה'],['bottom-left','שמאל למטה']];
+function logoPage(){
+  var wrap=h('div',null,[h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'לוגו על הסרטונים'}),h('p',{text:'הלוגו שלכם יופיע על כל סרטון שיוצא מקבוצת השליטה, בכל הקבוצות.'})])]),h('p',{cls:'hint',text:'טוען…'})]);
+  (async function(){
+    var cur;try{cur=await api('GET','/v1/push/logo')}catch(e){wrap.lastChild.replaceWith(h('p',{cls:'err',text:e.message}));return}
+    var st={logo:cur.logo,position:cur.position,sizePct:cur.sizePct,opacityPct:cur.opacityPct,applyVideo:cur.applyVideo,applyImage:cur.applyImage,newLogo:null,shape:'v'};
+    var msg=h('p',{cls:'hint save-msg',role:'status'}),err=h('p',{cls:'err'});
+    // ---- preview
+    var img=h('img',{cls:'pv-logo',alt:'הלוגו'});
+    var frame=h('div',{cls:'pv-frame'},[h('div',{cls:'pv-scene'},[h('span',{cls:'pv-bar a'}),h('span',{cls:'pv-bar b'}),h('span',{cls:'pv-play'})]),img]);
+    var shapeBtns=[['v','אנכי'],['h','אופקי']].map(function(o){return h('button',{type:'button','aria-pressed':String(st.shape===o[0]),text:o[1],onclick:function(){st.shape=o[0];paint()}})});
+    // ---- controls
+    var file=h('input',{type:'file',accept:'image/png,image/jpeg,image/webp',cls:'sr-only',id:'logo-file'});
+    var thumb=h('img',{cls:'thumb',alt:''});
+    var drop=h('label',{cls:'drop',for:'logo-file'},[thumb,h('span',{cls:'drop-t'}),h('span',{cls:'drop-s',text:'PNG עם רקע שקוף נראה הכי טוב · עד 1MB'})]);
+    file.addEventListener('change',function(){
+      var f=file.files&&file.files[0];if(!f)return;err.textContent='';
+      if(!/^image\\/(png|jpeg|webp)$/.test(f.type)){err.textContent='אפשר להעלות PNG, JPG או WEBP';return}
+      if(f.size>1024*1024){err.textContent='הקובץ גדול מדי (עד 1MB)';return}
+      var r=new FileReader();r.onload=function(){st.newLogo=String(r.result);st.logo=st.newLogo;paint()};r.readAsDataURL(f);
+    });
+    var posBox=h('div',{cls:'pos-grid',role:'group','aria-label':'מיקום הלוגו'},POS.map(function(p){
+      return h('button',{type:'button',cls:'pos '+p[0],'data-p':p[0],title:p[1],'aria-label':p[1],onclick:function(){st.position=p[0];paint()}},[h('i')])}));
+    var posName=h('span',{cls:'range-v'});
+    var size=h('input',{type:'range',min:'5',max:'40',step:'1','aria-label':'גודל'});size.value=String(st.sizePct);
+    var sizeV=h('span',{cls:'range-v'});size.addEventListener('input',function(){st.sizePct=Number(size.value);paint()});
+    var op=h('input',{type:'range',min:'20',max:'100',step:'5','aria-label':'שקיפות'});op.value=String(st.opacityPct);
+    var opV=h('span',{cls:'range-v'});op.addEventListener('input',function(){st.opacityPct=Number(op.value);paint()});
+    var vid=h('input',{type:'checkbox',checked:st.applyVideo,onchange:function(){st.applyVideo=vid.checked}});
+    var pic=h('input',{type:'checkbox',checked:st.applyImage,onchange:function(){st.applyImage=pic.checked}});
+    var save=h('button',{cls:'btn btn-primary',type:'button',text:'שמירה',onclick:async function(){
+      err.textContent='';msg.textContent='';if(!st.logo){err.textContent='בחרו קובץ לוגו';return}
+      save.disabled=true;
+      try{var b={position:st.position,sizePct:st.sizePct,opacityPct:st.opacityPct,applyVideo:st.applyVideo,applyImage:st.applyImage};if(st.newLogo)b.logo=st.newLogo;
+        await api('PUT','/v1/push/logo',b);st.newLogo=null;msg.textContent=st.applyVideo||st.applyImage?'נשמר. מעכשיו הלוגו יתווסף אוטומטית.':'נשמר. הלוגו כבוי כרגע (לא נבחרו סרטונים או תמונות).';paint()}
+      catch(e){err.textContent=e.message}
+      save.disabled=false}});
+    var remove=h('button',{cls:'btn btn-ghost',type:'button',text:'הסרת הלוגו',onclick:async function(){
+      if(remove.getAttribute('data-sure')!=='1'){remove.setAttribute('data-sure','1');remove.textContent='לחצו שוב להסרה';return}
+      try{await api('DELETE','/v1/push/logo');st.logo=null;st.newLogo=null;msg.textContent='הלוגו הוסר.';remove.removeAttribute('data-sure');remove.textContent='הסרת הלוגו';paint()}catch(e){err.textContent=e.message}}});
+    function paint(){
+      frame.className='pv-frame '+(st.shape==='v'?'vert':'horiz')+' at-'+st.position;
+      shapeBtns.forEach(function(b,i){b.setAttribute('aria-pressed',String(st.shape===(i?'h':'v')))});
+      img.hidden=!st.logo;if(st.logo)img.src=st.logo;
+      img.style.width=st.sizePct+'%';img.style.opacity=String(st.opacityPct/100);
+      thumb.hidden=!st.logo;if(st.logo)thumb.src=st.logo;
+      drop.querySelector('.drop-t').textContent=st.logo?'החלפת הלוגו':'העלאת לוגו';
+      [].forEach.call(posBox.children,function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-p')===st.position))});
+      posName.textContent=(POS.find(function(p){return p[0]===st.position})||[0,''])[1];
+      sizeV.textContent=st.sizePct+'% מרוחב הסרטון';opV.textContent=st.opacityPct===100?'אטום':st.opacityPct+'%';
+      remove.hidden=!cur.logo&&!st.logo;
+    }
+    var row=function(label,ctrl,val){return h('div',{cls:'ctl'},[h('div',{cls:'ctl-h'},[h('span',{text:label}),val||null]),ctrl])};
+    var controls=h('section',{cls:'panel logo-ctl'},[
+      h('h2',{text:'הלוגו'}),file,drop,
+      row('מיקום',posBox,posName),row('גודל',size,sizeV),row('שקיפות',op,opV),
+      h('div',{cls:'ctl'},[h('div',{cls:'ctl-h'},[h('span',{text:'להוסיף ל:'})]),h('label',{cls:'check'},[vid,'סרטונים']),h('label',{cls:'check'},[pic,'תמונות'])]),
+      cur.available?null:h('p',{cls:'hint left',text:'בשרת הזה (דמו) ההגדרות נשמרות, אבל הלוגו מתווסף רק בגרסה האמיתית.'}),
+      h('div',{cls:'save-row'},[save,remove]),msg,err]);
+    var preview=h('section',{cls:'panel logo-pv'},[h('div',{cls:'ph'},[h('h2',{text:'כך זה ייראה'}),h('div',{cls:'seg mini'},shapeBtns)]),
+      h('div',{cls:'pv-stage'},[frame]),h('p',{cls:'hint',text:'התצוגה קרובה למה שיישלח. הלוגו נצרב בסרטון עצמו, ולכן נשאר גם כשמעבירים אותו הלאה.'})]);
+    paint();
+    wrap.lastChild.replaceWith(h('div',{cls:'grid-2 logo-grid'},[controls,preview]));
+  })();
+  return wrap;
 }
 
 // ---------------- settings (signature)

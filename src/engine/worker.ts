@@ -22,7 +22,7 @@ import type { DedupStore } from '../routing/dedup.js';
 import { Router } from '../routing/router.js';
 import type { TelegramAccount } from '../telegram/account.js';
 import type { ConnectionManager, StatusEvent } from '../wa/connectionManager.js';
-import { InboundPipeline, type RouteSource } from './pipeline.js';
+import { InboundPipeline, type PipelineOptions, type RouteSource } from './pipeline.js';
 import { Reporter } from './reporter.js';
 import { MemorySourceMessageStore, SyncPlanner, isDeleteCommand, type SourceMessageStore, type SyncOutcome } from './sync.js';
 
@@ -34,6 +34,8 @@ export interface WorkerOptions {
   dedup: DedupStore;
   killSwitches: KillSwitchStore;
   media: MediaStore;
+  /** Burns the customer's logo into videos/photos (see InboundPipeline). */
+  brand?: PipelineOptions['brand'];
   /** PUSH Sync state of source messages. Default: in memory (tests, simulator). */
   sources?: SourceMessageStore;
   /** Called after each edit / delete from a control group was planned (monitoring, tests). */
@@ -82,7 +84,7 @@ export class Worker {
     this.reporter = new Reporter({ queue: o.queue, routes: o.routes, logger: o.logger, now: () => new Date(now()) });
     this.sync = new SyncPlanner({ routes: o.routes, sources: this.sources, queue: o.queue, logger: o.logger, now: () => new Date(now()) });
     this.pipeline = new InboundPipeline({
-      routes: o.routes, router, queue: o.queue, media: o.media, sources: this.sources, logger: o.logger,
+      routes: o.routes, router, queue: o.queue, media: o.media, sources: this.sources, logger: o.logger, ...(o.brand ? { brand: o.brand } : {}),
       onPlanned: (msg, plan, inserted) => {
         if (inserted) this.track(this.reporter.onDistributionPlanned(msg.tenantId, msg.source, msg.messageId, plan.jobs));
       },
