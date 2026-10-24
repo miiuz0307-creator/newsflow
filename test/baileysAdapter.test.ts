@@ -60,13 +60,17 @@ function stubBaileys() {
         cfg,
         ev,
         authState: { creds: cfg.auth.creds },
-        user: { id: '972500000001:7@s.whatsapp.net' },
+        user: { id: '972500000001:7@s.whatsapp.net', lid: '88001122334455:7@lid' },
         sent: [] as any[],
         requestPairingCode: async () => 'ABCD1234',
         groupFetchAllParticipating: async () => ({
           'g1@g.us': { id: 'g1@g.us', subject: 'Open', announce: false, participants: [{ id: '972500000001@s.whatsapp.net', admin: null }] },
           'g2@g.us': { id: 'g2@g.us', subject: 'Locked', announce: true, participants: [{ id: '972500000001@s.whatsapp.net', admin: null }] },
           'g3@g.us': { id: 'g3@g.us', subject: 'Mine', announce: true, participants: [{ id: '972500000001@s.whatsapp.net', admin: 'admin' }] },
+          // Most groups now list members by LID; this number is admin in one and not in the other.
+          'g4@g.us': { id: 'g4@g.us', subject: 'LidAdmin', announce: true, addressingMode: 'lid', participants: [{ id: '88001122334455@lid', phoneNumber: '972500000001@s.whatsapp.net', admin: 'superadmin' }] },
+          'g5@g.us': { id: 'g5@g.us', subject: 'LidMember', announce: true, addressingMode: 'lid', participants: [{ id: '88001122334455@lid', admin: null }, { id: '1@lid', admin: 'admin' }] },
+          'g6@g.us': { id: 'g6@g.us', subject: 'LidOnlyAdmin', announce: true, addressingMode: 'lid', participants: [{ id: '88001122334455@lid', admin: 'admin' }] },
         }),
         sendMessage: async (jid: string, payload: any) => {
           if (jid === 'limited@g.us') throw new Error('rate-overlimit');
@@ -109,16 +113,17 @@ describe('Baileys adapter — wiring against a stub', () => {
 
     const chats = await t.listChats();
     const can = Object.fromEntries(chats.map((c) => [c.title, c.canSend]));
-    assert.deepEqual(can, { Open: true, Locked: false, Mine: true });
+    assert.deepEqual(can, { Open: true, Locked: false, Mine: true, LidAdmin: true, LidMember: false, LidOnlyAdmin: true });
 
     sock.ev.emit('messages.upsert', {
       type: 'notify',
       messages: [
-        { key: { remoteJid: 'g1@g.us', id: 'IN1', participant: 'x@s.whatsapp.net', fromMe: false }, message: { conversation: 'news' }, messageTimestamp: 1700000000 },
+        { key: { remoteJid: 'g1@g.us', id: 'IN1', participant: '555@lid', participantAlt: 'x@s.whatsapp.net', fromMe: false }, message: { conversation: 'news' }, messageTimestamp: 1700000000 },
         { key: { remoteJid: 'status@broadcast', id: 'S' }, message: { conversation: 'ignored' } },
       ],
     });
     assert.equal(seen.message!.length, 1);
+    assert.equal((seen.message![0] as any).senderId, 'x@s.whatsapp.net', 'the phone-number id is preferred over the LID');
 
     const r = await t.send('g1@g.us', { kind: 'text', text: 'hi' });
     assert.equal(r.messageId, 'MSG1');

@@ -81,6 +81,17 @@ const STUB_REVOKE = 1;
  * "Delete for me" is an app-state change ('messages.delete'), never this event.
  * Everything else in 'messages.update' (receipts, reactions, polls) returns null.
  */
+/** The user part of a WhatsApp id: "9725…:7@s.whatsapp.net" → "9725…", "1234@lid" → "1234". */
+export function idUser(id: unknown): string {
+  return typeof id === 'string' ? id.split('@')[0]!.split(':')[0]! : '';
+}
+
+/** A group message's sender, preferring the phone-number id over the private LID when WhatsApp gives both. */
+export function senderOf(key: any): string | undefined {
+  const ids = [key?.participant, key?.participantAlt, key?.participantPn].filter((x): x is string => typeof x === 'string' && !!x);
+  return ids.find((x) => x.endsWith('@s.whatsapp.net')) ?? ids[0];
+}
+
 export function parseMessageUpdate(u: any, now = Date.now()): { edit?: RawEdit; revoke?: RawRevoke } | null {
   const key = u?.key;
   const jid: string | undefined = key?.remoteJid;
@@ -95,7 +106,7 @@ export function parseMessageUpdate(u: any, now = Date.now()): { edit?: RawEdit; 
       edit: {
         chatId: jid,
         messageId: key.id,
-        senderId: key.participant ?? jid,
+        senderId: senderOf(key) ?? jid,
         fromSelf: !!key.fromMe,
         timestamp: new Date(ts ? ts * 1000 : now),
         content: parsed.content,
@@ -107,7 +118,7 @@ export function parseMessageUpdate(u: any, now = Date.now()): { edit?: RawEdit; 
       revoke: {
         chatId: jid,
         messageId: key.id,
-        senderId: update.key?.participant ?? key.participant ?? jid,
+        senderId: senderOf(update.key) ?? senderOf(key) ?? jid,
         fromSelf: !!(update.key?.fromMe ?? key.fromMe),
         timestamp: new Date(now),
       },
@@ -290,7 +301,7 @@ export class BaileysTransport implements WaTransport {
         const raw: RawInbound = {
           chatId: jid,
           messageId: msg.key.id,
-          senderId: msg.key.participant ?? jid,
+          senderId: senderOf(msg.key) ?? jid,
           fromSelf: !!msg.key.fromMe,
           isForwarded: parsed.isForwarded,
           timestamp: new Date(Number(msg.messageTimestamp ?? Date.now() / 1000) * 1000),
@@ -351,18 +362,21 @@ export class BaileysTransport implements WaTransport {
   async listChats(): Promise<ChatInfo[]> {
     if (!this.connected || !this.sock) throw new SendError('disconnected', 'not connected');
     const groups: Record<string, any> = await this.sock.groupFetchAllParticipating();
-    const myJid: string = this.sock.user?.id ?? '';
-    const myNum = myJid.split(':')[0]?.split('@')[0];
+    // WhatsApp lists group members by phone number in some groups and by a private
+    // "LID" in others (most groups now). Recognise this number by either one.
+    const mine = new Set([this.sock.user?.id, this.sock.user?.lid, this.sock.authState?.creds?.me?.id, this.sock.authState?.creds?.me?.lid]
+      .map(idUser).filter(Boolean));
     return Object.values(groups).map((g: any) => {
-      const me = (g.participants ?? []).find((p: any) => String(p.id).split('@')[0]?.split(':')[0] === myNum);
-      const isAdmin = me?.admin === 'admin' || me?.admin === 'superadmin';
+      const me = (g.participants ?? []).find((p: any) => [p.id, p.lid, p.phoneNumber, p.jid].some((x) => mine.has(idUser(x))));
+      const isAdmin = !!me && (me.admin === 'admin' || me.admin === 'superadmin' || me.isAdmin === true || me.isSuperAdmin === true);
       return {
         ref: { platform: 'wa', accountId: this.accountId, chatId: g.id },
         title: g.subject ?? '',
         type: g.isCommunity ? 'community' : 'group',
         participantCount: g.size ?? g.participants?.length,
-        // `announce` = only admins can send.
-        canSend: !g.announce || isAdmin,
+        // `announce` = only admins can send. If this number can't be found in the member
+        // list at all, don't block the group: a failed send is reported clearly anyway.
+        canSend: !g.announce || isAdmin || !me,
         isAdmin,
       } satisfies ChatInfo;
     });
