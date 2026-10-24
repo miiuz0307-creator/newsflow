@@ -9,6 +9,7 @@
 import { randomBytes } from 'node:crypto';
 import { CAPABILITIES } from '../../core/types.js';
 import { parseControlSettings } from '../../routing/router.js';
+import { ffmpegAvailable, LOGO_POSITIONS, type LogoPosition } from '../../media/watermark.js';
 import { HttpError, type ApiServer } from '../server.js';
 import { dashboardHtml } from '../dashboard.js';
 import { siteHtml } from '../site.js';
@@ -110,6 +111,73 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
       return out;
     });
 
+
+    // ---- Logo burned into videos (and optionally photos).
+    const LOGO_MAX = 1024 * 1024;
+    const sniff = (b: Buffer): string | null =>
+      b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? 'image/png'
+        : b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff ? 'image/jpeg'
+          : b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP' ? 'image/webp' : null;
+    type BrandRow = { logo_b64: string; logo_mime: string; position: string; size_pct: number; opacity_pct: number; apply_video: boolean; apply_image: boolean; updated_at: Date };
+    const brandView = (b: BrandRow | undefined, available: boolean) => ({
+      logo: b ? `data:${b.logo_mime};base64,${b.logo_b64}` : null,
+      position: b?.position ?? 'bottom-left',
+      sizePct: b?.size_pct ?? 18,
+      opacityPct: b?.opacity_pct ?? 85,
+      applyVideo: b?.apply_video ?? true,
+      applyImage: b?.apply_image ?? false,
+      // Whether this server can burn logos in (ffmpeg installed).
+      available,
+    });
+
+    api.on('GET', '/v1/push/logo', true, async ({ auth }) => {
+      const r = await api.tenantTx(auth!, (c) => c.query<BrandRow>('SELECT * FROM tenant_branding'));
+      return brandView(r.rows[0], await ffmpegAvailable());
+    });
+
+    api.on('PUT', '/v1/push/logo', true, async ({ auth, body }) => {
+      api.requireRole(auth!, 'owner', 'admin');
+      const position = String(body.position ?? 'bottom-left');
+      if (!LOGO_POSITIONS.includes(position as LogoPosition)) throw new HttpError(400, 'bad_position', 'מיקום לא מוכר');
+      const sizePct = Math.round(Number(body.sizePct ?? 18));
+      const opacityPct = Math.round(Number(body.opacityPct ?? 85));
+      if (!(sizePct >= 5 && sizePct <= 40)) throw new HttpError(400, 'bad_size', 'הגודל חייב להיות בין 5% ל‑40% מרוחב הסרטון');
+      if (!(opacityPct >= 20 && opacityPct <= 100)) throw new HttpError(400, 'bad_opacity', 'השקיפות חייבת להיות בין 20% ל‑100%');
+      let logo: { b64: string; mime: string } | undefined;
+      if (body.logo !== undefined && body.logo !== null) {
+        const m = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(body.logo));
+        if (!m) throw new HttpError(400, 'bad_logo', 'הלוגו צריך להיות קובץ PNG, JPG או WEBP');
+        const bytes = Buffer.from(m[2]!, 'base64');
+        if (bytes.length > LOGO_MAX) throw new HttpError(400, 'logo_too_large', 'הלוגו גדול מדי (עד 1MB)');
+        const mime = sniff(bytes);
+        if (!mime) throw new HttpError(400, 'bad_logo', 'הקובץ אינו תמונה תקינה (PNG, JPG או WEBP)');
+        logo = { b64: bytes.toString('base64'), mime };
+      }
+      const out = await api.tenantTx(auth!, async (c) => {
+        const cur = await c.query<BrandRow>('SELECT * FROM tenant_branding');
+        if (!cur.rowCount && !logo) throw new HttpError(400, 'no_logo', 'בחרו קובץ לוגו');
+        const r = await c.query<BrandRow>(
+          `INSERT INTO tenant_branding (tenant_id, logo_b64, logo_mime, position, size_pct, opacity_pct, apply_video, apply_image, updated_at)
+           VALUES (current_tenant(), $1, $2, $3, $4, $5, $6, $7, now())
+           ON CONFLICT (tenant_id) DO UPDATE SET logo_b64 = EXCLUDED.logo_b64, logo_mime = EXCLUDED.logo_mime, position = EXCLUDED.position,
+             size_pct = EXCLUDED.size_pct, opacity_pct = EXCLUDED.opacity_pct, apply_video = EXCLUDED.apply_video,
+             apply_image = EXCLUDED.apply_image, updated_at = now()
+           RETURNING *`,
+          [logo?.b64 ?? cur.rows[0]!.logo_b64, logo?.mime ?? cur.rows[0]!.logo_mime, position, sizePct, opacityPct, body.applyVideo !== false, body.applyImage === true]);
+        await api.audit(c, auth!, 'push.logo_saved', position);
+        return r.rows[0];
+      });
+      return brandView(out, await ffmpegAvailable());
+    }, { bodyLimit: 2 * 1024 * 1024 });
+
+    api.on('DELETE', '/v1/push/logo', true, async ({ auth }) => {
+      api.requireRole(auth!, 'owner', 'admin');
+      await api.tenantTx(auth!, async (c) => {
+        await c.query('DELETE FROM tenant_branding');
+        await api.audit(c, auth!, 'push.logo_removed', '');
+      });
+      return { removed: true };
+    });
 
     api.on('GET', '/v1/capabilities', false, async () => CAPABILITIES);
 

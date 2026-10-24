@@ -51,6 +51,11 @@ export interface PipelineOptions {
   /** Largest media we accept for forwarding, in bytes. */
   maxMediaBytes?: number;
   onPlanned?: (msg: InboundMessage, plan: RoutingPlan, inserted: number) => void;
+  /**
+   * The customer's logo: returns the video or photo with the logo burned in, or null to send
+   * it as it is. Called once per message, before the copies are queued.
+   */
+  brand?: (tenantId: string, kind: 'video' | 'image', data: Buffer, mimeType: string) => Promise<{ data: Buffer; mimeType: string } | null>;
 }
 
 export class InboundPipeline {
@@ -96,10 +101,27 @@ export class InboundPipeline {
     if (!data) throw new Error('media has no bytes');
     const max = this.o.maxMediaBytes ?? 64 * 1024 * 1024;
     if (data.length > max) throw new Error(`media too large (${data.length} bytes)`);
-    const ref = await this.o.media.put(msg.tenantId, data, media.mimeType);
+    let bytes = data;
+    let mimeType = media.mimeType;
+    const kind = msg.content.kind;
+    if (this.o.brand && (kind === 'video' || kind === 'image')) {
+      const started = Date.now();
+      try {
+        const b = await this.o.brand(msg.tenantId, kind, data, media.mimeType);
+        if (b) {
+          bytes = b.data;
+          mimeType = b.mimeType;
+          this.log.info('logo applied', { tenantId: msg.tenantId, messageId: msg.messageId, kind, ms: Date.now() - started });
+        }
+      } catch (err) {
+        // A logo problem never stops the distribution: the original goes out.
+        this.log.warn('logo not applied; sending the original', { tenantId: msg.tenantId, messageId: msg.messageId, kind, err: String(err).slice(0, 300) });
+      }
+    }
+    const ref = await this.o.media.put(msg.tenantId, bytes, mimeType);
     for (const j of plan.jobs) {
       const { data: _d, load: _l, ...rest } = j.content.media ?? media;
-      j.content = { ...j.content, media: { ...rest, size: data.length, ref } };
+      j.content = { ...j.content, media: { ...rest, mimeType, size: bytes.length, ref } };
     }
   }
 }

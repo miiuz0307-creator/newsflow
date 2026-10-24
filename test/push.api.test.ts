@@ -314,5 +314,26 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
     assert.deepEqual(g.source, { platform: 'wa', accountId: acc, chatId: ctrl });
     assert.deepEqual(g.targets.map((t: any) => t.title).sort(), ['יעד 1', 'יעד 2']);
   });
+
+  test('logo: validated, saved per account, hidden from other accounts, removable', async () => {
+    const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg==';
+    const empty = await call('GET', '/v1/push/logo', undefined, tokA);
+    assert.equal(empty.status, 200);
+    assert.equal(empty.body.logo, null);
+    assert.equal((await call('PUT', '/v1/push/logo', { position: 'top-right' }, tokA)).status, 400, 'a logo file is needed first');
+    assert.equal((await call('PUT', '/v1/push/logo', { logo: 'data:image/png;base64,' + Buffer.from('not an image').toString('base64') }, tokA)).status, 400);
+    assert.equal((await call('PUT', '/v1/push/logo', { logo: 'data:image/png;base64,' + PNG, sizePct: 90 }, tokA)).status, 400);
+    assert.equal((await call('PUT', '/v1/push/logo', { logo: 'data:image/png;base64,' + PNG, position: 'middle' }, tokA)).status, 400);
+    const saved = await call('PUT', '/v1/push/logo', { logo: 'data:image/png;base64,' + PNG, position: 'top-right', sizePct: 22, opacityPct: 70, applyImage: true }, tokA);
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    assert.deepEqual([saved.body.position, saved.body.sizePct, saved.body.opacityPct, saved.body.applyVideo, saved.body.applyImage], ['top-right', 22, 70, true, true]);
+    // Changing settings keeps the uploaded logo.
+    const moved = await call('PUT', '/v1/push/logo', { position: 'center', sizePct: 30, opacityPct: 100 }, tokA);
+    assert.equal(moved.body.logo, 'data:image/png;base64,' + PNG);
+    assert.equal(moved.body.position, 'center');
+    assert.equal((await call('GET', '/v1/push/logo', undefined, tokB)).body.logo, null, 'RLS: another account has no logo');
+    assert.equal((await call('DELETE', '/v1/push/logo', undefined, tokA)).status, 200);
+    assert.equal((await call('GET', '/v1/push/logo', undefined, tokA)).body.logo, null);
+  });
 });
 
