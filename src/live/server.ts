@@ -82,3 +82,38 @@ need('MASTER_KEY');
 need('TOKEN_SECRET');
 
 await import('../main.js');
+
+// Startup check: can this server reach WhatsApp and get a linking code? It opens a
+// throwaway session in memory, waits for the first QR, logs the result and closes.
+// Nothing is linked and nothing is stored. LIVE_WA_SELFCHECK=0 turns it off.
+if (process.env.LIVE_WA_SELFCHECK !== '0') void (async () => {
+  const started = Date.now();
+  try {
+    const B: any = await import('baileys' as string); // eslint-disable-line @typescript-eslint/no-explicit-any
+    let version: number[] | undefined;
+    try {
+      const v = await B.fetchLatestWaWebVersion({});
+      if (Array.isArray(v?.version)) version = v.version;
+    } catch { /* bundled version */ }
+    const mem: Record<string, Record<string, unknown>> = {};
+    const keys = {
+      get: async (type: string, ids: string[]) => Object.fromEntries(ids.map((id) => [id, mem[type]?.[id]]).filter(([, v]) => v !== undefined)),
+      set: async (data: Record<string, Record<string, unknown>>) => { for (const t of Object.keys(data)) mem[t] = { ...mem[t], ...data[t] }; },
+    };
+    const quiet = { level: 'silent', child: () => quiet, trace() {}, debug() {}, info() {}, warn() {}, error() {}, fatal() {} };
+    const sock = B.default({ auth: { creds: B.initAuthCreds(), keys }, printQRInTerminal: false, logger: quiet, browser: B.Browsers.ubuntu('Chrome'), ...(version ? { version } : {}) });
+    const done = (ok: boolean, detail: string) => {
+      log[ok ? 'info' : 'warn']('whatsapp self-check', { ok, detail, version: version?.join('.') ?? 'bundled', ms: Date.now() - started });
+      try { sock.end(undefined); } catch { /* closed */ }
+    };
+    let finished = false;
+    const timer = setTimeout(() => { if (!finished) { finished = true; done(false, 'no QR within 45s'); } }, 45_000);
+    sock.ev.on('connection.update', (u: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      if (finished) return;
+      if (u.qr) { finished = true; clearTimeout(timer); done(true, 'QR received: WhatsApp reachable and this version accepted'); }
+      else if (u.connection === 'close') { finished = true; clearTimeout(timer); done(false, `closed: ${u.lastDisconnect?.error?.output?.statusCode ?? ''} ${u.lastDisconnect?.error?.message ?? ''}`.trim()); }
+    });
+  } catch (e) {
+    log.warn('whatsapp self-check', { ok: false, detail: String(e) });
+  }
+})();

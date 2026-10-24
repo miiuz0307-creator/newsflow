@@ -380,12 +380,14 @@ function showAuth(mode,msg,prefill){
 
 // ---------------- app shell
 var me=null,demo=false,simulated=false,timer=null,route='overview',dists=[],caps=null;
-var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'connect',label:'חיבור',icon:'link'},{id:'settings',label:'חתימה',icon:'pen'},{id:'caps',label:'יכולות',icon:'info'}];
+var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'connect',label:'חיבור',icon:'link'},{id:'settings',label:'חתימה',icon:'pen'}];
 async function start(){
   try{me=await api('GET','/v1/me')}catch(e){return showAuth('login')}
   try{await api('GET','/v1/demo/state');demo=true}catch(e){demo=false}
   try{simulated=!!(await api('GET','/v1/demo/env')).simulated}catch(e){simulated=false}
-  var r=(location.hash||'').slice(1);route=ROUTES.some(function(x){return x.id===r&&(!x.demo||demo)})?r:(demo?'sim':'overview');
+  // A new customer starts at "חיבור" until a number is linked.
+  var linked=demo;if(!demo){try{linked=(await api('GET','/v1/wa/accounts')).some(function(x){return x.status==='connected'||x.phoneNumber})}catch(e){}}
+  var r=(location.hash||'').slice(1);route=ROUTES.some(function(x){return x.id===r&&(!x.demo||demo)})?r:(demo?'sim':linked?'overview':'connect');
   buildShell();await refresh();
   clearInterval(timer);timer=setInterval(refresh,demo?3000:10000);
 }
@@ -407,7 +409,7 @@ function buildShell(){
 function markNav(){navLinks.forEach(function(a){if(a.getAttribute('data-r')===route)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current')})}
 function go(r){route=r;try{history.replaceState(null,'','#'+r)}catch(e){}markNav();draw(true);window.scrollTo(0,0)}
 async function refresh(){
-  try{dists=await api('GET','/v1/distributions?limit=100');if(!caps)caps=await api('GET','/v1/capabilities')}catch(e){return}
+  try{dists=await api('GET','/v1/distributions?limit=100')}catch(e){return}
   if(route==='sim')await simFetch();
   draw(false);
 }
@@ -416,7 +418,7 @@ function draw(full){
   simEl=null;
   if(route==='settings'){if(full)mainEl.replaceChildren(settingsPage());return}
   if(route==='connect'){if(full)mainEl.replaceChildren(connectPage());return} // a form: never redrawn under the user
-  mainEl.replaceChildren(route==='dists'?distsPage():route==='caps'?capsPage():overviewPage());
+  mainEl.replaceChildren(route==='dists'?distsPage():overviewPage());
 }
 
 // ---------------- overview
@@ -743,16 +745,6 @@ function simDraw(){
     var c=h('div',{cls:'chat'},g.messages.length?g.messages.map(function(m){return bubble(m,false)}):[h('div',{cls:'none',text:'עוד אין הודעות'})]);
     setTimeout(function(){c.scrollTop=c.scrollHeight},0);
     return h('div',{cls:'tg'},[h('h3',null,[h('i',{'aria-hidden':'true'}),g.title]),c])}));
-}
-
-// ---------------- capabilities
-var CAPN={send:'שליחה',edit:'עריכה',editCaption:'עריכת כיתוב של מדיה',delete:'מחיקה לכולם',receive:'קבלת הודעות',receiveEdits:'זיהוי עריכות',receiveDeletes:'זיהוי מחיקות',media:'מדיה',groupDiscovery:'רשימת קבוצות',deliveryStatus:'אישורי מסירה'};
-var LV={verified:['נבדק','ok'],documented:['מתועד','info'],untested:['דורש בדיקה','warn'],false:['לא נתמך','bad']};
-function capsPage(){
-  var rows=caps?Object.keys(CAPN).map(function(k){return h('tr',null,[h('td',{text:CAPN[k]})].concat(['wa','tg'].map(function(p){var l=LV[String(caps[p][k])]||[String(caps[p][k]),'mute'];return h('td',null,[h('span',{cls:'pill '+l[1],text:l[0]})])})))}):[];
-  return h('div',null,[h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'מה כל פלטפורמה תומכת'}),h('p',{text:'"מתועד" אומר שהפלטפורמה מתעדת את היכולת, אבל עוד לא בדקנו אותה על מספר אמיתי.'})])]),
-    h('section',{cls:'panel'},[h('div',{cls:'tablewrap'},[h('table',{cls:'caps'},[h('thead',null,[h('tr',null,[h('th',{text:'יכולת'}),h('th',{text:'WhatsApp'}),h('th',{text:'Telegram'})])]),h('tbody',null,rows)])]),
-      h('p',{cls:'hint',text:'WhatsApp: עריכה עד 15 דקות מהשליחה, מחיקה לכולם עד כיומיים וחצי. Telegram: מחיקה עד 48 שעות. בוטים בטלגרם לא מקבלים הודעה על מחיקה, ולכן בקבוצת שליטה בטלגרם עונים "מחק" על ההודעה.'})])]);
 }
 
 window.addEventListener('hashchange',function(){var r=location.hash.slice(1);if(r&&r!==route&&mainEl&&ROUTES.some(function(x){return x.id===r}))go(r)});
