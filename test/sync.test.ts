@@ -248,6 +248,20 @@ for (const kind of ['memory', 'pg'] as const) {
       assert.equal([...byChat.values()].reduce((a, b) => a + b, 0), 2, 'the control-group read and the repeat are not counted');
     });
 
+    test('the customer writing from the linked number itself distributes; PUSH\'s own report is not redistributed', async () => {
+      const before = w.waTargets.map((g) => text(w.net, g).length);
+      const id = w.net.humanPost(LINKED, w.ctrl, { kind: 'text', text: 'נכתב מהמספר המחובר' });
+      await w.drain();
+      w.waTargets.forEach((g, i) => {
+        assert.equal(text(w.net, g).length, before[i]! + 1, 'exactly one new copy');
+        assert.equal(text(w.net, g).at(-1), 'נכתב מהמספר המחובר');
+      });
+      w.net.humanEdit(LINKED, w.ctrl, id, { kind: 'text', text: 'נכתב מהמספר המחובר (עודכן)' });
+      await w.drain();
+      for (const g of w.waTargets) assert.equal(text(w.net, g).at(-1), 'נכתב מהמספר המחובר (עודכן)');
+      for (const g of w.waTargets) assert.ok(!text(w.net, g).some((t) => t?.includes(REPORT_TAG)), 'reports never leave the control group');
+    });
+
     test('rapid edits: only the newest version ends up in the groups', async () => {
       const id = w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'גרסה 1' });
       await w.drain();

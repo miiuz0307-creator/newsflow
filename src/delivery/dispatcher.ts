@@ -132,6 +132,10 @@ export class Dispatcher {
     const q = this.o.queue;
     const report = (o: Outcome, d?: string) => {
       this.o.onResult?.(job, o, d);
+      // Spacing between sends is expected and not logged; everything else is, without content.
+      if (o !== 'deferred' || (d !== 'account_gap' && d !== 'chat_gap')) {
+        this.log.info(`job ${o}`, { jobId: job.id, action: job.action, chatId: job.target.chatId, ...(d ? { detail: d } : {}) });
+      }
       return o;
     };
 
@@ -216,6 +220,9 @@ export class Dispatcher {
     const q = this.o.queue;
     const report = (o: Outcome, d?: string) => {
       this.o.onResult?.(job, o, d);
+      if (o !== 'deferred' || (d !== 'account_gap' && d !== 'chat_gap')) {
+        this.log.info(`job ${o}`, { jobId: job.id, action: job.action, chatId: job.target.chatId, ...(d ? { detail: d } : {}) });
+      }
       return o;
     };
 
