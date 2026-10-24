@@ -450,7 +450,8 @@ function draw(full){
 }
 
 // ---------------- overview
-function isToday(d){var x=new Date(d),n=new Date();return x.toDateString()===n.toDateString()}
+// The overview counts the last 24 hours, so it is not empty right after midnight.
+function isToday(d){return Date.now()-new Date(d).getTime()<864e5}
 function fmt(n){return Number(n||0).toLocaleString('he-IL')}
 function overviewPage(){
   var today=dists.filter(function(d){return isToday(d.createdAt)});
@@ -459,13 +460,13 @@ function overviewPage(){
   var dateLine=new Date().toLocaleDateString('he-IL',{weekday:'long',day:'numeric',month:'long'});
   var stat=function(v,k,sub){return h('div',{cls:'hstat'},[h('div',{cls:'hv',text:fmt(v)}),h('div',{cls:'hk',text:k}),sub?h('div',{cls:'hs',text:sub}):null])};
   var topCard=top&&top.reads?h('div',{cls:'top'},[
-      h('div',{cls:'top-k',text:'הנקראת ביותר היום'}),h('p',{cls:'top-t',text:top.preview}),
-      h('div',{cls:'top-n'},[h('b',{text:fmt(top.reads)}),h('span',{text:'קריאות · '+top.copies.sent+' קבוצות · '+timeOf(top.createdAt)})])])
-    :h('div',{cls:'top empty-top'},[h('div',{cls:'top-k',text:'הנקראת ביותר היום'}),h('p',{cls:'top-t',text:today.length?'הקריאות מתעדכנות תוך דקה מהשליחה.':'עוד לא נשלחו הודעות היום.'})]);
+      h('div',{cls:'top-k',text:'ההודעה הנקראת ביותר'}),h('p',{cls:'top-t',text:top.preview}),
+      h('div',{cls:'top-n'},[h('b',{text:fmt(top.reads)}),h('span',{text:'אנשים קראו · '+top.copies.sent+' קבוצות · '+whenOf(top.createdAt)})])])
+    :h('div',{cls:'top empty-top'},[h('div',{cls:'top-k',text:'ההודעה הנקראת ביותר'}),h('p',{cls:'top-t',text:today.length?'מספר הקוראים מתעדכן כל הזמן, ככל שאנשים פותחים את ההודעה.':'לא נשלחו הודעות ב‑24 השעות האחרונות.'})]);
   var hero=h('section',{cls:'hero-band'},[
-    h('div',{cls:'hb-head'},[h('div',null,[h('h1',{text:'היום'}),h('p',{text:dateLine+' · '+me.tenant.name})]),
+    h('div',{cls:'hb-head'},[h('div',null,[h('h1',{text:'24 השעות האחרונות'}),h('p',{text:dateLine+' · '+me.tenant.name})]),
       demo?h('button',{cls:'btn btn-primary',type:'button',text:'שליחת הודעה',onclick:function(){go('sim')}}):null]),
-    h('div',{cls:'hb-body'},[h('div',{cls:'hstats'},[stat(today.length,'הודעות הופצו'),stat(sentToday,'עותקים נשלחו'),stat(readsToday,'קריאות','לפחות; רק מי שלא כיבה אישורי קריאה')]),topCard])]);
+    h('div',{cls:'hb-body'},[h('div',{cls:'hstats'},[stat(today.length,'הודעות הופצו'),stat(sentToday,'עותקים נשלחו'),stat(readsToday,'אנשים קראו','בכל הקבוצות יחד. מי שכיבה אישורי קריאה ב‑WhatsApp לא נספר')]),topCard])]);
   var bad=0,unk=0;dists.forEach(function(d){bad+=d.copies.failed;unk+=d.copies.unknown});
   var alert=bad||unk?h('button',{cls:'alert',type:'button',onclick:function(){go('dists')}},[h('b',{text:(bad?bad+' עותקים לא הגיעו':'')+(bad&&unk?' · ':'')+(unk?unk+' ממתינים לאימות':'')}),h('span',{text:'לפרטים ולשליחה חוזרת'})]):null;
   var most=dists.filter(function(d){return d.reads}).sort(function(a,b){return b.reads-a.reads}).slice(0,5);
@@ -473,9 +474,9 @@ function overviewPage(){
   var board=h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'הנקראות ביותר'}),h('span',{cls:'hint',text:'30 הימים האחרונים'})]),
     most.length?h('ol',{cls:'board'},most.map(function(d){var bar=h('span',{cls:'bfill'});bar.style.width=(100*d.reads/maxR)+'%';
       return h('li',null,[h('div',{cls:'bt'},[h('span',{cls:'btx',text:d.preview}),h('b',{text:fmt(d.reads)})]),h('span',{cls:'btrack','aria-hidden':'true'},[bar]),h('span',{cls:'bm',text:whenOf(d.createdAt)+' · '+d.copies.sent+' קבוצות'})])}))
-    :h('p',{cls:'hint',text:'כשההודעות ייקראו, הן יופיעו כאן לפי מספר הקריאות.'})]);
+    :h('p',{cls:'hint',text:'כשאנשים יקראו את ההודעות, הן יופיעו כאן לפי מספר הקוראים.'})]);
   var chartPanel=h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'14 הימים האחרונים'})]),chart(dists),
-    h('div',{cls:'legend'},[h('span',null,[h('i',{cls:'lg-read'}),'קריאות ביום']),h('span',null,[h('b',{cls:'lg-num',text:'3'}),'מספר ההודעות שהופצו'])])]);
+    h('div',{cls:'legend'},[h('span',null,[h('i',{cls:'lg-read'}),'אנשים שקראו, בכל יום']),h('span',null,[h('b',{cls:'lg-num',text:'3'}),'מספר ההודעות שהופצו'])])]);
   var recent=h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'הפצות אחרונות'}),h('a',{href:'#dists',text:'לכל ההפצות',onclick:function(e){e.preventDefault();go('dists')}})]),distList(dists.slice(0,5),true)]);
   var notice=!demo&&!dists.length?h('div',{cls:'notice cta'},[h('div',null,[h('h3',{text:'השלב הבא: חיבור מספר WhatsApp'}),
     h('p',{text:'סורקים קוד QR מהטלפון, בוחרים קבוצת שליטה וקבוצות יעד, ומתחילים להפיץ. לוקח שתי דקות.'})]),
@@ -489,7 +490,7 @@ function chart(list){
   var W=640,H=210,pad=30,top=22,max=Math.max(10,Math.max.apply(null,days.map(function(x){return x.reads})));
   var step=(W-pad)/days.length,bw=Math.min(24,step*.56),kids=[],y=function(v){return H-pad-(H-pad-top)*(v/max)};
   [0,.5,1].forEach(function(f){var yy=y(max*f);kids.push(s('line',{x1:0,x2:W-pad,y1:yy,y2:yy,'class':'grid'}));kids.push(s('text',{x:W-2,y:yy+4,'class':'axis','text-anchor':'end'},[fmt(Math.round(max*f))]))});
-  days.forEach(function(x,i){var cx=(W-pad)-(i+.5)*step,label=x.d.toLocaleDateString('he-IL')+': '+x.msgs+' הודעות, '+x.sent+' עותקים, '+fmt(x.reads)+' קריאות';
+  days.forEach(function(x,i){var cx=(W-pad)-(i+.5)*step,label=x.d.toLocaleDateString('he-IL')+': '+x.msgs+' הודעות, '+x.sent+' עותקים, '+fmt(x.reads)+' קראו';
     if(x.msgs){var hgt=Math.max(3,H-pad-y(x.reads));kids.push(s('rect',{x:cx-bw/2,y:H-pad-hgt,width:bw,height:hgt,rx:4,'class':'bread'},[s('title',{},[label])]));
       kids.push(s('text',{x:cx,y:H-pad-hgt-6,'class':'axis val','text-anchor':'middle'},[String(x.msgs)]))}
     if(i%2===1||i===13)kids.push(s('text',{x:cx,y:H-9,'class':'axis','text-anchor':'middle'},[i===13?'היום':x.d.getDate()+'.'+(x.d.getMonth()+1)]))});
@@ -709,7 +710,7 @@ function distRow(d,compact){
   var btn=h('button',{'aria-expanded':String(!!open[k]),onclick:function(){if(compact){go('dists');open={};open[k]=true;draw(true);return}
     if(open[k]){delete open[k];box.hidden=true;btn.setAttribute('aria-expanded','false')}else{open[k]=true;box.hidden=false;btn.setAttribute('aria-expanded','true');loadDetail(k,box)}}},[
     h('span',{cls:'txt',text:d.preview||'(מדיה)'}),h('span',{cls:'when',text:whenOf(d.createdAt)}),
-    h('span',{cls:'meta'},[dbar(c),h('span',{text:c.sent+' מתוך '+total+' קבוצות'}),d.reads?h('span',{cls:'reads'},[icon('eye'),fmt(d.reads)+' קריאות']):null].concat(tags))]);
+    h('span',{cls:'meta'},[dbar(c),h('span',{text:c.sent+' מתוך '+total+' קבוצות'}),c.sent?h('span',{cls:'reads'},[icon('eye'),d.reads?'נקראה ע״י '+fmt(d.reads):'עוד לא נקראה']):null].concat(tags))]);
   if(open[k]&&!compact)loadDetail(k,box);
   return h('div',{cls:'dist'},[btn,box]);
 }
@@ -728,7 +729,7 @@ async function loadDetail(key,box){
       h('td',{cls:'num',text:c.status==='sent'?fmt(c.reads||0):'—'}),
       h('td',null,[chg(c.edit)]),h('td',null,[chg(c.delete)]),h('td',null,[act])]);
   });
-  box.replaceChildren.apply(box,[vers,h('div',{cls:'tablewrap'},[h('table',{cls:'copies'},[h('thead',null,[h('tr',null,['קבוצה','פלטפורמה','שליחה','קריאות','עריכה','מחיקה',''].map(function(t,i){return h('th',{cls:i===1?'c-plat':null,text:t})}))]),h('tbody',null,rows)])])].filter(Boolean));
+  box.replaceChildren.apply(box,[vers,h('div',{cls:'tablewrap'},[h('table',{cls:'copies'},[h('thead',null,[h('tr',null,['קבוצה','פלטפורמה','שליחה','קראו','עריכה','מחיקה',''].map(function(t,i){return h('th',{cls:i===1?'c-plat':null,text:t})}))]),h('tbody',null,rows)])])].filter(Boolean));
 }
 async function retry(id,confirmNotDelivered,key,box){try{await api('POST','/v1/jobs/'+id+'/retry',confirmNotDelivered?{confirmNotDelivered:true}:{});await loadDetail(key,box)}catch(e){box.insertBefore(h('p',{cls:'err',text:e.message}),box.firstChild)}}
 function distsPage(){return h('div',null,[h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'הפצות'}),h('p',{text:'כל הודעה מקבוצת השליטה, ומה קרה איתה בכל קבוצה. לחצו על הודעה לפרטים.'})])]),h('section',{cls:'panel'},[distList(dists,false)])])}
