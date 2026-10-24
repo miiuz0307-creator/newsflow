@@ -293,6 +293,7 @@ label.f.mode{margin-top:18px}
 @media (max-width:620px){.notice.cta{flex-direction:column;align-items:stretch}}
 .err-alt{margin-top:6px;color:var(--text)}.err-alt .linkish{margin:0}
 .refresh-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}.refresh-row .hint{margin:0}.refresh-row .linkish{margin:0}
+.picked{margin:10px 0 0;font-size:13.5px;font-weight:600;color:var(--teal-deep)}.glist-empty{padding:14px;margin:0}
 </style>
 </head>
 <body>
@@ -380,7 +381,7 @@ function showAuth(mode,msg,prefill){
 }
 
 // ---------------- app shell
-var me=null,demo=false,simulated=false,timer=null,route='overview',dists=[],caps=null;
+var formDrawn=null,me=null,demo=false,simulated=false,timer=null,route='overview',dists=[],caps=null;
 var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'connect',label:'חיבור',icon:'link'},{id:'settings',label:'חתימה',icon:'pen'}];
 async function start(){
   try{me=await api('GET','/v1/me')}catch(e){return showAuth('login')}
@@ -396,7 +397,7 @@ var mainEl,navLinks=[];
 function navItems(cls){return ROUTES.filter(function(x){return !x.demo||demo}).map(function(x){
   var a=h('a',{href:'#'+x.id,'data-r':x.id,onclick:function(e){e.preventDefault();go(x.id)}},[icon(x.icon),h('span',{text:x.label})]);navLinks.push(a);return a})}
 function buildShell(){
-  navLinks=[];
+  navLinks=[];formDrawn=null;
   mainEl=h('main',{id:'main'});
   var logout=h('button',{type:'button',text:'יציאה',onclick:async function(){try{await api('POST','/v1/auth/logout',{refreshToken:tok('rt')})}catch(e){}clearTok();showAuth('login')}});
   root.replaceChildren(h('div',{cls:'shell'},[
@@ -417,8 +418,9 @@ async function refresh(){
 function draw(full){
   if(route==='sim'){if(full||!simEl)mainEl.replaceChildren(simPage());else simDraw();return}
   simEl=null;
-  if(route==='settings'){if(full)mainEl.replaceChildren(settingsPage());return}
-  if(route==='connect'){if(full)mainEl.replaceChildren(connectPage());return} // a form: never redrawn under the user
+  // Forms are drawn once when the page is opened (also on first load or a refresh), never redrawn under the user.
+  if(route==='settings'||route==='connect'){if(full||formDrawn!==route){formDrawn=route;mainEl.replaceChildren(route==='settings'?settingsPage():connectPage())}return}
+  formDrawn=null;
   mainEl.replaceChildren(route==='dists'?distsPage():overviewPage());
 }
 
@@ -568,7 +570,9 @@ function connectPage(){
     var guess=groups.find(function(g){return g.title.indexOf('שליטה')>=0});
     var ctrl=existing?existing.source.chatId:guess?guess.chatId:null;
     var picked=new Set(existing?existing.targets.map(function(t){return t.chatId}):[]);
-    var q=h('input',{cls:'i',type:'search',placeholder:'חיפוש קבוצה…','aria-label':'חיפוש קבוצה'});
+    var q=h('input',{cls:'i',type:'search',placeholder:'חיפוש קבוצת יעד…','aria-label':'חיפוש קבוצת יעד'});
+    var qc=h('input',{cls:'i',type:'search',placeholder:'חיפוש קבוצת שליטה…','aria-label':'חיפוש קבוצת שליטה'});
+    var ctrlNow=h('p',{cls:'picked'});
     var listEl=h('div',{cls:'glist'}),ctrlEl=h('div',{cls:'glist ctrl'});
     var count=h('span',{cls:'gcount'}),err=h('p',{cls:'err'}),done=h('p',{cls:'ok-msg',role:'status'});
     var save=h('button',{cls:'btn btn-primary',type:'button',text:existing?'שמירת השינויים':'שמירה והפעלה',onclick:async function(){
@@ -594,13 +598,19 @@ function connectPage(){
       return h('label',{cls:'grow'+(on?' on':'')+(dis?' dis':'')},[inp,h('span',{cls:'gt',text:g.title}),
         h('span',{cls:'gm',text:why||(g.participantCount?fmt(g.participantCount)+' חברים':'')})]);
     };
+    var matcher=function(input){var f=input.value.trim().toLowerCase();return function(g){return !f||g.title.toLowerCase().indexOf(f)>=0}};
+    var none=function(){return h('p',{cls:'hint glist-empty',text:'לא נמצאה קבוצה בשם הזה'})};
     function paintLists(){
-      var f=q.value.trim();var match=function(g){return !f||g.title.indexOf(f)>=0};
-      ctrlEl.replaceChildren.apply(ctrlEl,groups.filter(match).map(function(g){return row(g,'ctrl')}));
-      listEl.replaceChildren.apply(listEl,groups.filter(match).map(function(g){return row(g,'t')}));
+      // Chosen groups first, so a choice stays visible while searching a long list.
+      var ctrlRows=groups.filter(matcher(qc)).sort(function(x,y){return (y.chatId===ctrl)-(x.chatId===ctrl)}).map(function(g){return row(g,'ctrl')});
+      var tRows=groups.filter(matcher(q)).sort(function(x,y){return picked.has(y.chatId)-picked.has(x.chatId)}).map(function(g){return row(g,'t')});
+      ctrlEl.replaceChildren.apply(ctrlEl,ctrlRows.length?ctrlRows:[none()]);
+      listEl.replaceChildren.apply(listEl,tRows.length?tRows:[none()]);
+      var cg=groups.find(function(g){return g.chatId===ctrl});
+      ctrlNow.textContent=cg?'נבחרה: '+cg.title:'עדיין לא נבחרה קבוצת שליטה';
       count.textContent=picked.size+' מתוך '+max+' קבוצות במסלול שלכם';
     }
-    q.addEventListener('input',paintLists);paintLists();
+    q.addEventListener('input',paintLists);qc.addEventListener('input',paintLists);paintLists();
     var discon=h('button',{cls:'btn btn-ghost btn-sm',type:'button',text:'ניתוק המספר',onclick:async function(){
       if(discon.getAttribute('data-sure')!=='1'){discon.setAttribute('data-sure','1');discon.textContent='לחצו שוב לאישור הניתוק';return}
       discon.disabled=true;try{await api('DELETE','/v1/wa/accounts/'+a.id);cn.acc=null;load()}catch(e){err.textContent=e.message;discon.disabled=false}}});
@@ -610,7 +620,7 @@ function connectPage(){
       h('section',{cls:'panel conn-head'},[h('div',{cls:'conn-ok'},[h('span',{cls:'dot'}),h('div',{cls:'conn-num'},[h('b',{text:'המספר מחובר'}),h('span',{dir:'ltr',text:'+'+(a.phoneNumber||'')})])]),discon]),
       h('div',{cls:'grid-2 pick'},[
         h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'קבוצת שליטה'}),h('span',{cls:'gcount',text:groups.length+' קבוצות במספר'})]),
-          h('p',{cls:'hint left',text:'הקבוצה שבה אתם כותבים. כל מה שנכתב בה יופץ, ועריכה או מחיקה בה יעודכנו בכל הקבוצות.'}),ctrlEl,
+          h('p',{cls:'hint left',text:'הקבוצה שבה אתם כותבים. כל מה שנכתב בה יופץ, ועריכה או מחיקה בה יעודכנו בכל הקבוצות.'}),qc,ctrlNow,ctrlEl,
           h('div',{cls:'refresh-row'},[h('span',{cls:'hint',text:'חסרה קבוצה? המספר צריך להיות חבר בה.'}),
             h('button',{cls:'linkish',type:'button',text:'רענון הרשימה מ‑WhatsApp',onclick:async function(){this.disabled=true;body.replaceChildren(await groupsStep(true))}})])]),
         h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'קבוצות יעד'}),count]),q,listEl])]),
