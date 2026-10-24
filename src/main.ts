@@ -148,6 +148,10 @@ worker.dispatcher.start();
 log.info('started', { api: api.url, waMode: mode });
 
 // Reconnect the numbers that were linked before this restart (a deploy, a crash).
+// During a deploy the previous server is still holding the WhatsApp session for a few
+// seconds; waiting lets it close cleanly instead of the two replacing each other.
+// Messages written in the meantime arrive as offline messages and are still distributed.
+await new Promise((r) => setTimeout(r, Number(process.env.BOOT_RECONNECT_DELAY_MS ?? 8000)));
 for (const a of await linkedAccounts(workerPool)) {
   try {
     await conns.connect(a.tenant_id, a.id, { method: 'qr' });

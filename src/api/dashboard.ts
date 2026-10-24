@@ -292,6 +292,7 @@ label.f.mode{margin-top:18px}
 .notice.cta{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-top:20px;margin-bottom:0}
 @media (max-width:620px){.notice.cta{flex-direction:column;align-items:stretch}}
 .err-alt{margin-top:6px;color:var(--text)}.err-alt .linkish{margin:0}
+.refresh-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}.refresh-row .hint{margin:0}.refresh-row .linkish{margin:0}
 </style>
 </head>
 <body>
@@ -558,9 +559,9 @@ function connectPage(){
     return h('section',{cls:'panel link'},[h('div',{cls:'qr-col'},[box,info,sim]),side]);
   }
   // ---- step 3
-  async function groupsStep(){
+  async function groupsStep(fresh){
     var a=cn.acc,chats,settingsRes;
-    try{chats=await api('GET','/v1/wa/accounts/'+a.id+'/chats');settingsRes=await api('GET','/v1/push/settings')}catch(e){return h('p',{cls:'err',text:e.message})}
+    try{chats=await api('GET','/v1/wa/accounts/'+a.id+'/chats'+(fresh?'?fresh=1':''));settingsRes=await api('GET','/v1/push/settings')}catch(e){return h('p',{cls:'err',text:e.message})}
     var groups=chats.filter(function(c){return c.type==='group'||c.type==='community'}).sort(function(x,y){return x.title.localeCompare(y.title,'he')});
     var existing=(settingsRes.controlGroups||[]).find(function(r){return r.source&&r.source.accountId===a.id})||null;
     var max=(me.tenant.plan.limits&&me.tenant.plan.limits.targets)||10;
@@ -608,7 +609,10 @@ function connectPage(){
     return h('div',null,[
       h('section',{cls:'panel conn-head'},[h('div',{cls:'conn-ok'},[h('span',{cls:'dot'}),h('div',{cls:'conn-num'},[h('b',{text:'המספר מחובר'}),h('span',{dir:'ltr',text:'+'+(a.phoneNumber||'')})])]),discon]),
       h('div',{cls:'grid-2 pick'},[
-        h('section',{cls:'panel'},[h('h2',{text:'קבוצת שליטה'}),h('p',{cls:'hint left',text:'הקבוצה שבה אתם כותבים. כל מה שנכתב בה יופץ, ועריכה או מחיקה בה יעודכנו בכל הקבוצות.'}),ctrlEl]),
+        h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'קבוצת שליטה'}),h('span',{cls:'gcount',text:groups.length+' קבוצות במספר'})]),
+          h('p',{cls:'hint left',text:'הקבוצה שבה אתם כותבים. כל מה שנכתב בה יופץ, ועריכה או מחיקה בה יעודכנו בכל הקבוצות.'}),ctrlEl,
+          h('div',{cls:'refresh-row'},[h('span',{cls:'hint',text:'חסרה קבוצה? המספר צריך להיות חבר בה.'}),
+            h('button',{cls:'linkish',type:'button',text:'רענון הרשימה מ‑WhatsApp',onclick:async function(){this.disabled=true;body.replaceChildren(await groupsStep(true))}})])]),
         h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'קבוצות יעד'}),count]),q,listEl])]),
       h('div',{cls:'save-bar'},[save,done,err])]);
   }

@@ -48,7 +48,15 @@ export function mapDisconnect(statusCode: number | undefined): DisconnectReason 
 /** Extracts our content shape from a Baileys WAMessage. Media bytes are fetched lazily by the caller. */
 export function extractContent(message: any): { content: MessageContent; isForwarded: boolean } | null {
   if (!message) return null;
-  const m = message.ephemeralMessage?.message ?? message.viewOnceMessageV2?.message ?? message;
+  // Disappearing, view-once, captioned-document and similar wrappers hold the real message inside.
+  // Edits are not unwrapped here: they arrive separately (see parseMessageUpdate).
+  let m = message;
+  for (let i = 0; i < 5; i++) {
+    const inner = m.ephemeralMessage ?? m.viewOnceMessage ?? m.viewOnceMessageV2 ?? m.viewOnceMessageV2Extension
+      ?? m.documentWithCaptionMessage ?? m.deviceSentMessage ?? m.associatedChildMessage;
+    if (!inner?.message) break;
+    m = inner.message;
+  }
   const pick = (kind: MessageKind, node: any): { content: MessageContent; isForwarded: boolean } => ({
     content: {
       kind,
@@ -69,18 +77,6 @@ export function extractContent(message: any): { content: MessageContent; isForwa
   return null; // reactions, protocol messages, polls etc. are ignored in phase 1
 }
 
-/** WAMessageStubType.REVOKE in Baileys. */
-const STUB_REVOKE = 1;
-
-/**
- * Reads one entry of Baileys' 'messages.update' event (checked against
- * Baileys 7.0.0-rc14, Utils/process-message.js):
- *  - an edit arrives as update.message.editedMessage.message
- *  - a "delete for everyone" arrives as update.message === null with
- *    messageStubType REVOKE; update.key is the deleter's protocol message
- * "Delete for me" is an app-state change ('messages.delete'), never this event.
- * Everything else in 'messages.update' (receipts, reactions, polls) returns null.
- */
 /** The user part of a WhatsApp id: "9725…:7@s.whatsapp.net" → "9725…", "1234@lid" → "1234". */
 export function idUser(id: unknown): string {
   return typeof id === 'string' ? id.split('@')[0]!.split(':')[0]! : '';
@@ -92,6 +88,22 @@ export function senderOf(key: any): string | undefined {
   return ids.find((x) => x.endsWith('@s.whatsapp.net')) ?? ids[0];
 }
 
+/** WAMessageStubType.REVOKE in Baileys. */
+const STUB_REVOKE = 1;
+/** WAMessageStubType.CIPHERTEXT: a message that could not be decrypted (yet). */
+const STUB_CIPHERTEXT = 2;
+/** Messages received while offline are distributed if they are at most this old. */
+const OFFLINE_CATCHUP_MS = 15 * 60_000;
+
+/**
+ * Reads one entry of Baileys' 'messages.update' event (checked against
+ * Baileys 7.0.0-rc14, Utils/process-message.js):
+ *  - an edit arrives as update.message.editedMessage.message
+ *  - a "delete for everyone" arrives as update.message === null with
+ *    messageStubType REVOKE; update.key is the deleter's protocol message
+ * "Delete for me" is an app-state change ('messages.delete'), never this event.
+ * Everything else in 'messages.update' (receipts, reactions, polls) returns null.
+ */
 export function parseMessageUpdate(u: any, now = Date.now()): { edit?: RawEdit; revoke?: RawRevoke } | null {
   const key = u?.key;
   const jid: string | undefined = key?.remoteJid;
@@ -178,6 +190,12 @@ export function toBaileysPayload(content: MessageContent): Record<string, unknow
 
 export class BaileysTransport implements WaTransport {
   private sock: any = null;
+  /** Recently sent messages by id, for re-sends WhatsApp asks for (bounded). */
+  private sentCache = new Map<string, unknown>();
+  /** Group metadata by group id, filled by listChats and cleared on group changes. */
+  private groupCache = new Map<string, any>();
+  /** Message ids already handed on, so a message delivered twice (online, then offline catch-up) is processed once. */
+  private seen = new Set<string>();
   private listeners = new Map<string, Set<(...a: unknown[]) => void>>();
   private connected = false;
   private pairingRequested = false;
@@ -237,6 +255,11 @@ export class BaileysTransport implements WaTransport {
 
     const sock = makeWASocket({
       ...(version ? { version } : {}),
+      // When a group member's phone can't decrypt one of our messages it asks for it again;
+      // Baileys answers from its own recent cache, and from ours as a fallback.
+      getMessage: async (key: any) => this.sentCache.get(key?.id ?? ''),
+      // Group member lists are needed on every send; caching them avoids a lookup per message.
+      cachedGroupMetadata: async (jid: string) => this.groupCache.get(jid),
       auth: { creds, keys: B.makeCacheableSignalKeyStore ? B.makeCacheableSignalKeyStore(keys) : keys },
       printQRInTerminal: false,
       markOnlineOnConnect: false,
@@ -292,12 +315,26 @@ export class BaileysTransport implements WaTransport {
     });
 
     sock.ev.on('messages.upsert', (ev: any) => {
-      if (ev.type !== 'notify') return;
+      // 'notify' = arrived live. 'append' = arrived while this server was offline (a restart or
+      // update) or was synced from history: only recent ones are taken, so a restart never
+      // loses a message but old history is not distributed again.
+      if (ev.type !== 'notify' && ev.type !== 'append') return;
       for (const msg of ev.messages ?? []) {
         const jid: string | undefined = msg.key?.remoteJid;
-        if (!jid || jid === 'status@broadcast') continue;
+        if (!jid || jid === 'status@broadcast' || !msg.key?.id) continue;
+        const ts = Number(msg.messageTimestamp ?? 0) * 1000;
+        if (ev.type === 'append' && (!ts || Date.now() - ts > OFFLINE_CATCHUP_MS)) continue;
         const parsed = extractContent(msg.message);
-        if (!parsed) continue;
+        if (!parsed) {
+          // A message WhatsApp couldn't decrypt yet comes back once the sender's phone re-sends it.
+          if (msg.messageStubType === STUB_CIPHERTEXT && jid.endsWith('@g.us')) this.log.info('inbound not decrypted yet', { accountId: this.accountId, chatId: jid, id: msg.key.id });
+          continue;
+        }
+        const seenKey = `${jid}|${msg.key.id}`;
+        if (this.seen.has(seenKey)) continue;
+        this.seen.add(seenKey);
+        if (this.seen.size > 5000) this.seen.delete(this.seen.values().next().value as string);
+        if (jid.endsWith('@g.us')) this.log.info('inbound', { accountId: this.accountId, chatId: jid, id: msg.key.id, kind: parsed.content.kind, fromSelf: !!msg.key.fromMe, offline: ev.type === 'append' });
         const raw: RawInbound = {
           chatId: jid,
           messageId: msg.key.id,
@@ -330,7 +367,11 @@ export class BaileysTransport implements WaTransport {
       }
     });
 
-    const changed = () => this.emit('chats_changed');
+    const changed = (ev?: any) => {
+      for (const g of Array.isArray(ev) ? ev : []) if (g?.id) this.groupCache.delete(g.id);
+      if (ev?.id) this.groupCache.delete(ev.id);
+      this.emit('chats_changed');
+    };
     sock.ev.on('groups.update', changed);
     sock.ev.on('group-participants.update', changed);
     sock.ev.on('groups.upsert', changed);
@@ -362,6 +403,8 @@ export class BaileysTransport implements WaTransport {
   async listChats(): Promise<ChatInfo[]> {
     if (!this.connected || !this.sock) throw new SendError('disconnected', 'not connected');
     const groups: Record<string, any> = await this.sock.groupFetchAllParticipating();
+    for (const g of Object.values(groups)) if (g?.id) this.groupCache.set(g.id, g);
+    this.log.info('groups listed', { accountId: this.accountId, count: Object.keys(groups).length });
     // WhatsApp lists group members by phone number in some groups and by a private
     // "LID" in others (most groups now). Recognise this number by either one.
     const mine = new Set([this.sock.user?.id, this.sock.user?.lid, this.sock.authState?.creds?.me?.id, this.sock.authState?.creds?.me?.lid]
@@ -387,6 +430,10 @@ export class BaileysTransport implements WaTransport {
     const payload = toBaileysPayload(content);
     try {
       const res = await this.sock.sendMessage(chatId, payload);
+      if (res?.key?.id && res.message) {
+        this.sentCache.set(res.key.id, res.message);
+        if (this.sentCache.size > 2000) this.sentCache.delete(this.sentCache.keys().next().value as string);
+      }
       return { messageId: res?.key?.id ?? '', sentAt: new Date() };
     } catch (err: any) {
       throw mapSendError(err);
