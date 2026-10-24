@@ -155,6 +155,13 @@ log.info('started', { api: api.url, waMode: mode });
   if (r.rowCount) log.info('lifted stops left by a deploy', { count: r.rowCount });
 }
 
+{
+  const r = await workerPool.query<{ reads: number; copies: number }>(
+    `SELECT (SELECT count(*)::int FROM message_reads WHERE read_at > now() - interval '24 hours') AS reads,
+            (SELECT count(*)::int FROM outbound_jobs WHERE status = 'sent' AND sent_at > now() - interval '24 hours') AS copies`);
+  log.info('last 24 hours', r.rows[0] ?? {});
+}
+
 // Reconnect the numbers that were linked before this restart (a deploy, a crash).
 // During a deploy the previous server is still holding the WhatsApp session for a few
 // seconds; waiting lets it close cleanly instead of the two replacing each other.
