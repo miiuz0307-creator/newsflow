@@ -75,7 +75,7 @@ function stubBaileys() {
         sendMessage: async (jid: string, payload: any) => {
           if (jid === 'limited@g.us') throw new Error('rate-overlimit');
           sock.sent.push({ jid, payload });
-          return { key: { id: 'MSG1' } };
+          return { key: { id: 'MSG1' }, message: { conversation: payload.text ?? '' } };
         },
         end: () => {},
         logout: async () => {},
@@ -145,5 +145,39 @@ describe('Baileys adapter — wiring against a stub', () => {
     await waitFor(() => codes.length === 1);
     assert.deepEqual(codes, ['ABCD-1234']);
     assert.deepEqual(qrs, []);
+  });
+
+  test('messages that arrive while the server was restarting are still distributed, once', async () => {
+    const { mod, sockets } = stubBaileys();
+    const t = new BaileysTransport('acc', new MemoryAuthStore('acc', cipherFor('t')), async () => mod);
+    const got: any[] = [];
+    t.on('message', (m) => got.push(m));
+    await t.start({ method: 'qr' });
+    const sock = sockets[0];
+    const now = Math.floor(Date.now() / 1000);
+    const msg = (id: string, ts: number, extra: any = {}) => ({ key: { remoteJid: 'g1@g.us', id, participant: 'p@s.whatsapp.net' }, message: { conversation: id }, messageTimestamp: ts, ...extra });
+    sock.ev.emit('messages.upsert', { type: 'append', messages: [msg('OFF1', now - 120), msg('OLD', now - 3 * 3600)] });
+    sock.ev.emit('messages.upsert', { type: 'notify', messages: [msg('OFF1', now - 120), msg('LIVE', now)] });
+    // Not decrypted yet: nothing is distributed until WhatsApp delivers it again.
+    sock.ev.emit('messages.upsert', { type: 'notify', messages: [{ key: { remoteJid: 'g1@g.us', id: 'CT' }, messageStubType: 2, messageTimestamp: now }] });
+    assert.deepEqual(got.map((m) => m.messageId), ['OFF1', 'LIVE'], 'recent offline message once, old history skipped');
+  });
+
+  test('wrapped messages (captioned document, view once, sent from own phone) are read', () => {
+    assert.equal(extractContent({ documentWithCaptionMessage: { message: { documentMessage: { caption: 'דוח', mimetype: 'application/pdf' } } } })?.content.text, 'דוח');
+    assert.equal(extractContent({ viewOnceMessageV2Extension: { message: { imageMessage: { caption: 'v' } } } })?.content.kind, 'image');
+    assert.equal(extractContent({ deviceSentMessage: { message: { extendedTextMessage: { text: 'from phone' } } } })?.content.text, 'from phone');
+  });
+
+  test('a message we sent can be handed back when a member\'s phone asks for it again', async () => {
+    const { mod, sockets } = stubBaileys();
+    const t = new BaileysTransport('acc', new MemoryAuthStore('acc', cipherFor('t')), async () => mod);
+    await t.start({ method: 'qr' });
+    const sock = sockets[0];
+    sock.ev.emit('connection.update', { connection: 'open' });
+    await t.send('g1@g.us', { kind: 'text', text: 'שלום' });
+    assert.deepEqual(await sock.cfg.getMessage({ id: 'MSG1' }), { conversation: 'שלום' });
+    await t.listChats();
+    assert.equal((await sock.cfg.cachedGroupMetadata('g1@g.us'))?.subject, 'Open', 'group details are cached for sending');
   });
 });

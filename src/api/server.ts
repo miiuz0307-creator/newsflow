@@ -262,9 +262,11 @@ export class ApiServer {
       return undefined; // streaming
     });
 
-    this.on('GET', '/v1/wa/accounts/:id/chats', true, async ({ auth, params }) => {
+    this.on('GET', '/v1/wa/accounts/:id/chats', true, async ({ auth, params, req }) => {
       await this.ownAccount(auth!, params.id!);
-      const chats = await o.connections.listChats(params.id!);
+      // ?fresh=1 asks WhatsApp again instead of using the list from the last minute.
+      const fresh = new URL(req.url ?? '/', 'http://x').searchParams.get('fresh') === '1';
+      const chats = await o.connections.listChats(params.id!, fresh ? 0 : undefined);
       // Cache in the database so route validation and the app can use it.
       await this.tenantTx(auth!, async (c) => {
         for (const ch of chats) {
