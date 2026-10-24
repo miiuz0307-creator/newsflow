@@ -328,6 +328,9 @@ label.f.mode{margin-top:18px}
 .pv-frame.at-center .pv-logo{left:50%;top:50%;transform:translate(-50%,-50%)}
 .logo-grid{grid-template-columns:1fr 1fr}
 @media (max-width:1100px){.logo-grid{grid-template-columns:1fr}}
+.bg-box{margin:-6px 0 14px}.bg-row{display:flex;gap:8px;flex-wrap:wrap}
+.bg-tune{margin-top:12px}.bg-tune input[type=range]{width:100%;accent-color:var(--teal-deep)}.bg-tune .check{margin:8px 0 0;color:var(--text);font-size:13.5px}
+.bg-msg{margin:10px 0 0}
 </style>
 </head>
 <body>
@@ -695,11 +698,49 @@ function qrSvg(rows){
 
 // ---------------- logo on videos
 var POS=[['top-right','ימין למעלה'],['top-left','שמאל למעלה'],['center','מרכז'],['bottom-right','ימין למטה'],['bottom-left','שמאל למטה']];
+/**
+ * Makes a logo's plain background transparent. The background colour is the most common colour
+ * on the image's border; it is removed from the edges inwards (flood fill), so the same colour
+ * inside the logo stays unless asked otherwise. Edge pixels are softened so there is no halo.
+ */
+function removeBackground(src,tol,everywhere,done){
+  var im=new Image();
+  im.onload=function(){
+    var max=800,k=Math.min(1,max/Math.max(im.naturalWidth,im.naturalHeight));
+    var w=Math.max(1,Math.round(im.naturalWidth*k)),hh=Math.max(1,Math.round(im.naturalHeight*k));
+    var c=document.createElement('canvas');c.width=w;c.height=hh;var x=c.getContext('2d');x.drawImage(im,0,0,w,hh);
+    var d=x.getImageData(0,0,w,hh),p=d.data,n=w*hh;
+    // background = most common (quantised) opaque colour on the border
+    var counts={},best=null,bestN=0,transparentEdge=0,edge=0;
+    var look=function(i){edge++;if(p[i*4+3]<20){transparentEdge++;return}var key=(p[i*4]>>4)+','+(p[i*4+1]>>4)+','+(p[i*4+2]>>4);var v=(counts[key]||0)+1;counts[key]=v;if(v>bestN){bestN=v;best=i}};
+    for(var i=0;i<w;i++){look(i);look((hh-1)*w+i)}for(var j=0;j<hh;j++){look(j*w);look(j*w+w-1)}
+    if(transparentEdge>edge*0.6||best===null){done({error:'נראה שלתמונה כבר אין רקע.'});return}
+    var br=p[best*4],bg=p[best*4+1],bb=p[best*4+2];
+    var dist=function(i){var a=p[i*4]-br,b=p[i*4+1]-bg,cc=p[i*4+2]-bb;return Math.sqrt(a*a+b*b+cc*cc)};
+    var gone=new Uint8Array(n),removed=0;
+    var cut=function(i){gone[i]=1;p[i*4+3]=0;removed++};
+    if(everywhere){for(var q=0;q<n;q++)if(p[q*4+3]>=20&&dist(q)<=tol)cut(q)}
+    else{
+      var stack=[];var push=function(q){if(!gone[q]&&p[q*4+3]>=20&&dist(q)<=tol){cut(q);stack.push(q)}};
+      for(var i2=0;i2<w;i2++){push(i2);push((hh-1)*w+i2)}for(var j2=0;j2<hh;j2++){push(j2*w);push(j2*w+w-1)}
+      while(stack.length){var q2=stack.pop(),qx=q2%w,qy=(q2-qx)/w;if(qx>0)push(q2-1);if(qx<w-1)push(q2+1);if(qy>0)push(q2-w);if(qy<hh-1)push(q2+w)}
+    }
+    // soften the border between logo and removed background
+    for(var r=0;r<n;r++){if(gone[r])continue;var rx=r%w,ry=(r-rx)/w;
+      var near=(rx>0&&gone[r-1])||(rx<w-1&&gone[r+1])||(ry>0&&gone[r-w])||(ry<hh-1&&gone[r+w]);
+      if(near){var dd=dist(r);if(dd<tol*2.2)p[r*4+3]=Math.round(p[r*4+3]*Math.min(1,(dd-tol)/(tol*1.2)+0.25))}}
+    if(!removed){done({error:'לא נמצא רקע אחיד להסרה. אפשר להגדיל את הרגישות.'});return}
+    x.putImageData(d,0,0);
+    done({url:c.toDataURL('image/png'),removed:Math.round(100*removed/n)});
+  };
+  im.onerror=function(){done({error:'לא הצלחנו לקרוא את התמונה'})};
+  im.src=src;
+}
 function logoPage(){
   var wrap=h('div',null,[h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'לוגו על הסרטונים'}),h('p',{text:'הלוגו שלכם יופיע על כל סרטון שיוצא מקבוצת השליטה, בכל הקבוצות.'})])]),h('p',{cls:'hint',text:'טוען…'})]);
   (async function(){
     var cur;try{cur=await api('GET','/v1/push/logo')}catch(e){wrap.lastChild.replaceWith(h('p',{cls:'err',text:e.message}));return}
-    var st={logo:cur.logo,position:cur.position,sizePct:cur.sizePct,opacityPct:cur.opacityPct,applyVideo:cur.applyVideo,applyImage:cur.applyImage,newLogo:null,shape:'v'};
+    var st={original:cur.logo,cut:false,logo:cur.logo,position:cur.position,sizePct:cur.sizePct,opacityPct:cur.opacityPct,applyVideo:cur.applyVideo,applyImage:cur.applyImage,newLogo:null,shape:'v'};
     var msg=h('p',{cls:'hint save-msg',role:'status'}),err=h('p',{cls:'err'});
     // ---- preview
     var img=h('img',{cls:'pv-logo',alt:'הלוגו'});
@@ -713,8 +754,26 @@ function logoPage(){
       var f=file.files&&file.files[0];if(!f)return;err.textContent='';
       if(!/^image\\/(png|jpeg|webp)$/.test(f.type)){err.textContent='אפשר להעלות PNG, JPG או WEBP';return}
       if(f.size>1024*1024){err.textContent='הקובץ גדול מדי (עד 1MB)';return}
-      var r=new FileReader();r.onload=function(){st.newLogo=String(r.result);st.logo=st.newLogo;paint()};r.readAsDataURL(f);
+      var r=new FileReader();r.onload=function(){st.newLogo=String(r.result);st.logo=st.newLogo;st.original=st.logo;st.cut=false;bgMsg.textContent='';paint()};r.readAsDataURL(f);
     });
+    // ---- background removal (in the browser; the result is saved like an uploaded PNG)
+    var bgMsg=h('p',{cls:'hint left bg-msg',role:'status'});
+    var tol=h('input',{type:'range',min:'5',max:'120',step:'5','aria-label':'רגישות הסרת הרקע'});tol.value='40';
+    var inner=h('input',{type:'checkbox'});
+    var cutBtn=h('button',{cls:'btn btn-dark btn-sm',type:'button',text:'הסרת רקע',onclick:function(){runCut()}});
+    var undoBtn=h('button',{cls:'btn btn-ghost btn-sm',type:'button',text:'החזרת המקור',onclick:function(){st.logo=st.original;st.newLogo=st.original===cur.logo?null:st.original;st.cut=false;bgMsg.textContent='';paint()}});
+    var tune=h('div',{cls:'bg-tune'},[h('div',{cls:'ctl-h'},[h('span',{text:'רגישות'}),h('span',{cls:'range-v',text:'יותר = מסיר גם גוונים קרובים'})]),tol,
+      h('label',{cls:'check'},[inner,'להסיר את הצבע הזה גם בתוך הלוגו (למשל בתוך אותיות)'])]);
+    var bgBox=h('div',{cls:'bg-box'},[h('div',{cls:'bg-row'},[cutBtn,undoBtn]),tune,bgMsg]);
+    tol.addEventListener('change',function(){if(st.cut)runCut()});inner.addEventListener('change',function(){if(st.cut)runCut()});
+    function runCut(){
+      if(!st.original)return;
+      removeBackground(st.original,Number(tol.value),inner.checked,function(res){
+        if(res.error){bgMsg.textContent=res.error;return}
+        st.logo=res.url;st.newLogo=res.url;st.cut=true;
+        bgMsg.textContent='הרקע הוסר ('+res.removed+'% מהתמונה). בדקו בתצוגה; אם נשארו שאריות, הגדילו את הרגישות.';paint();
+      });
+    }
     var posBox=h('div',{cls:'pos-grid',role:'group','aria-label':'מיקום הלוגו'},POS.map(function(p){
       return h('button',{type:'button',cls:'pos '+p[0],'data-p':p[0],title:p[1],'aria-label':p[1],onclick:function(){st.position=p[0];paint()}},[h('i')])}));
     var posName=h('span',{cls:'range-v'});
@@ -740,6 +799,7 @@ function logoPage(){
       img.hidden=!st.logo;if(st.logo)img.src=st.logo;
       img.style.width=st.sizePct+'%';img.style.opacity=String(st.opacityPct/100);
       thumb.hidden=!st.logo;if(st.logo)thumb.src=st.logo;
+      bgBox.hidden=!st.logo;undoBtn.hidden=!st.cut;tune.hidden=!st.cut;cutBtn.textContent=st.cut?'הסרה מחדש':'הסרת רקע';
       drop.querySelector('.drop-t').textContent=st.logo?'החלפת הלוגו':'העלאת לוגו';
       [].forEach.call(posBox.children,function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-p')===st.position))});
       posName.textContent=(POS.find(function(p){return p[0]===st.position})||[0,''])[1];
@@ -748,7 +808,7 @@ function logoPage(){
     }
     var row=function(label,ctrl,val){return h('div',{cls:'ctl'},[h('div',{cls:'ctl-h'},[h('span',{text:label}),val||null]),ctrl])};
     var controls=h('section',{cls:'panel logo-ctl'},[
-      h('h2',{text:'הלוגו'}),file,drop,
+      h('h2',{text:'הלוגו'}),file,drop,bgBox,
       row('מיקום',posBox,posName),row('גודל',size,sizeV),row('שקיפות',op,opV),
       h('div',{cls:'ctl'},[h('div',{cls:'ctl-h'},[h('span',{text:'להוסיף ל:'})]),h('label',{cls:'check'},[vid,'סרטונים']),h('label',{cls:'check'},[pic,'תמונות'])]),
       cur.available?null:h('p',{cls:'hint left',text:'בשרת הזה (דמו) ההגדרות נשמרות, אבל הלוגו מתווסף רק בגרסה האמיתית.'}),
