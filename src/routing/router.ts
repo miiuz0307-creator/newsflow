@@ -150,7 +150,11 @@ export class Router {
         plan.skipped.push({ routeId: route.id, reason: 'sender_not_allowed' });
         continue;
       }
-      const reason = checkFilters(route.filters, msg);
+      // In a control group the customer usually writes from the linked number itself, so "from
+      // this number" is the content, not an echo. PUSH's own copies and reports are still never
+      // redistributed: copies go to other groups and are recognised by message id (wasSentByUs),
+      // and reports carry REPORT_TAG (isOwnReport above).
+      const reason = checkFilters(route.control ? { ...route.filters, ignoreFromSelf: false } : route.filters, msg);
       if (reason) {
         plan.skipped.push({ routeId: route.id, reason });
         continue;
