@@ -13,6 +13,10 @@ import { PgJobQueue, PgKillSwitchStore, TenantKeys, withTenant } from '../src/db
 import { ConnectionManager } from '../src/wa/connectionManager.js';
 import { FakeWaNetwork, fakeTransportFactory } from '../src/wa/fakeNetwork.js';
 import { memoryStores } from './helpers.js';
+import http from 'node:http';
+import { AdminPush } from '../src/notify/adminPush.js';
+import { vapidKeysFromSecret } from '../src/notify/webPush.js';
+import { decryptPush, fakeDevice } from './pushHelpers.js';
 import { createTestDb, pgAvailable, type TestDb } from './pgHelpers.js';
 
 const available = await pgAvailable();
@@ -29,6 +33,10 @@ describe('management panel', { skip: !available && 'local test Postgres not runn
   let token = '';
   let customerId = '';
   let customerPassword = '';
+  let pushSrv: http.Server;
+  let pushUrl = '';
+  const pushed: string[] = [];
+  const dev = fakeDevice();
 
   const call = async (method: string, path: string, body?: unknown, tok?: string) => {
     const r = await fetch(api.url + path, { method, headers: { ...(tok ? { authorization: `Bearer ${tok}` } : {}), ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -40,15 +48,20 @@ describe('management panel', { skip: !available && 'local test Postgres not runn
 
   before(async () => {
     db = await createTestDb();
+    pushSrv = http.createServer((req, res) => { const p: Buffer[] = []; req.on('data', (d) => p.push(d)); req.on('end', () => { pushed.push(decryptPush(Buffer.concat(p), dev.priv, dev.auth)); res.writeHead(201); res.end(); }); });
+    await new Promise<void>((r) => pushSrv.listen(0, '127.0.0.1', r));
+    pushUrl = `http://127.0.0.1:${(pushSrv.address() as { port: number }).port}/push/device-1`;
+    const adminPush = new AdminPush(db.admin, vapidKeysFromSecret('v'.repeat(40)), 'mailto:a@b.c', { allowLocalEndpoints: true });
     keys = new TenantKeys(new MasterKey('mk-adm', MASTER), db.worker);
     const { factory } = memoryStores();
     conns = new ConnectionManager({ transportFactory: fakeTransportFactory(new FakeWaNetwork({ connectDelayMs: 1 })), storeFactory: async (t, a) => factory(t, a) });
     api = new ApiServer({
       appPool: db.app, connections: conns, queue: new PgJobQueue(db.worker, db.app), killSwitches: new PgKillSwitchStore(db.worker), tokenSecret: SECRET,
       modules: [
-        authModule({ keys, loginLimiter: new WindowLimiter(1000, 60_000), signupLimiter: new WindowLimiter(1000, 60_000) }),
+        authModule({ keys, loginLimiter: new WindowLimiter(1000, 60_000), signupLimiter: new WindowLimiter(1000, 60_000),
+          onSignup: (t) => adminPush.send({ title: 'לקוח חדש נרשם ל‑PUSH', body: `${t.businessName}\n${t.email}`, url: `/admin#customer=${t.tenantId}` }).then(() => {}) }),
         adminModule({
-          adminPool: db.admin, adminTokenSecret: ADMIN_SECRET, customerTokenSecret: SECRET, masterKeyB64: MASTER, loginLimiter: new WindowLimiter(1000, 60_000),
+          adminPool: db.admin, push: adminPush, adminTokenSecret: ADMIN_SECRET, customerTokenSecret: SECRET, masterKeyB64: MASTER, loginLimiter: new WindowLimiter(1000, 60_000),
           manage: {
             setupCode: SETUP,
             createFirstAdmin: async (email, hash, totp) => (await db.owner.query(
@@ -64,6 +77,7 @@ describe('management panel', { skip: !available && 'local test Postgres not runn
   after(async () => {
     await api?.close();
     await conns?.shutdown();
+    pushSrv?.close();
     await db?.drop();
   });
 
@@ -120,6 +134,33 @@ describe('management panel', { skip: !available && 'local test Postgres not runn
     const one = await call('GET', `/admin/v1/tenants/${customerId}`, undefined, token);
     assert.equal(one.body.daily.length, 14, '14 days for the customer chart');
     assert.equal((await call('POST', '/admin/v1/tenants', { businessName: 'x', email: 'x@push.test' })).status, 401, 'admins only');
+  });
+
+  test('notifications: this device subscribes, a test arrives, and a new signup arrives with a link to the customer', async () => {
+    assert.equal((await call('GET', '/admin/v1/push')).status, 401);
+    const info = await call('GET', '/admin/v1/push', undefined, token);
+    assert.equal(info.body.available, true);
+    assert.equal(Buffer.from(info.body.publicKey, 'base64url').length, 65);
+    assert.equal((await call('POST', '/admin/v1/push/subscribe', { subscription: { endpoint: 'https://evil.example/x', keys: dev.keys } }, token)).status, 400, 'only real push services');
+    const sub = await call('POST', '/admin/v1/push/subscribe', { subscription: { endpoint: pushUrl, keys: dev.keys } }, token);
+    assert.equal(sub.status, 200, JSON.stringify(sub.body));
+    assert.equal(sub.body.devices, 1);
+    assert.equal((await call('POST', '/admin/v1/push/test', undefined, token)).status, 200);
+    assert.equal(JSON.parse(pushed.at(-1)!).tag, 'test');
+    const su = await call('POST', '/v1/auth/signup', { email: 'newbie@push.test', password: 'Shalom-Olam-Tov-2026!', businessName: 'חדשות המרכז', acceptTerms: true });
+    assert.equal(su.status, 200, JSON.stringify(su.body));
+    for (let i = 0; i < 50 && pushed.length < 2; i++) await new Promise((r) => setTimeout(r, 20));
+    const n = JSON.parse(pushed.at(-1)!);
+    assert.equal(n.title, 'לקוח חדש נרשם ל‑PUSH');
+    assert.match(n.body, /חדשות המרכז/);
+    assert.equal(n.url, `/admin#customer=${su.body.tenantId}`);
+    assert.equal((await call('POST', '/admin/v1/push/unsubscribe', { endpoint: pushUrl }, token)).body.devices, 0);
+    const sw = await call('GET', '/admin/sw.js');
+    assert.equal(sw.headers.get('service-worker-allowed'), '/admin');
+    assert.doesNotThrow(() => new Function(sw.text));
+    const man = await call('GET', '/admin/manifest.webmanifest');
+    assert.equal(man.body.start_url, '/admin');
+    assert.equal((await fetch(api.url + '/admin/icon-180.png')).headers.get('content-type'), 'image/png');
   });
 
   test('remove a customer: gone from the list, can no longer sign in', async () => {

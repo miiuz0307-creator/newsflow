@@ -19,6 +19,7 @@ import path from 'node:path';
 import { migrate } from '../db/migrate.js';
 import { PgConnection, parseDatabaseUrl } from '../db/pg.js';
 import { createLogger } from '../logger.js';
+import { vapidKeysFromSecret } from '../notify/webPush.js';
 
 const log = createLogger({ service: 'push-live', env: 'production' });
 const need = (n: string) => {
@@ -66,6 +67,7 @@ const url = (role: keyof typeof pw) => {
   return u.toString();
 };
 
+const vapid = vapidKeysFromSecret(secret, 'push-live:vapid');
 Object.assign(process.env, {
   APP_ENV: 'production',
   DATABASE_URL_APP: url('app'),
@@ -74,6 +76,10 @@ Object.assign(process.env, {
   DATABASE_URL_ADMIN: url('admin'),
   DATABASE_URL_OWNER: url('owner'),
   ADMIN_TOKEN_SECRET: process.env.ADMIN_TOKEN_SECRET ?? createHmac('sha256', secret).update('push-live:admin-token').digest('base64url'),
+  // Browser notifications to the owner's devices: stable keys derived from LIVE_SECRET.
+  VAPID_PUBLIC_KEY: process.env.VAPID_PUBLIC_KEY ?? vapid.publicKey,
+  VAPID_PRIVATE_KEY: process.env.VAPID_PRIVATE_KEY ?? vapid.privateKey,
+  VAPID_SUBJECT: process.env.VAPID_SUBJECT ?? (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'mailto:admin@localhost'),
   WA_MODE: process.env.WA_MODE ?? 'baileys',
   ALLOW_REAL_WHATSAPP: process.env.ALLOW_REAL_WHATSAPP ?? '1',
   API_PORT: process.env.PORT ?? '8787',
