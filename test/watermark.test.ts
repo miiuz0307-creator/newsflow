@@ -104,6 +104,27 @@ describe('logo on videos and photos', { skip: !hasFfmpeg && 'ffmpeg not installe
     }
   });
 
+  test('headline across the top and caption across the bottom: the logo finds the free middle band', { skip: !existsSync(FONT) && 'no font for drawtext' }, async () => {
+    const f = fixtures();
+    try {
+      const dir = mkdtempSync(path.join(os.tmpdir(), 'wm-hard-'));
+      const img = path.join(dir, 'hard.jpg');
+      ff(['-f', 'lavfi', '-i', 'testsrc2=s=1080x1350,boxblur=18:2', '-frames:v', '1', '-vf',
+        `drawbox=x=0:y=0:w=1080:h=210:color=black@0.55:t=fill,drawtext=fontfile=${FONT}:text='BREAKING HEAVY TRAFFIC ON ROAD 4':fontsize=52:fontcolor=white:x=30:y=40,` +
+        `drawtext=fontfile=${FONT}:text='NORTHBOUND NEAR THE JUNCTION':fontsize=44:fontcolor=yellow:x=30:y=120,` +
+        `drawbox=x=0:y=1110:w=1080:h=240:color=black@0.6:t=fill,drawtext=fontfile=${FONT}:text='Police ask drivers to use other roads until further notice':fontsize=34:fontcolor=white:x=30:y=1150,` +
+        `drawtext=fontfile=${FONT}:text='Photo: police spokesperson - update 02:15':fontsize=30:fontcolor=white:x=30:y=1220`, img]);
+      for (const sizePct of [24, 35]) {
+        const out = await applyLogo(readFileSync(img), 'image', { logo: f.logo, logoMime: 'image/png', position: 'bottom-left', sizePct, opacityPct: 100, smart: true });
+        assert.ok(out.smart && out.smart.score < 0.01, `still on text: ${out.position} ${JSON.stringify(out.smart)}`);
+        assert.ok(!/^(top|bottom)-/.test(out.position), `in a text band: ${out.position}`);
+      }
+      rmSync(dir, { recursive: true, force: true });
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+
   test('a broken file is reported, not silently passed on', async () => {
     const f = fixtures();
     try {

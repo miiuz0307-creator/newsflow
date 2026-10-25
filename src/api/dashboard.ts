@@ -850,7 +850,7 @@ function logoPage(){
         if(!jpeg){tryMsg.textContent=errText;return}
         var b={media:jpeg,position:st.position,sizePct:st.sizePct,opacityPct:st.opacityPct,smartPosition:st.smart};if(st.newLogo)b.logo=st.newLogo;
         api('POST','/v1/push/logo/preview',b).then(function(r){
-          var where=(POS.concat([['top-center','למעלה באמצע'],['bottom-center','למטה באמצע'],['middle-left','שמאל באמצע'],['middle-right','ימין באמצע']]).find(function(p){return p[0]===r.position})||[0,r.position])[1];
+          var where=(POS.concat([['top-center','למעלה באמצע'],['bottom-center','למטה באמצע'],['middle-left','שמאל באמצע'],['middle-right','ימין באמצע']]).find(function(p){return p[0]===r.position})||[0,/^at:/.test(r.position)?'במקום פנוי בתמונה':r.position])[1];
           tryOut.replaceChildren(h('img',{cls:'try-img',src:r.image,alt:'התמונה עם הלוגו'}));
           tryMsg.textContent='כך זה יישלח. הלוגו הונח: '+where+(r.sizePct!==st.sizePct?' (הוקטן ל‑'+r.sizePct+'% כדי לא להסתיר)':'')+(r.moved?' — הוזז כדי לא להסתיר טקסט.':'.')+(/^video/.test(f.type)?' בסרטון נבדקות כמה תמונות לאורך כל הסרטון.':'');
         }).catch(function(e){tryMsg.textContent=e.message});
