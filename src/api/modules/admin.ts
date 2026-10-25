@@ -180,6 +180,13 @@ export function adminModule(opts: AdminModuleOptions) {
         one<{ status: string; n: number }>(`SELECT status, count(*)::int AS n FROM tickets WHERE status <> 'closed' GROUP BY status`),
         one<{ agorot: number }>(`SELECT COALESCE(sum(p.price_agorot), 0)::int AS agorot FROM tenants t JOIN plans p ON p.code = t.plan_code WHERE t.status = 'active'`),
       ]);
+      // The last 24 hours, hour by hour: copies delivered and reads (for the chart at the top of the panel).
+      const hourly = await one<{ h: string; sent: number; reads: number }>(
+        `SELECT g.h,
+                (SELECT count(*)::int FROM outbound_jobs j WHERE j.status = 'sent' AND j.sent_at >= g.h AND j.sent_at < g.h + interval '1 hour') AS sent,
+                (SELECT count(*)::int FROM message_reads r WHERE r.read_at >= g.h AND r.read_at < g.h + interval '1 hour') AS reads
+           FROM generate_series(date_trunc('hour', now()) - interval '23 hours', date_trunc('hour', now()), interval '1 hour') AS g(h)
+          ORDER BY g.h`);
       const obj = (rows: { n: number }[], key: string) => Object.fromEntries(rows.map((r) => [(r as unknown as Record<string, string>)[key], r.n]));
       const m = process.memoryUsage();
       return {
@@ -192,6 +199,9 @@ export function adminModule(opts: AdminModuleOptions) {
         safetyEventsLast24h: obj(safety, 'kind'),
         openTickets: obj(tickets, 'status'),
         monthlyRevenueEstimateIls: (mrr[0]?.agorot ?? 0) / 100,
+        hourly,
+        sentLast24h: hourly.reduce((a, r) => a + r.sent, 0),
+        readsLast24h: hourly.reduce((a, r) => a + r.reads, 0),
         server: { rssMb: Math.round(m.rss / 1048576), heapMb: Math.round(m.heapUsed / 1048576), uptimeS: Math.round(process.uptime()) },
       };
     });
@@ -206,7 +216,12 @@ export function adminModule(opts: AdminModuleOptions) {
                 (SELECT count(*)::int FROM wa_accounts a WHERE a.tenant_id = t.id AND a.status = 'connected') AS connected,
                 (SELECT max(last_login_at) FROM users u WHERE u.tenant_id = t.id) AS last_login_at,
                 (SELECT count(*)::int FROM outbound_jobs j WHERE j.tenant_id = t.id AND j.status = 'sent' AND j.action = 'send'
-                    AND j.created_at > now() - interval '24 hours') AS sent_24h
+                    AND j.created_at > now() - interval '24 hours') AS sent_24h,
+                (SELECT count(*)::int FROM message_reads r WHERE r.tenant_id = t.id AND r.read_at > now() - interval '24 hours') AS reads_24h,
+                (SELECT string_agg(c.n::text, ',' ORDER BY d.d)
+                   FROM generate_series(current_date::timestamptz - interval '6 days', current_date::timestamptz, interval '1 day') AS d(d)
+                   CROSS JOIN LATERAL (SELECT count(*)::int AS n FROM outbound_jobs j WHERE j.tenant_id = t.id AND j.status = 'sent'
+                                         AND j.sent_at >= d.d AND j.sent_at < d.d + interval '1 day') AS c) AS spark_7d
            FROM tenants t
           WHERE t.status <> 'deleted' AND ($1 = '' OR t.name ILIKE '%' || $1 || '%'
                 OR EXISTS (SELECT 1 FROM users u WHERE u.tenant_id = t.id AND u.email ILIKE '%' || $1 || '%'))
@@ -227,7 +242,13 @@ export function adminModule(opts: AdminModuleOptions) {
         sql.query('SELECT kind, detail, created_at FROM safety_events WHERE tenant_id = $1 ORDER BY id DESC LIMIT 20', [params.id]),
         sql.query('SELECT scope, scope_id, reason, set_by, set_at FROM kill_switches WHERE tenant_id = $1 AND active', [params.id]),
       ]);
-      return { tenant: t.rows[0], users: users.rows, whatsapp: accounts.rows, telegram: bots.rows, routes: routes.rows, jobs7d: jobs.rows, safetyEvents: safety.rows, activeStops: stops.rows };
+      const daily = await sql.query<{ d: string; sent: number; reads: number }>(
+        `SELECT d.d,
+                (SELECT count(*)::int FROM outbound_jobs j WHERE j.tenant_id = $1 AND j.status = 'sent' AND j.sent_at >= d.d AND j.sent_at < d.d + interval '1 day') AS sent,
+                (SELECT count(*)::int FROM message_reads r WHERE r.tenant_id = $1 AND r.read_at >= d.d AND r.read_at < d.d + interval '1 day') AS reads
+           FROM generate_series(current_date::timestamptz - interval '13 days', current_date::timestamptz, interval '1 day') AS d(d)
+          ORDER BY d.d`, [params.id]);
+      return { tenant: t.rows[0], users: users.rows, whatsapp: accounts.rows, telegram: bots.rows, routes: routes.rows, jobs7d: jobs.rows, safetyEvents: safety.rows, activeStops: stops.rows, daily: daily.rows };
     });
 
     // ---- Add a customer by hand: the owner gets a temporary password, shown here once.
