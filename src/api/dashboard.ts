@@ -8,6 +8,7 @@
  * page runs under a strict Content-Security-Policy with a nonce.
  */
 import { fontFaceCss } from './fonts.js';
+import { APP_INSTALL_HEAD } from './installPage.js';
 
 export function dashboardHtml(nonce: string): string {
   return `<!doctype html>
@@ -16,6 +17,7 @@ export function dashboardHtml(nonce: string): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PUSH — המערכת</title>
+${APP_INSTALL_HEAD}
 <link rel="preload" href="/fonts/ibm-plex-sans-hebrew-hebrew-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <style nonce="${nonce}">
 ${fontFaceCss()}
@@ -996,6 +998,7 @@ function simDraw(){
 
 window.addEventListener('hashchange',function(){var r=location.hash.slice(1);if(r&&r!==route&&mainEl&&ROUTES.some(function(x){return x.id===r}))go(r)});
 if(tok('at'))start();else showAuth(location.hash==='#signup'?'signup':'login');
+if('serviceWorker' in navigator)navigator.serviceWorker.register('/app/sw.js',{scope:'/app'}).catch(function(){});
 })();
 </script>
 </body>

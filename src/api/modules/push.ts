@@ -12,6 +12,9 @@ import { parseControlSettings } from '../../routing/router.js';
 import { applyLogo, ffmpegAvailable, LOGO_POSITIONS, previewVideo, type LogoPosition } from '../../media/watermark.js';
 import { HttpError, type ApiServer } from '../server.js';
 import { dashboardHtml } from '../dashboard.js';
+import { appManifest, appServiceWorker, installHtml } from '../installPage.js';
+import { adminIcon } from '../adminIcon.js';
+import { fontFaceCss } from '../fonts.js';
 import { siteHtml } from '../site.js';
 
 interface DistRow {
@@ -361,11 +364,40 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
       const nonce = randomBytes(16).toString('base64');
       res.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
-        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; connect-src 'self'; img-src 'self' data:; media-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; connect-src 'self'; img-src 'self' data:; media-src blob:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
         'referrer-policy': 'no-referrer',
       });
       res.end(dashboardHtml(nonce));
       return undefined;
     });
+
+    // ---- The app as a phone app: the install page owners send to customers, manifest, icons, worker.
+    api.on('GET', '/app/install', false, async ({ res }) => {
+      const nonce = randomBytes(16).toString('base64');
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; img-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        'referrer-policy': 'no-referrer',
+      });
+      res.end(installHtml(nonce, fontFaceCss()));
+      return undefined;
+    });
+    api.on('GET', '/app/manifest.webmanifest', false, async ({ res }) => {
+      res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'public, max-age=3600' });
+      res.end(appManifest());
+      return undefined;
+    });
+    api.on('GET', '/app/sw.js', false, async ({ res }) => {
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache', 'service-worker-allowed': '/app' });
+      res.end(appServiceWorker());
+      return undefined;
+    });
+    for (const size of [180, 192, 512] as const) {
+      api.on('GET', `/app/icon-${size}.png`, false, async ({ res }) => {
+        res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' });
+        res.end(adminIcon(size));
+        return undefined;
+      });
+    }
   };
 }
