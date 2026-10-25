@@ -218,7 +218,9 @@ export function adminModule(opts: AdminModuleOptions) {
           [a.id, step]);
         if (!won.rowCount) throw bad; // a concurrent login used the same code
       }
-      return { token: signAdminToken({ adminId: a.id, role: a.role }, opts.adminTokenSecret), role: a.role };
+      // "זכור אותי": 30 days on that device; otherwise 12 hours. The admin is re-checked on every request either way.
+      const ttlS = body.remember === true ? 30 * 24 * 3600 : 12 * 3600;
+      return { token: signAdminToken({ adminId: a.id, role: a.role }, opts.adminTokenSecret, ttlS), role: a.role, expiresIn: ttlS };
     });
 
     api.on('GET', '/admin/v1/dashboard', false, async ({ req }) => {
