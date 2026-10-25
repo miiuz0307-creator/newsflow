@@ -59,7 +59,7 @@ label.f{display:block;margin-bottom:14px}
 label.f span{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
 input.i,textarea.i{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:11px;background:var(--soft);color:var(--text);font:inherit;font-size:15px}
 input.i:focus,textarea.i:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(25,198,180,.2)}
-.check{display:flex;gap:9px;align-items:flex-start;font-size:13px;color:var(--muted);margin:4px 0 18px}
+.check{display:flex;gap:9px;align-items:flex-start;font-size:13px;color:var(--muted);margin:4px 0 18px}.check input{accent-color:#0B8A7E;width:17px;height:17px;margin:1px 0 0;flex:none}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:11px;padding:11px 18px;font-weight:600;cursor:pointer;text-decoration:none;transition:background .15s}
 .btn-primary{background:var(--teal);color:var(--ink)}.btn-primary:hover{background:#2fd8c6}
 .btn-dark{background:var(--ink);color:#fff}
@@ -346,7 +346,11 @@ label.f.mode{margin-top:18px}
 (function(){
 'use strict';
 // ---------------- helpers
-var store={get:function(k){try{return sessionStorage.getItem(k)}catch(e){return null}},set:function(k,v){try{sessionStorage.setItem(k,v)}catch(e){}},del:function(k){try{sessionStorage.removeItem(k)}catch(e){}}};
+// "זכור אותי": the sign-in is kept on this device (localStorage) instead of only until the browser closes.
+function remembered(){try{return localStorage.getItem('push-remember')==='1'}catch(e){return false}}
+function setRemember(on){try{if(on)localStorage.setItem('push-remember','1');else localStorage.removeItem('push-remember');['at','rt'].forEach(function(k){localStorage.removeItem(k);sessionStorage.removeItem(k)})}catch(e){}}
+function bin(){return remembered()?localStorage:sessionStorage}
+var store={get:function(k){try{return bin().getItem(k)}catch(e){return null}},set:function(k,v){try{bin().setItem(k,v)}catch(e){}},del:function(k){try{localStorage.removeItem(k);sessionStorage.removeItem(k)}catch(e){}}};
 var mem={};function tok(k){return mem[k]||store.get(k)}function setTok(a,r){mem.at=a;mem.rt=r;store.set('at',a);store.set('rt',r)}function clearTok(){mem={};store.del('at');store.del('rt')}
 function h(tag,attrs,kids){var e=document.createElement(tag);if(attrs)for(var k in attrs){var v=attrs[k];if(v==null||v===false)continue;if(k==='text')e.textContent=v;else if(k==='cls')e.className=v;else if(k.slice(0,2)==='on')e.addEventListener(k.slice(2),v);else e.setAttribute(k,v===true?'':v)}
   (kids||[]).forEach(function(c){if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c)});return e}
@@ -391,12 +395,15 @@ function showAuth(mode,msg,prefill){
   var pw=h('input',{cls:'i',type:'password',autocomplete:mode==='login'?'current-password':'new-password',required:true,dir:'ltr'});
   var biz=h('input',{cls:'i',type:'text',autocomplete:'organization',required:mode==='signup'});
   var terms=h('input',{type:'checkbox',id:'terms'});
+  var rememberIn=h('input',{type:'checkbox',id:'remember'});
+  try{rememberIn.checked=localStorage.getItem('push-remember-off')!=='1'}catch(e){rememberIn.checked=true}
   var submit=h('button',{cls:'btn btn-primary btn-block',type:'submit',text:mode==='login'?'כניסה':'פתיחת חשבון'});
   var form=h('form',{cls:'form',novalidate:true,onsubmit:async function(e){
     e.preventDefault();err.textContent='';submit.disabled=true;
     try{
       var r=mode==='login'?await api('POST','/v1/auth/login',{email:email.value,password:pw.value})
         :await api('POST','/v1/auth/signup',{email:email.value,password:pw.value,businessName:biz.value,acceptTerms:terms.checked});
+      setRemember(rememberIn.checked);try{if(rememberIn.checked)localStorage.removeItem('push-remember-off');else localStorage.setItem('push-remember-off','1')}catch(e){}
       setTok(r.accessToken,r.refreshToken);start();
     }catch(x){
       err.replaceChildren(x.message);submit.disabled=false;
@@ -414,6 +421,7 @@ function showAuth(mode,msg,prefill){
     h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),
     h('label',{cls:'f'},[h('span',{text:'סיסמה'}),pw]),
     mode==='signup'?h('label',{cls:'check',for:'terms'},[terms,h('span',{text:'קראתי ואני מסכים לתנאי השימוש ולמדיניות הפרטיות, ומבין שהחיבור ל‑WhatsApp אינו רשמי וכרוך בסיכון לחסימת המספר.'})]):null,
+    h('label',{cls:'check',for:'remember'},[rememberIn,h('span',{text:'זכור אותי במכשיר הזה'})]),
     submit,err,
     h('p',{cls:'hint',text:mode==='login'?'אין לכם חשבון? עברו ל"הרשמה" למעלה.':'יש לכם כבר חשבון? עברו ל"כניסה" למעלה.'})
   ]);
