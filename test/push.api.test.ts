@@ -338,6 +338,15 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
     assert.equal(moved.body.logo, 'data:image/png;base64,' + PNG);
     assert.equal(moved.body.position, 'center');
     assert.equal((await call('GET', '/v1/push/logo', undefined, tokB)).body.logo, null, 'RLS: another account has no logo');
+    // Preview: nothing sent, the photo comes back with the logo on it.
+    const { spawnSync } = await import('node:child_process');
+    if (spawnSync('ffmpeg', ['-version']).status === 0) {
+      const jpg = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-f', 'lavfi', '-i', 'color=c=gray:s=320x240', '-frames:v', '1', '-f', 'mjpeg', 'pipe:1']).stdout as Buffer;
+      const pv = await call('POST', '/v1/push/logo/preview', { media: 'data:image/jpeg;base64,' + jpg.toString('base64') }, tokA);
+      assert.equal(pv.status, 200, JSON.stringify(pv.body));
+      assert.match(pv.body.image, /^data:image\/jpeg;base64,/);
+      assert.equal((await call('POST', '/v1/push/logo/preview', { media: 'data:image/jpeg;base64,' + Buffer.from('nope').toString('base64') }, tokA)).status, 400);
+    }
     assert.equal((await call('DELETE', '/v1/push/logo', undefined, tokA)).status, 200);
     assert.equal((await call('GET', '/v1/push/logo', undefined, tokA)).body.logo, null);
   });

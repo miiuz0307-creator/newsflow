@@ -333,6 +333,8 @@ label.f.mode{margin-top:18px}
 .bg-msg{margin:10px 0 0}
 .check.smart{align-items:flex-start;margin:12px 0 0;font-size:13.5px;line-height:1.5;color:var(--text)}.check.smart b{color:var(--teal-deep)}
 .pos:disabled{opacity:.35;cursor:not-allowed}
+.try{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}.try h3{font-size:18px;margin-bottom:4px}
+.try .btn{display:inline-block}.try-out{margin-top:12px}.try-img{display:block;max-width:100%;max-height:520px;margin:0 auto;border-radius:12px;box-shadow:0 8px 24px rgba(10,27,51,.18)}
 </style>
 </head>
 <body>
@@ -738,6 +740,23 @@ function removeBackground(src,tol,everywhere,done){
   im.onerror=function(){done({error:'לא הצלחנו לקרוא את התמונה'})};
   im.src=src;
 }
+/** A photo as JPEG (at most 1600px), or one frame of a video (at 1 second, or its middle when shorter). */
+function toJpeg(file,cb){
+  // Videos up to 10 MB go to the server as they are: it looks at the whole video, exactly as when sending.
+  if(/^video\\//.test(file.type)&&file.size<=10*1024*1024){var fr=new FileReader();fr.onload=function(){cb(String(fr.result))};fr.onerror=function(){cb(null,'לא הצלחנו לקרוא את הסרטון')};fr.readAsDataURL(file);return}
+  var url=URL.createObjectURL(file);
+  var draw=function(el,w,hh){var k=Math.min(1,1600/Math.max(w,hh));var c=document.createElement('canvas');c.width=Math.round(w*k);c.height=Math.round(hh*k);
+    c.getContext('2d').drawImage(el,0,0,c.width,c.height);URL.revokeObjectURL(url);cb(c.toDataURL('image/jpeg',0.9))};
+  if(/^video\\//.test(file.type)){
+    var v=document.createElement('video');v.muted=true;v.preload='auto';v.playsInline=true;
+    v.onloadedmetadata=function(){v.currentTime=Math.min(1,(v.duration||2)/2)};
+    v.onseeked=function(){draw(v,v.videoWidth,v.videoHeight)};
+    v.onerror=function(){URL.revokeObjectURL(url);cb(null,'לא הצלחנו לקרוא את הסרטון בדפדפן. נסו תמונה מתוכו.')};
+    v.src=url;
+  }else{
+    var r=new FileReader();r.onload=function(){var im=new Image();im.onload=function(){draw(im,im.naturalWidth,im.naturalHeight)};im.onerror=function(){cb(null,'לא הצלחנו לקרוא את התמונה')};im.src=String(r.result)};r.readAsDataURL(file);
+  }
+}
 function logoPage(){
   var wrap=h('div',null,[h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'לוגו על הסרטונים'}),h('p',{text:'הלוגו שלכם יופיע על כל סרטון שיוצא מקבוצת השליטה, בכל הקבוצות.'})])]),h('p',{cls:'hint',text:'טוען…'})]);
   (async function(){
@@ -819,8 +838,27 @@ function logoPage(){
       h('div',{cls:'ctl'},[h('div',{cls:'ctl-h'},[h('span',{text:'להוסיף ל:'})]),h('label',{cls:'check'},[vid,'סרטונים']),h('label',{cls:'check'},[pic,'תמונות'])]),
       cur.available?null:h('p',{cls:'hint left',text:'בשרת הזה (דמו) ההגדרות נשמרות, אבל הלוגו מתווסף רק בגרסה האמיתית.'}),
       h('div',{cls:'save-row'},[save,remove]),msg,err]);
+    // ---- try it on the customer's own photo or video (nothing is sent)
+    var tryFile=h('input',{type:'file',accept:'image/*,video/*',cls:'sr-only',id:'try-file'});
+    var tryOut=h('div',{cls:'try-out'}),tryMsg=h('p',{cls:'hint left',role:'status'});
+    var tryBtn=h('label',{cls:'btn btn-dark btn-sm',for:'try-file',text:'בדיקה על תמונה או סרטון שלכם'});
+    tryFile.addEventListener('change',function(){
+      var f=tryFile.files&&tryFile.files[0];tryFile.value='';if(!f)return;
+      if(!st.logo){tryMsg.textContent='קודם מעלים לוגו';return}
+      tryMsg.textContent='מכין תצוגה…';tryOut.replaceChildren();
+      toJpeg(f,function(jpeg,errText){
+        if(!jpeg){tryMsg.textContent=errText;return}
+        var b={media:jpeg,position:st.position,sizePct:st.sizePct,opacityPct:st.opacityPct,smartPosition:st.smart};if(st.newLogo)b.logo=st.newLogo;
+        api('POST','/v1/push/logo/preview',b).then(function(r){
+          var where=(POS.concat([['top-center','למעלה באמצע'],['bottom-center','למטה באמצע'],['middle-left','שמאל באמצע'],['middle-right','ימין באמצע']]).find(function(p){return p[0]===r.position})||[0,r.position])[1];
+          tryOut.replaceChildren(h('img',{cls:'try-img',src:r.image,alt:'התמונה עם הלוגו'}));
+          tryMsg.textContent='כך זה יישלח. הלוגו הונח: '+where+(r.sizePct!==st.sizePct?' (הוקטן ל‑'+r.sizePct+'% כדי לא להסתיר)':'')+(r.moved?' — הוזז כדי לא להסתיר טקסט.':'.')+(/^video/.test(f.type)?' בסרטון נבדקות כמה תמונות לאורך כל הסרטון.':'');
+        }).catch(function(e){tryMsg.textContent=e.message});
+      });
+    });
     var preview=h('section',{cls:'panel logo-pv'},[h('div',{cls:'ph'},[h('h2',{text:'כך זה ייראה'}),h('div',{cls:'seg mini'},shapeBtns)]),
-      h('div',{cls:'pv-stage'},[frame]),h('p',{cls:'hint',text:'התצוגה קרובה למה שיישלח. הלוגו נצרב בסרטון עצמו, ולכן נשאר גם כשמעבירים אותו הלאה.'})]);
+      h('div',{cls:'pv-stage'},[frame]),h('p',{cls:'hint',text:'התצוגה קרובה למה שיישלח. הלוגו נצרב בסרטון עצמו, ולכן נשאר גם כשמעבירים אותו הלאה.'}),
+      h('div',{cls:'try'},[h('h3',{text:'בדיקה אמיתית'}),h('p',{cls:'hint left',text:'העלו תמונה או סרטון, וקבלו בדיוק את מה שיישלח לקבוצות. שום דבר לא נשלח.'}),tryFile,tryBtn,tryMsg,tryOut])]);
     paint();
     wrap.lastChild.replaceWith(h('div',{cls:'grid-2 logo-grid'},[controls,preview]));
   })();

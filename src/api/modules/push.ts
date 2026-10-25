@@ -9,7 +9,7 @@
 import { randomBytes } from 'node:crypto';
 import { CAPABILITIES } from '../../core/types.js';
 import { parseControlSettings } from '../../routing/router.js';
-import { ffmpegAvailable, LOGO_POSITIONS, type LogoPosition } from '../../media/watermark.js';
+import { applyLogo, ffmpegAvailable, LOGO_POSITIONS, previewVideo, type LogoPosition } from '../../media/watermark.js';
 import { HttpError, type ApiServer } from '../server.js';
 import { dashboardHtml } from '../dashboard.js';
 import { siteHtml } from '../site.js';
@@ -173,6 +173,35 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
       return brandView(out, await ffmpegAvailable());
     }, { bodyLimit: 2 * 1024 * 1024 });
 
+    // Try the logo on the customer's own photo (or a frame of their video) without sending anything.
+    api.on('POST', '/v1/push/logo/preview', true, async ({ auth, body }) => {
+      const isVideo = /^data:video\//.test(String(body.media ?? ''));
+      const m = (isVideo ? /^data:video\/[\w.+-]+;base64,([A-Za-z0-9+/=]+)$/ : /^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/).exec(String(body.media ?? ''));
+      if (!m) throw new HttpError(400, 'bad_media', 'צריך תמונה (JPG, PNG או WEBP) או סרטון');
+      const media = Buffer.from(m[1]!, 'base64');
+      if (!isVideo && !sniff(media)) throw new HttpError(400, 'bad_media', 'הקובץ אינו תמונה תקינה');
+      if (!(await ffmpegAvailable())) throw new HttpError(503, 'unavailable', 'בשרת הזה אי אפשר להוסיף לוגו');
+      const cur = (await api.tenantTx(auth!, (c) => c.query<BrandRow>('SELECT * FROM tenant_branding'))).rows[0];
+      let logo = cur ? { data: Buffer.from(cur.logo_b64, 'base64'), mime: cur.logo_mime } : undefined;
+      if (body.logo) {
+        const lm = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(body.logo));
+        const bytes = lm ? Buffer.from(lm[2]!, 'base64') : undefined;
+        const mime = bytes && bytes.length <= LOGO_MAX ? sniff(bytes) : null;
+        if (!bytes || !mime) throw new HttpError(400, 'bad_logo', 'הלוגו צריך להיות קובץ PNG, JPG או WEBP');
+        logo = { data: bytes, mime };
+      }
+      if (!logo) throw new HttpError(400, 'no_logo', 'בחרו קובץ לוגו');
+      const position = LOGO_POSITIONS.includes(body.position as LogoPosition) ? body.position as LogoPosition : (cur?.position as LogoPosition) ?? 'bottom-left';
+      const sizePct = Math.min(40, Math.max(5, Number(body.sizePct ?? cur?.size_pct ?? 18)));
+      const opacityPct = Math.min(100, Math.max(20, Number(body.opacityPct ?? cur?.opacity_pct ?? 85)));
+      const smart = body.smartPosition !== undefined ? body.smartPosition === true : !!cur?.smart_position;
+      const settings = { logo: logo.data, logoMime: logo.mime, position, sizePct, opacityPct, smart };
+      const out = isVideo
+        ? await previewVideo(media, settings).catch(() => { throw new HttpError(400, 'bad_media', 'לא הצלחנו לקרוא את הסרטון'); })
+        : await applyLogo(media, 'image', settings, 60_000);
+      return { image: `data:image/jpeg;base64,${out.data.toString('base64')}`, position: out.position, sizePct: out.sizePct, moved: smart && out.position !== position };
+    }, { bodyLimit: 14 * 1024 * 1024 });
+
     api.on('DELETE', '/v1/push/logo', true, async ({ auth }) => {
       api.requireRole(auth!, 'owner', 'admin');
       await api.tenantTx(auth!, async (c) => {
@@ -332,7 +361,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
       const nonce = randomBytes(16).toString('base64');
       res.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
-        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; connect-src 'self'; img-src 'self' data:; media-src blob:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
         'referrer-policy': 'no-referrer',
       });
       res.end(dashboardHtml(nonce));

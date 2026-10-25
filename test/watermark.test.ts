@@ -2,12 +2,13 @@
 import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { applyLogo, ffmpegAvailable, logoFilter, parsePgmFrames, pickCorner } from '../src/media/watermark.js';
+import { applyLogo, choosePlacement, ffmpegAvailable, logoFilter, parsePgmFrames } from '../src/media/watermark.js';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
+const FONT = '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf';
 
 function ff(args: string[]) {
   const r = spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', ...args]);
@@ -85,6 +86,24 @@ describe('logo on videos and photos', { skip: !hasFfmpeg && 'ffmpeg not installe
     }
   });
 
+  test('real small text (a news card: headline top-left, caption at the bottom) is not covered', { skip: !existsSync(FONT) && 'no font for drawtext' }, async () => {
+    const f = fixtures();
+    try {
+      const dir = mkdtempSync(path.join(os.tmpdir(), 'wm-text-'));
+      const card = path.join(dir, 'card.jpg');
+      // 1080x1080 photo-like card: headline in the top-left, two caption lines across the bottom.
+      ff(['-f', 'lavfi', '-i', 'color=c=0x2b3a4a:s=1080x1080', '-frames:v', '1', '-vf',
+        `drawtext=fontfile=${FONT}:text='BREAKING NEWS TODAY':fontsize=44:fontcolor=white:x=40:y=40,` +
+        `drawtext=fontfile=${FONT}:text='Road 4 is closed northbound after a crash near the junction':fontsize=30:fontcolor=white:x=30:y=960,` +
+        `drawtext=fontfile=${FONT}:text='Drivers are asked to use route 2 or route 6 until further notice':fontsize=30:fontcolor=white:x=30:y=1010`, card]);
+      const out = await applyLogo(readFileSync(card), 'image', { logo: f.logo, logoMime: 'image/png', position: 'bottom-left', sizePct: 20, opacityPct: 100, smart: true });
+      assert.ok(!['bottom-left', 'bottom-right', 'bottom-center', 'top-left'].includes(out.position), `logo placed on text: ${out.position}`);
+      rmSync(dir, { recursive: true, force: true });
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+
   test('a broken file is reported, not silently passed on', async () => {
     const f = fixtures();
     try {
@@ -101,12 +120,29 @@ test('size and opacity are kept within limits in the filter', () => {
   assert.match(g, /aa=0\.2\[/);
 });
 
-test('PGM frames are read, and the preferred corner wins unless another is clearly quieter', () => {
+/** A 480x270 grey frame with "text" (dense black/white stripes) in the given boxes. */
+function frameWithText(boxes: [number, number, number, number][]) {
+  const w = 480, h = 270, px = new Uint8Array(w * h).fill(90);
+  for (const [x0, y0, x1, y1] of boxes) for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) px[y * w + x] = (x >> 1) % 2 ? 250 : 10;
+  return { w, h, px };
+}
+
+test('PGM frames are read', () => {
   const frame = (w: number, h: number, v: number) => Buffer.concat([Buffer.from(`P5\n${w} ${h}\n255\n`), Buffer.alloc(w * h, v)]);
   const fr = parsePgmFrames(Buffer.concat([frame(4, 3, 7), frame(2, 2, 9)]));
   assert.deepEqual(fr.map((x) => [x.w, x.h, x.px[0]]), [[4, 3, 7], [2, 2, 9]]);
-  assert.equal(pickCorner({ 'top-left': 30, 'top-right': 28, 'bottom-left': 32, 'bottom-right': 31 }, 'bottom-left'), 'bottom-left');
-  assert.equal(pickCorner({ 'top-left': 30, 'top-right': 5, 'bottom-left': 32, 'bottom-right': 31 }, 'bottom-left'), 'top-right');
-  assert.equal(pickCorner({ 'top-left': 1, 'top-right': 0, 'bottom-left': 2, 'bottom-right': 1 }, 'bottom-left'), 'bottom-left');
 });
 
+test('smart placement: keeps the chosen corner when clear, avoids text, uses an edge middle when every corner has text', () => {
+  const clear = choosePlacement([frameWithText([])], 'bottom-left', 20, 2);
+  assert.equal(clear.position, 'bottom-left');
+  // A caption across the bottom and a title in the top-left corner (a typical news card).
+  const card = choosePlacement([frameWithText([[0, 200, 480, 270], [0, 0, 220, 60]])], 'bottom-left', 20, 2);
+  assert.equal(card.position, 'top-right');
+  // Text in all four corners, the left middle is clear.
+  const corners = choosePlacement([frameWithText([[0, 0, 480, 75], [0, 195, 480, 270], [200, 75, 480, 195]])], 'bottom-left', 20, 2);
+  assert.equal(corners.position, 'middle-left');
+  // A caption that shows only in one of several frames still counts.
+  const video = choosePlacement([frameWithText([]), frameWithText([]), frameWithText([[0, 200, 200, 270]])], 'bottom-left', 20, 2);
+  assert.notEqual(video.position, 'bottom-left');
+});
