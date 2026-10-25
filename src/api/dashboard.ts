@@ -335,6 +335,7 @@ label.f.mode{margin-top:18px}
 .pos:disabled{opacity:.35;cursor:not-allowed}
 .try{margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}.try h3{font-size:18px;margin-bottom:4px}
 .try .btn{display:inline-block}.try-out{margin-top:12px}.try-img{display:block;max-width:100%;max-height:520px;margin:0 auto;border-radius:12px;box-shadow:0 8px 24px rgba(10,27,51,.18)}
+.smart-note{margin:8px 0 0;padding:10px 12px;border-radius:10px;background:var(--warn-soft);color:var(--text);font-size:13px;line-height:1.55}
 </style>
 </head>
 <body>
@@ -803,7 +804,8 @@ function logoPage(){
     var op=h('input',{type:'range',min:'20',max:'100',step:'5','aria-label':'שקיפות'});op.value=String(st.opacityPct);
     var opV=h('span',{cls:'range-v'});op.addEventListener('input',function(){st.opacityPct=Number(op.value);paint()});
     var smart=h('input',{type:'checkbox',checked:st.smart,onchange:function(){st.smart=smart.checked;if(st.smart&&st.position==='center')st.position='bottom-left';paint()}});
-    var smartBox=h('label',{cls:'check smart'},[smart,h('span',null,[h('b',{text:'מיקום חכם'}),' — בכל סרטון הלוגו עובר לפינה שבה הוא לא מסתיר טקסט או פרטים. הפינה שבחרתם היא ברירת המחדל.'])]);
+    var smartBox=h('div',null,[h('label',{cls:'check smart'},[smart,h('span',null,[h('b',{text:'מיקום חכם'}),' — בכל סרטון ותמונה המערכת מחפשת מקום שבו הלוגו לא מסתיר טקסט, ואם צריך גם מקטינה אותו. הפינה שבחרתם היא ברירת המחדל.'])]),
+      h('p',{cls:'smart-note',text:'שימו לב: זו בחירה אוטומטית ולא עריכה מקצועית. היא לא תמיד תתאים בדיוק, והלוגו עשוי לזוז בין הודעות. כל אחד מחליט לפי שיקול דעתו המקצועי אם להפעיל. מומלץ לבדוק קודם ב"בדיקה אמיתית".'})]);
     var vid=h('input',{type:'checkbox',checked:st.applyVideo,onchange:function(){st.applyVideo=vid.checked}});
     var pic=h('input',{type:'checkbox',checked:st.applyImage,onchange:function(){st.applyImage=pic.checked}});
     var save=h('button',{cls:'btn btn-primary',type:'button',text:'שמירה',onclick:async function(){
