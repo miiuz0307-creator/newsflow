@@ -83,7 +83,8 @@ export interface JobQueue {
    * approval, failed or unknown — the last two wait for a manual retry). False
    * if it already left that state — the caller then plans an edit instead.
    */
-  replaceUnsentContent(id: string, content: MessageContent, version: number): Promise<boolean>;
+  /** scheduledAt: a Date moves a scheduled send, null makes it go out now, undefined keeps the time. */
+  replaceUnsentContent(id: string, content: MessageContent, version: number, scheduledAt?: Date | null): Promise<boolean>;
   /** Cancels jobs of a source message that have not gone out; returns how many. */
   cancelUnsent(tenantId: string, source: ChatRef, messageId: string, actions: JobAction[], reason: string): Promise<number>;
   /** Cancels queued edits of one copy that carry an older version than `version`. */
@@ -261,10 +262,12 @@ export class MemoryJobQueue implements JobQueue {
       .map((j) => ({ ...j }));
   }
 
-  async replaceUnsentContent(id: string, content: MessageContent, version: number) {
+  async replaceUnsentContent(id: string, content: MessageContent, version: number, scheduledAt?: Date | null) {
     const j = this.jobs.get(id);
     if (!j || !['queued', 'pending_approval', 'failed', 'unknown'].includes(j.status) || j.version > version) return false;
     Object.assign(j, { content, version });
+    if (scheduledAt === null) { delete j.scheduledAt; j.notBefore = new Date(this.now()); }
+    else if (scheduledAt) Object.assign(j, { scheduledAt, notBefore: scheduledAt });
     return true;
   }
 

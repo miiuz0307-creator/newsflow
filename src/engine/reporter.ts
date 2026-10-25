@@ -28,6 +28,18 @@ import type { SyncOutcome } from './sync.js';
 
 const tag = (emoji: string) => `${emoji} ${REPORT_TAG} `;
 
+/** The send time of a message scheduled at least 30 seconds ahead, else undefined. */
+function isLater(jobs: PlannedJob[], now: Date): Date | undefined {
+  const at = jobs.find((j) => j.scheduledAt)?.scheduledAt;
+  return at && at.getTime() - now.getTime() > 30_000 ? at : undefined;
+}
+const israelFmt = new Intl.DateTimeFormat('he-IL', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+const israelDay = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jerusalem' });
+function israelTime(d: Date): string {
+  const tomorrow = israelDay.format(d) !== israelDay.format(new Date());
+  return `${israelFmt.format(d)}${tomorrow ? ' מחר' : ''}`;
+}
+
 const REASON_HE: Record<string, string> = {
   window_closed: 'חלון הזמן של הפלטפורמה נסגר',
   forbidden: 'אין הרשאה לשלוח בקבוצה',
@@ -135,23 +147,40 @@ export class Reporter {
     return next;
   }
 
-  /** ⏳ on the control-group message as soon as it is accepted for distribution. */
+  /** ⏳ on the control-group message as soon as it is accepted for distribution; 🕐 when it is scheduled for later. */
   async onDistributionStarted(tenantId: string, source: ChatRef, messageId: string, jobs: PlannedJob[]): Promise<void> {
+    const later = isLater(jobs, this.now());
     const routeIds = new Set(jobs.map((j) => j.routeId));
     for (const routeId of routeIds) {
       const route = await this.controlRoute(tenantId, source, routeId);
-      if (route) { await this.mark(route, source, messageId, '⏳'); return; }
+      if (route) { await this.mark(route, source, messageId, later ? '🕐' : '⏳'); return; }
     }
+  }
+
+  /** A scheduled message's time came and its first copy is going out: 🕐 becomes ⏳ (once per message). */
+  private sending = new Set<string>();
+  async onSendStart(job: StoredJob): Promise<void> {
+    if (!job.scheduledAt) return;
+    const k = `${chatKey(job.source)}|${job.sourceMessageId}`;
+    if (this.sending.has(k)) return;
+    this.sending.add(k);
+    if (this.sending.size > 5000) this.sending.clear();
+    const route = await this.controlRoute(job.tenantId, job.source, job.routeId);
+    if (route) await this.mark(route, job.source, job.sourceMessageId, '⏳');
   }
 
   /** "🕒 received, distributing to N groups" — only in mode 'all'. */
   async onDistributionPlanned(tenantId: string, source: ChatRef, messageId: string, jobs: PlannedJob[]): Promise<void> {
     const byRoute = new Map<string, number>();
     for (const j of jobs) byRoute.set(j.routeId, (byRoute.get(j.routeId) ?? 0) + 1);
+    const later = isLater(jobs, this.now());
     for (const [routeId, n] of byRoute) {
       const route = await this.controlRoute(tenantId, source, routeId);
       if (!route || this.mode(route) !== 'all') continue;
-      await this.post(route, source, messageId, `received`, `${tag('🕒')}התקבלה הודעה, מפיץ ל-${n} קבוצות…`, 1);
+      const text = later
+        ? `${tag('🕐')}ההודעה תוזמנה ל-${israelTime(later)} ותישלח ל-${n} קבוצות.`
+        : `${tag('🕒')}התקבלה הודעה, מפיץ ל-${n} קבוצות…`;
+      await this.post(route, source, messageId, `received`, text, 1);
     }
   }
 

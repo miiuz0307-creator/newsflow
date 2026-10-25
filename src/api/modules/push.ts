@@ -9,6 +9,7 @@
 import { randomBytes } from 'node:crypto';
 import { CAPABILITIES } from '../../core/types.js';
 import { parseControlSettings } from '../../routing/router.js';
+import { stripSchedule } from '../../routing/schedule.js';
 import { applyLogo, ffmpegAvailable, LOGO_POSITIONS, previewVideo, type LogoPosition } from '../../media/watermark.js';
 import { HttpError, type ApiServer } from '../server.js';
 import { dashboardHtml } from '../dashboard.js';
@@ -18,6 +19,7 @@ import { fontFaceCss } from '../fonts.js';
 import { siteHtml } from '../site.js';
 
 interface DistRow {
+  scheduled_at: Date | null;
   platform: string;
   account_id: string;
   chat_id: string;
@@ -43,6 +45,7 @@ interface DistRow {
 }
 
 interface CopyRow {
+  scheduled_at: Date | null;
   id: string;
   target_platform: string;
   target_chat_id: string;
@@ -237,7 +240,8 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
                     count(*) FILTER (WHERE action = 'edit' AND status IN ('failed', 'unknown'))::int AS edits_failed,
                     count(*) FILTER (WHERE action = 'delete' AND status = 'sent')::int AS deletes_sent,
                     count(*) FILTER (WHERE action = 'delete' AND status IN ('failed', 'unknown'))::int AS deletes_failed,
-                    COALESCE(sum(read_count) FILTER (WHERE action = 'send'), 0)::int AS reads
+                    COALESCE(sum(read_count) FILTER (WHERE action = 'send'), 0)::int AS reads,
+                    max(scheduled_at) FILTER (WHERE action = 'send' AND status IN ('queued', 'pending_approval')) AS scheduled_at
                FROM outbound_jobs
               WHERE action IN ('send', 'edit', 'delete') AND created_at > now() - interval '30 days'
               GROUP BY 1, 2, 3, 4
@@ -245,7 +249,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
               LIMIT $1)
            SELECT d.platform, d.account_id, d.chat_id, d.source_message_id, d.created_at, d.kind,
                   d.targets, d.sent, d.failed, d.unknown, d.pending, d.cancelled, d.skipped,
-                  d.edits_sent, d.edits_failed, d.deletes_sent, d.deletes_failed, d.reads,
+                  d.edits_sent, d.edits_failed, d.deletes_sent, d.deletes_failed, d.reads, d.scheduled_at,
                   -- The customer's latest wording (from the control group), else the first copy's text.
                   COALESCE(mv.text, d.text) AS text,
                   sm.version, sm.deleted_at IS NOT NULL AS deleted, ch.title AS source_title
@@ -263,7 +267,8 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
           source: { platform: x.platform, accountId: x.account_id, chatId: x.chat_id, title: x.source_title },
           messageId: x.source_message_id,
           createdAt: x.created_at,
-          preview: (x.text ?? '').slice(0, 280),
+          preview: stripSchedule(x.text ?? '').slice(0, 280),
+          scheduledAt: x.scheduled_at,
           kind: x.kind,
           version: x.version ?? 1,
           deleted: !!x.deleted,
@@ -283,7 +288,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
       return api.tenantTx(auth!, async (c) => {
         const copies = await c.query<CopyRow>(
           `SELECT s.id::text, s.target_platform, s.target_chat_id, COALESCE(s.target_title, ch.title) AS title, s.status, s.error_kind,
-                  s.last_error, s.sent_at, s.attempts, s.version, s.read_count,
+                  s.last_error, s.sent_at, s.attempts, s.version, s.read_count, s.scheduled_at,
                   e.status AS edit_status, e.version AS edit_version, e.error_kind AS edit_error, e.id::text AS edit_job_id,
                   d.status AS delete_status, d.error_kind AS delete_error, d.id::text AS delete_job_id
              FROM outbound_jobs s
@@ -317,6 +322,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
             attempts: r.attempts,
             version: r.version,
             reads: r.read_count,
+            scheduledAt: r.status === 'queued' || r.status === 'pending_approval' ? r.scheduled_at : null,
             edit: r.edit_status ? { jobId: r.edit_job_id, status: r.edit_status, version: r.edit_version, error: r.edit_error } : null,
             delete: r.delete_status ? { jobId: r.delete_job_id, status: r.delete_status, error: r.delete_error } : null,
           })),

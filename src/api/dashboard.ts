@@ -378,6 +378,7 @@ async function api(method,path,body,retried){
 var root=document.getElementById('root');
 var STATUS={sent:['נשלח','ok'],failed:['נכשל','bad'],unknown:['ממתין לאימות','warn'],queued:['בתור','info'],sending:['נשלח עכשיו','info'],pending_approval:['ממתין לאישור','info'],skipped:['דולג','mute'],cancelled:['בוטל','mute']};
 var REASON={forbidden:'אין הרשאה לשלוח בקבוצה',not_found:'הקבוצה או ההודעה לא נמצאו',window_closed:'עבר חלון הזמן של הפלטפורמה',rate_limited:'הפלטפורמה ביקשה להאט',transient:'תקלה זמנית',disconnected:'החיבור מנותק',account_blocked:'המספר חסום',invalid:'תוכן לא תקין',stale:'עבר יותר מדי זמן',source_deleted:'נמחקה בקבוצת השליטה',superseded:'הוחלפה בעריכה חדשה',merged_into_send:'עודכנה לפני השליחה',copy_not_sent:'העותק לא נשלח',copy_unknown:'מצב העותק לא ידוע',not_supported:'הפלטפורמה לא תומכת',unknown:'אין תשובה מהפלטפורמה',cancelled_before_send:'בוטלה לפני השליחה'};
+function hhmm(d){try{var x=new Date(d),t=x.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit',hourCycle:'h23',timeZone:'Asia/Jerusalem'});return x.toDateString()===new Date().toDateString()?t:t+' מחר'}catch(e){return ''}}
 function pill(st){var x=STATUS[st]||[st,'mute'];return h('span',{cls:'pill '+x[1],text:x[0]})}
 function timeOf(d){try{return new Date(d).toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit'})}catch(e){return ''}}
 function whenOf(d){try{var x=new Date(d),now=new Date();var same=x.toDateString()===now.toDateString();return same?'היום, '+timeOf(d):x.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})+', '+timeOf(d)}catch(e){return ''}}
@@ -914,7 +915,7 @@ function distRow(d,compact){
   if(d.version>1)tags.push(h('span',{cls:'pill info',text:'נערכה · גרסה '+d.version}));
   if(c.failed)tags.push(h('span',{cls:'pill bad',text:c.failed+' נכשלו'}));
   if(c.unknown)tags.push(h('span',{cls:'pill warn',text:c.unknown+' ממתינים לאימות'}));
-  if(c.pending)tags.push(h('span',{cls:'pill info',text:c.pending+' בתור'}));
+  if(c.pending)tags.push(h('span',{cls:'pill info',text:d.scheduledAt&&new Date(d.scheduledAt)>new Date()?'מתוזמנת ל‑'+hhmm(d.scheduledAt):c.pending+' בתור'}));
   var box=h('div',{cls:'detail'});box.hidden=!open[k];
   var btn=h('button',{'aria-expanded':String(!!open[k]),onclick:function(){if(compact){go('dists');open={};open[k]=true;draw(true);return}
     if(open[k]){delete open[k];box.hidden=true;btn.setAttribute('aria-expanded','false')}else{open[k]=true;box.hidden=false;btn.setAttribute('aria-expanded','true');loadDetail(k,box)}}},[
@@ -934,7 +935,7 @@ async function loadDetail(key,box){
     return h('tr',null,[
       h('td',{text:c.target.title||c.target.chatId}),
       h('td',{cls:'c-plat'},[h('span',{cls:'plat'+(c.target.platform==='tg'?' tg':'')},[h('i',{'aria-hidden':'true'}),c.target.platform==='tg'?'Telegram':'WhatsApp'])]),
-      h('td',null,[pill(c.status),c.error?h('span',{cls:'why',text:REASON[c.error]||c.error}):null]),
+      h('td',null,[c.scheduledAt&&new Date(c.scheduledAt)>new Date()?h('span',{cls:'pill info',text:'מתוזמן ל‑'+hhmm(c.scheduledAt)}):pill(c.status),c.error?h('span',{cls:'why',text:REASON[c.error]||c.error}):null]),
       h('td',{cls:'num',text:c.status==='sent'?fmt(c.reads||0):'—'}),
       h('td',null,[chg(c.edit)]),h('td',null,[chg(c.delete)]),h('td',null,[act])]);
   });

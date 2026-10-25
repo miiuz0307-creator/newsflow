@@ -191,6 +191,7 @@ interface JobRow {
   content: StoredJob['content'] | null;
   status: StoredJob['status'];
   not_before: Date;
+  scheduled_at?: Date | null;
   attempts: number;
   error_kind: string | null;
   last_error: string | null;
@@ -214,6 +215,7 @@ function toJob(r: JobRow): StoredJob {
     target,
     content: r.content ?? { kind: 'text', text: '' },
     notBefore: r.not_before,
+    ...(r.scheduled_at ? { scheduledAt: r.scheduled_at } : {}),
     requiresApproval: r.status === 'pending_approval',
     idempotencyKey: r.idempotency_key,
     action: r.action,
@@ -247,7 +249,7 @@ export class PgJobQueue implements JobQueue {
   /** One multi-row INSERT per batch of up to 500 jobs (a news item fans out to many targets at once). */
   async enqueue(jobs: PlannedJob[]) {
     let inserted = 0;
-    const COLS = 16;
+    const COLS = 17;
     for (let i = 0; i < jobs.length; i += 500) {
       const batch = jobs.slice(i, i + 500);
       const params: unknown[] = [];
@@ -255,13 +257,13 @@ export class PgJobQueue implements JobQueue {
         const action = j.action ?? 'send';
         params.push(j.tenantId, j.routeId || null, j.idempotencyKey, j.source, j.sourceMessageId, j.target.platform, j.target.accountId,
           j.target.chatId, j.target.title ?? null, storableContent(j.content), j.requiresApproval ? 'pending_approval' : 'queued', j.notBefore,
-          action, ACTION_PRIORITY[action], j.parentJobId ?? null, j.version ?? 1);
+          action, ACTION_PRIORITY[action], j.parentJobId ?? null, j.version ?? 1, j.scheduledAt ?? null);
         return `(${Array.from({ length: COLS }, (_, c) => `$${k * COLS + c + 1}`).join(', ')})`;
       });
       const r = await this.sql.query(
         `INSERT INTO outbound_jobs (tenant_id, route_id, idempotency_key, source, source_message_id,
            target_platform, target_account_id, target_chat_id, target_title, content, status, not_before,
-           action, priority, parent_job_id, version)
+           action, priority, parent_job_id, version, scheduled_at)
          VALUES ${rows.join(', ')}
          ON CONFLICT (idempotency_key) DO NOTHING`,
         params,
@@ -410,11 +412,14 @@ export class PgJobQueue implements JobQueue {
     return r.rows.map(toJob);
   }
 
-  async replaceUnsentContent(id: string, content: MessageContent, version: number) {
+  async replaceUnsentContent(id: string, content: MessageContent, version: number, scheduledAt?: Date | null) {
+    // scheduledAt: a Date moves the send time; null removes the schedule (goes out now); undefined keeps it.
     const r = await this.sql.query(
-      `UPDATE outbound_jobs SET content = $2, version = $3, updated_at = now()
+      `UPDATE outbound_jobs SET content = $2, version = $3, updated_at = now(),
+              scheduled_at = CASE WHEN $4::text = 'keep' THEN scheduled_at WHEN $4::text = 'clear' THEN NULL ELSE $5::timestamptz END,
+              not_before = CASE WHEN $4::text = 'keep' THEN not_before WHEN $4::text = 'clear' THEN now() ELSE $5::timestamptz END
         WHERE id = $1 AND status IN ('queued', 'pending_approval', 'failed', 'unknown') AND version <= $3`,
-      [id, storableContent(content), version]);
+      [id, storableContent(content), version, scheduledAt === undefined ? 'keep' : scheduledAt === null ? 'clear' : 'set', scheduledAt ?? null]);
     return r.rowCount > 0;
   }
 
