@@ -52,6 +52,8 @@ export interface ControlSettings {
    * Placeholders such as {תאריך} work here too.
    */
   signature?: string;
+  /** Mark the message in the control group ⏳ while distributing and ✅ when done. Default on. */
+  reactions?: boolean;
 }
 
 export interface Route {

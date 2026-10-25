@@ -188,6 +188,20 @@ export class FakeWaNetwork {
     for (const m of g.members) for (const t of this.live.get(m) ?? []) t.emitPublic('chats_changed');
   }
 
+  /** Each phone's current reaction per message ("jid|messageId|phone" → emoji). */
+  readonly reactions = new Map<string, string>();
+  /** @internal */ reactFrom(phone: string, jid: string, messageId: string, emoji: string) {
+    const g = this.mustGroup(jid);
+    if (!g.members.has(phone)) throw new SendError('forbidden', 'not a member');
+    if (!g.log.some((e) => e.id === messageId)) throw new SendError('not_found', 'no such message');
+    const k = `${jid}|${messageId}|${phone}`;
+    if (emoji) this.reactions.set(k, emoji); else this.reactions.delete(k);
+  }
+  /** The reaction a phone left on a message, or undefined. */
+  reactionOf(jid: string, messageId: string, phone: string): string | undefined {
+    return this.reactions.get(`${jid}|${messageId}|${phone}`);
+  }
+
   // ---------- inspection for tests ----------
 
   groupLog(jid: string) {
@@ -493,6 +507,11 @@ export class FakeTransport implements WaTransport {
   async remove(chatId: string, messageId: string): Promise<void> {
     if (!this.connected || !this.phone) throw new SendError('disconnected', 'not connected');
     this.net.removeFrom(this.phone, chatId, messageId);
+  }
+
+  async react(chatId: string, messageId: string, emoji: string): Promise<void> {
+    if (!this.connected || !this.phone) throw new SendError('disconnected', 'not connected');
+    this.net.reactFrom(this.phone, chatId, messageId, emoji);
   }
 
   /** @internal */ forceClose(reason: DisconnectReason) {

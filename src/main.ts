@@ -94,12 +94,12 @@ const worker = new Worker({
   sources: new PgSourceMessageStore(workerPool),
   // The customer's logo, burned into videos (and photos, if chosen) before the copies go out.
   brand: async (tenantId, kind, data) => {
-    const r = await workerPool.query<{ logo_b64: string; logo_mime: string; position: LogoPosition; size_pct: number; opacity_pct: number; apply_video: boolean; apply_image: boolean }>(
-      'SELECT logo_b64, logo_mime, position, size_pct, opacity_pct, apply_video, apply_image FROM tenant_branding WHERE tenant_id = $1', [tenantId]);
+    const r = await workerPool.query<{ logo_b64: string; logo_mime: string; position: LogoPosition; size_pct: number; opacity_pct: number; apply_video: boolean; apply_image: boolean; smart_position: boolean }>(
+      'SELECT logo_b64, logo_mime, position, size_pct, opacity_pct, apply_video, apply_image, smart_position FROM tenant_branding WHERE tenant_id = $1', [tenantId]);
     const b = r.rows[0];
     if (!b || !(kind === 'video' ? b.apply_video : b.apply_image)) return null;
     if (!(await ffmpegAvailable())) throw new Error('ffmpeg is not installed on this server');
-    return applyLogo(data, kind, { logo: Buffer.from(b.logo_b64, 'base64'), logoMime: b.logo_mime, position: b.position, sizePct: b.size_pct, opacityPct: b.opacity_pct });
+    return applyLogo(data, kind, { logo: Buffer.from(b.logo_b64, 'base64'), logoMime: b.logo_mime, position: b.position, sizePct: b.size_pct, opacityPct: b.opacity_pct, smart: b.smart_position });
   },
   dailyCapFor: (accountId) => caps.get(accountId) ?? 100,
   onSafetyEvent: async (e) => {

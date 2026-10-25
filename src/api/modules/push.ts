@@ -83,6 +83,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
           })),
           signature: (first.signature as string | undefined) ?? '',
           reportMode: (first.reportMode as string | undefined) ?? 'summary',
+          reactions: first.reactions !== false,
         };
       }));
 
@@ -98,6 +99,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
               ...row.control,
               ...(body.signature !== undefined ? { signature: String(body.signature ?? '') } : {}),
               ...(body.reportMode !== undefined ? { reportMode: body.reportMode } : {}),
+              ...(body.reactions !== undefined ? { reactions: body.reactions !== false } : {}),
             });
           } catch (e) {
             throw new HttpError(400, 'bad_settings', (e as Error).message);
@@ -118,7 +120,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
       b.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) ? 'image/png'
         : b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff ? 'image/jpeg'
           : b.subarray(0, 4).toString('latin1') === 'RIFF' && b.subarray(8, 12).toString('latin1') === 'WEBP' ? 'image/webp' : null;
-    type BrandRow = { logo_b64: string; logo_mime: string; position: string; size_pct: number; opacity_pct: number; apply_video: boolean; apply_image: boolean; updated_at: Date };
+    type BrandRow = { logo_b64: string; logo_mime: string; position: string; size_pct: number; opacity_pct: number; apply_video: boolean; apply_image: boolean; smart_position: boolean; updated_at: Date };
     const brandView = (b: BrandRow | undefined, available: boolean) => ({
       logo: b ? `data:${b.logo_mime};base64,${b.logo_b64}` : null,
       position: b?.position ?? 'bottom-left',
@@ -126,6 +128,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
       opacityPct: b?.opacity_pct ?? 85,
       applyVideo: b?.apply_video ?? true,
       applyImage: b?.apply_image ?? false,
+      smartPosition: b?.smart_position ?? false,
       // Whether this server can burn logos in (ffmpeg installed).
       available,
     });
@@ -157,13 +160,13 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
         const cur = await c.query<BrandRow>('SELECT * FROM tenant_branding');
         if (!cur.rowCount && !logo) throw new HttpError(400, 'no_logo', 'בחרו קובץ לוגו');
         const r = await c.query<BrandRow>(
-          `INSERT INTO tenant_branding (tenant_id, logo_b64, logo_mime, position, size_pct, opacity_pct, apply_video, apply_image, updated_at)
-           VALUES (current_tenant(), $1, $2, $3, $4, $5, $6, $7, now())
+          `INSERT INTO tenant_branding (tenant_id, logo_b64, logo_mime, position, size_pct, opacity_pct, apply_video, apply_image, smart_position, updated_at)
+           VALUES (current_tenant(), $1, $2, $3, $4, $5, $6, $7, $8, now())
            ON CONFLICT (tenant_id) DO UPDATE SET logo_b64 = EXCLUDED.logo_b64, logo_mime = EXCLUDED.logo_mime, position = EXCLUDED.position,
              size_pct = EXCLUDED.size_pct, opacity_pct = EXCLUDED.opacity_pct, apply_video = EXCLUDED.apply_video,
-             apply_image = EXCLUDED.apply_image, updated_at = now()
+             apply_image = EXCLUDED.apply_image, smart_position = EXCLUDED.smart_position, updated_at = now()
            RETURNING *`,
-          [logo?.b64 ?? cur.rows[0]!.logo_b64, logo?.mime ?? cur.rows[0]!.logo_mime, position, sizePct, opacityPct, body.applyVideo !== false, body.applyImage === true]);
+          [logo?.b64 ?? cur.rows[0]!.logo_b64, logo?.mime ?? cur.rows[0]!.logo_mime, position, sizePct, opacityPct, body.applyVideo !== false, body.applyImage === true, body.smartPosition === true]);
         await api.audit(c, auth!, 'push.logo_saved', position);
         return r.rows[0];
       });
