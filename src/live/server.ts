@@ -70,6 +70,10 @@ Object.assign(process.env, {
   APP_ENV: 'production',
   DATABASE_URL_APP: url('app'),
   DATABASE_URL_WORKER: url('worker'),
+  // Management panel (/admin): its own database role and token secret.
+  DATABASE_URL_ADMIN: url('admin'),
+  DATABASE_URL_OWNER: url('owner'),
+  ADMIN_TOKEN_SECRET: process.env.ADMIN_TOKEN_SECRET ?? createHmac('sha256', secret).update('push-live:admin-token').digest('base64url'),
   WA_MODE: process.env.WA_MODE ?? 'baileys',
   ALLOW_REAL_WHATSAPP: process.env.ALLOW_REAL_WHATSAPP ?? '1',
   API_PORT: process.env.PORT ?? '8787',

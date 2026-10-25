@@ -8,8 +8,11 @@
  */
 import { createHmac } from 'node:crypto';
 import type http from 'node:http';
-import { DUMMY_HASH, verifyPassword } from '../../auth/password.js';
-import { totpCipherKey, verifyTotpStep } from '../../auth/totp.js';
+import { randomBytes } from 'node:crypto';
+import { checkPassword, DUMMY_HASH, hashPassword, verifyPassword } from '../../auth/password.js';
+import { generateTotpSecret, otpauthUrl, totpCipherKey, verifyTotpStep } from '../../auth/totp.js';
+import { qrRows } from '../qr.js';
+import { adminHtml } from '../adminPage.js';
 import { TenantCipher } from '../../crypto/keyring.js';
 import { safeEqual } from '../../crypto/keyring.js';
 import type { PgPool, Sql } from '../../db/pg.js';
@@ -54,6 +57,20 @@ export interface AdminModuleOptions {
   /** Master key (base64): TOTP secrets are stored encrypted with a key derived from it. */
   masterKeyB64: string;
   loginLimiter?: WindowLimiter;
+  /**
+   * Operations the admin role may not do on its own (it cannot write tenants or admins);
+   * the server passes them in. Without them the matching routes answer 501.
+   */
+  manage?: {
+    /** One-time code (from the server's environment) that allows creating the first admin. */
+    setupCode?: string;
+    /** Inserts the first superadmin; false when an admin already exists. */
+    createFirstAdmin?: (email: string, passwordHash: string, encryptedTotp: string) => Promise<boolean>;
+    /** Opens a customer account (business + owner user); returns the tenant id. */
+    createCustomer?: (businessName: string, email: string, passwordHash: string) => Promise<string>;
+    /** Disconnects the customer's numbers and bots and deletes the account's data. */
+    deleteCustomer?: (tenantId: string) => Promise<void>;
+  };
 }
 
 export function adminModule(opts: AdminModuleOptions) {
@@ -80,7 +97,55 @@ export function adminModule(opts: AdminModuleOptions) {
   const audit = (a: AdminClaims, action: string, target: string, tenantId: string | null, detail: Record<string, unknown> = {}) =>
     sql.query('INSERT INTO audit_log (tenant_id, actor, action, target, detail) VALUES ($1, $2, $3, $4, $5)', [tenantId, `admin:${a.adminId}`, action, target, detail]);
 
+  const m = opts.manage ?? {};
+  const setupLimiter = new WindowLimiter(10, 15 * 60_000);
+
   return (api: ApiServer) => {
+    // The management panel page (all data comes from /admin/v1/* after sign-in).
+    api.on('GET', '/admin', false, async ({ res }) => {
+      const nonce = randomBytes(16).toString('base64');
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        'referrer-policy': 'no-referrer',
+        'x-robots-tag': 'noindex',
+      });
+      res.end(adminHtml(nonce));
+      return undefined;
+    });
+
+    // ---- First admin: allowed once, with the setup code, while no admin exists.
+    api.on('GET', '/admin/v1/setup', false, async () => {
+      const r = await sql.query<{ n: number }>('SELECT count(*)::int AS n FROM admins');
+      return { needed: (r.rows[0]?.n ?? 0) === 0 && !!m.setupCode && !!m.createFirstAdmin };
+    });
+    api.on('POST', '/admin/v1/setup/secret', false, async ({ body, ip }) => {
+      if (!setupLimiter.take(ip)) throw new HttpError(429, 'too_many', 'יותר מדי ניסיונות; נסו שוב בעוד רבע שעה');
+      if (!m.setupCode || !m.createFirstAdmin) throw new HttpError(501, 'not_configured', 'הגדרה ראשונה לא זמינה בשרת הזה');
+      if (!safeEqual(String(body.code ?? ''), m.setupCode)) throw new HttpError(403, 'bad_code', 'קוד ההגדרה שגוי');
+      const n = await sql.query<{ n: number }>('SELECT count(*)::int AS n FROM admins');
+      if ((n.rows[0]?.n ?? 0) > 0) throw new HttpError(409, 'done', 'כבר יש מנהל במערכת');
+      const secret = generateTotpSecret();
+      const url = otpauthUrl(secret, String(body.email ?? 'admin').slice(0, 120), 'PUSH ניהול');
+      return { secret, otpauth: url, qrRows: qrRows(url) };
+    });
+    api.on('POST', '/admin/v1/setup', false, async ({ body, ip }) => {
+      if (!setupLimiter.take(ip)) throw new HttpError(429, 'too_many', 'יותר מדי ניסיונות; נסו שוב בעוד רבע שעה');
+      if (!m.setupCode || !m.createFirstAdmin) throw new HttpError(501, 'not_configured', 'הגדרה ראשונה לא זמינה בשרת הזה');
+      if (!safeEqual(String(body.code ?? ''), m.setupCode)) throw new HttpError(403, 'bad_code', 'קוד ההגדרה שגוי');
+      const email = String(body.email ?? '').trim().toLowerCase();
+      if (!/^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/.test(email)) throw new HttpError(400, 'bad_email', 'כתובת אימייל לא תקינה');
+      const password = String(body.password ?? '');
+      const problem = checkPassword(password, email);
+      if (problem || password.length < 12) throw new HttpError(400, 'weak_password', problem?.message ?? 'סיסמת מנהל צריכה לפחות 12 תווים');
+      const secret = String(body.secret ?? '');
+      if (!/^[A-Z2-7]{16,64}$/.test(secret)) throw new HttpError(400, 'bad_secret', 'התחילו את ההגדרה מחדש');
+      if (verifyTotpStep(secret, String(body.totp ?? '')) === null) throw new HttpError(400, 'bad_totp', 'הקוד מהאפליקציה לא תואם. ודאו שסרקתם את הקוד והקלידו את 6 הספרות שמופיעות עכשיו');
+      const created = await m.createFirstAdmin(email, await hashPassword(password), new TenantCipher('admins', totpCipherKey(opts.masterKeyB64)).encrypt(`totp:${email}`, secret));
+      if (!created) throw new HttpError(409, 'done', 'כבר יש מנהל במערכת');
+      return { created: true };
+    });
+
     api.on('POST', '/admin/v1/login', false, async ({ body, ip }) => {
       if (!limiter.take(ip)) throw new HttpError(429, 'too_many', 'too many attempts');
       const email = String(body.email ?? '').slice(0, 320);
@@ -146,7 +211,11 @@ export function adminModule(opts: AdminModuleOptions) {
       const r = await sql.query(
         `SELECT t.id, t.name, t.plan_code, t.status, t.created_at,
                 (SELECT min(email) FROM users u WHERE u.tenant_id = t.id AND u.role = 'owner') AS owner_email,
-                (SELECT count(*)::int FROM wa_accounts a WHERE a.tenant_id = t.id AND a.status <> 'deleted') AS numbers
+                (SELECT count(*)::int FROM wa_accounts a WHERE a.tenant_id = t.id AND a.status <> 'deleted') AS numbers,
+                (SELECT count(*)::int FROM wa_accounts a WHERE a.tenant_id = t.id AND a.status = 'connected') AS connected,
+                (SELECT max(last_login_at) FROM users u WHERE u.tenant_id = t.id) AS last_login_at,
+                (SELECT count(*)::int FROM outbound_jobs j WHERE j.tenant_id = t.id AND j.status = 'sent' AND j.action = 'send'
+                    AND j.created_at > now() - interval '24 hours') AS sent_24h
            FROM tenants t
           WHERE t.status <> 'deleted' AND ($1 = '' OR t.name ILIKE '%' || $1 || '%'
                 OR EXISTS (SELECT 1 FROM users u WHERE u.tenant_id = t.id AND u.email ILIKE '%' || $1 || '%'))
@@ -168,6 +237,34 @@ export function adminModule(opts: AdminModuleOptions) {
         sql.query('SELECT scope, scope_id, reason, set_by, set_at FROM kill_switches WHERE tenant_id = $1 AND active', [params.id]),
       ]);
       return { tenant: t.rows[0], users: users.rows, whatsapp: accounts.rows, telegram: bots.rows, routes: routes.rows, jobs7d: jobs.rows, safetyEvents: safety.rows, activeStops: stops.rows };
+    });
+
+    // ---- Add a customer by hand: the owner gets a temporary password, shown here once.
+    api.on('POST', '/admin/v1/tenants', false, async ({ req, body }) => {
+      const a = await authOf(req, 'superadmin');
+      if (!m.createCustomer) throw new HttpError(501, 'not_configured', 'not available on this server');
+      const name = String(body.businessName ?? '').trim().slice(0, 100);
+      const email = String(body.email ?? '').trim().toLowerCase();
+      if (!name) throw new HttpError(400, 'bad_name', 'חסר שם עסק');
+      if (!/^[^\s@]{1,64}@[^\s@]{1,255}\.[^\s@]{2,}$/.test(email)) throw new HttpError(400, 'bad_email', 'כתובת אימייל לא תקינה');
+      const exists = await sql.query('SELECT 1 FROM users WHERE lower(email) = $1', [email]);
+      if (exists.rowCount) throw new HttpError(409, 'email_taken', 'כבר יש משתמש עם האימייל הזה');
+      const temp = `Push-${randomBytes(6).toString('base64url')}-${randomBytes(2).readUInt16BE(0) % 9000 + 1000}`;
+      const tenantId = await m.createCustomer(name, email, await hashPassword(temp));
+      if (body.plan) await sql.query('SELECT admin_set_tenant($1, $2, NULL, $3)', [tenantId, String(body.plan), `admin:${a.adminId}`]);
+      await audit(a, 'tenant.created_by_admin', tenantId, tenantId, { email });
+      return { tenantId, email, temporaryPassword: temp };
+    });
+
+    // ---- Remove a customer from the system: numbers disconnected, data deleted.
+    api.on('DELETE', '/admin/v1/tenants/:id', false, async ({ req, params }) => {
+      const a = await authOf(req, 'superadmin');
+      if (!m.deleteCustomer) throw new HttpError(501, 'not_configured', 'not available on this server');
+      const t = await sql.query('SELECT id FROM tenants WHERE id = $1 AND status <> \'deleted\'', [params.id]);
+      if (!t.rowCount) throw new HttpError(404, 'not_found', 'tenant not found');
+      await audit(a, 'tenant.deleted_by_admin', String(params.id), String(params.id));
+      await m.deleteCustomer(String(params.id));
+      return { deleted: true };
     });
 
     api.on('POST', '/admin/v1/tenants/:id', false, async ({ req, params, body }) => {
