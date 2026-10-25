@@ -204,6 +204,12 @@ export class ConnectionManager {
     };
   }
 
+  /** Sets this number's reaction on a message (best effort; numbers without support do nothing). */
+  async react(accountId: string, chatId: string, messageId: string, emoji: string): Promise<void> {
+    const t = await this.connected(accountId);
+    await t.react?.(chatId, messageId, emoji);
+  }
+
   private async connected(accountId: string) {
     const e = this.entries.get(accountId);
     if (!e || e.state.status !== 'connected') throw new SendError('disconnected', `account ${accountId} is ${e?.state.status ?? 'unknown'}`);

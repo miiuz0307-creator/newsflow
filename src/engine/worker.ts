@@ -81,10 +81,16 @@ export class Worker {
     this.safety = new SafetyMonitor({ killSwitches: o.killSwitches, limiter: this.limiter, onEvent: o.onSafetyEvent, logger: o.logger, now });
     const router = new Router({ dedup: o.dedup, templates: (t, id) => o.routes.template(t, id), now: () => new Date(now()) });
     this.sources = o.sources ?? new MemorySourceMessageStore();
-    this.reporter = new Reporter({ queue: o.queue, routes: o.routes, logger: o.logger, now: () => new Date(now()) });
+    this.reporter = new Reporter({
+      queue: o.queue, routes: o.routes, logger: o.logger, now: () => new Date(now()),
+      react: async (_tenantId, src, messageId, emoji) => {
+        if (src.platform === 'wa') await o.connections.react(src.accountId, src.chatId, messageId, emoji);
+      },
+    });
     this.sync = new SyncPlanner({ routes: o.routes, sources: this.sources, queue: o.queue, logger: o.logger, now: () => new Date(now()) });
     this.pipeline = new InboundPipeline({
       routes: o.routes, router, queue: o.queue, media: o.media, sources: this.sources, logger: o.logger, ...(o.brand ? { brand: o.brand } : {}),
+      onStart: (msg, plan) => this.track(this.reporter.onDistributionStarted(msg.tenantId, msg.source, msg.messageId, plan.jobs)),
       onPlanned: (msg, plan, inserted) => {
         if (inserted) this.track(this.reporter.onDistributionPlanned(msg.tenantId, msg.source, msg.messageId, plan.jobs));
       },

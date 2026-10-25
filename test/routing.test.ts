@@ -195,3 +195,10 @@ describe('route validation', () => {
     assert.deepEqual(codes({ sources: [SRC], targets: [T1], quietHours: { start: '25:99x', end: '06:00', timeZone: 'Asia/Jerusalem' } }), ['bad_quiet_hours']);
   });
 });
+
+test('control settings keep "reactions off" and default to on', async () => {
+  const { parseControlSettings } = await import('../src/routing/router.js');
+  assert.equal(parseControlSettings({ reactions: false })!.reactions, false);
+  assert.equal(parseControlSettings({})!.reactions, undefined);
+});
+

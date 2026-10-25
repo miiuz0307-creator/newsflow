@@ -51,6 +51,8 @@ export interface PipelineOptions {
   /** Largest media we accept for forwarding, in bytes. */
   maxMediaBytes?: number;
   onPlanned?: (msg: InboundMessage, plan: RoutingPlan, inserted: number) => void;
+  /** Right after a message is accepted for distribution, before any media work (for the ⏳ mark). */
+  onStart?: (msg: InboundMessage, plan: RoutingPlan) => void;
   /**
    * The customer's logo: returns the video or photo with the logo burned in, or null to send
    * it as it is. Called once per message, before the copies are queued.
@@ -73,6 +75,7 @@ export class InboundPipeline {
     }
     const plan = await this.o.router.plan(msg, routes);
     let inserted = 0;
+    if (plan.jobs.length) this.o.onStart?.(msg, plan);
     try {
       if (plan.jobs.length && msg.content.media) {
         await this.storeMediaOnce(msg, plan);

@@ -247,6 +247,7 @@ export function parseControlSettings(input: unknown): ControlSettings | undefine
     reportMode: (i.reportMode as 'all' | 'failures' | 'summary' | 'off' | undefined) ?? 'summary',
     ...(allowed?.length ? { allowedSenders: allowed } : {}),
     ...(typeof i.signature === 'string' && i.signature.trim() ? { signature: i.signature.trim() } : {}),
+    ...(i.reactions === false ? { reactions: false } : {}),
   };
 }
 
