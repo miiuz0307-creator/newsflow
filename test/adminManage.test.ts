@@ -8,7 +8,6 @@ import assert from 'node:assert/strict';
 import { adminModule } from '../src/api/modules/admin.js';
 import { WindowLimiter, authModule } from '../src/api/modules/auth.js';
 import { ApiServer } from '../src/api/server.js';
-import { totpCode } from '../src/auth/totp.js';
 import { MasterKey } from '../src/crypto/keyring.js';
 import { PgJobQueue, PgKillSwitchStore, TenantKeys, withTenant } from '../src/db/pgStores.js';
 import { ConnectionManager } from '../src/wa/connectionManager.js';
@@ -30,7 +29,6 @@ describe('management panel', { skip: !available && 'local test Postgres not runn
   let token = '';
   let customerId = '';
   let customerPassword = '';
-  let totpSecret = '';
 
   const call = async (method: string, path: string, body?: unknown, tok?: string) => {
     const r = await fetch(api.url + path, { method, headers: { ...(tok ? { authorization: `Bearer ${tok}` } : {}), ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
@@ -79,31 +77,22 @@ describe('management panel', { skip: !available && 'local test Postgres not runn
     assert.ok(!/innerHTML/.test(page.text));
   });
 
-  test('first admin: needs the setup code and a working authenticator code, and happens once', async () => {
+  test('first admin: needs the setup code, a strong password, and happens once', async () => {
     assert.equal((await call('GET', '/admin/v1/setup')).body.needed, true);
-    assert.equal((await call('POST', '/admin/v1/setup/secret', { code: 'wrong' })).status, 403);
-    const sec = await call('POST', '/admin/v1/setup/secret', { code: SETUP, email: 'owner@push.test' });
-    assert.equal(sec.status, 200);
-    assert.ok(sec.body.qrRows.length > 20, 'a QR to scan');
-    totpSecret = sec.body.secret;
-    const base = { code: SETUP, email: 'owner@push.test', password: 'Kvish-Arba-Tsafon-2026!', secret: totpSecret };
-    assert.equal((await call('POST', '/admin/v1/setup', { ...base, totp: '000000' })).status, 400, 'the authenticator code must match');
-    assert.equal((await call('POST', '/admin/v1/setup', { ...base, password: 'short', totp: totpCode(totpSecret) })).status, 400);
-    const made = await call('POST', '/admin/v1/setup', { ...base, totp: totpCode(totpSecret) }); assert.equal(made.status, 200, JSON.stringify(made.body));
+    const base = { code: SETUP, email: 'owner@push.test', password: 'Kvish-Arba-Tsafon-2026!' };
+    assert.equal((await call('POST', '/admin/v1/setup', { ...base, code: 'wrong' })).status, 403);
+    assert.equal((await call('POST', '/admin/v1/setup', { ...base, password: 'short' })).status, 400);
+    const made = await call('POST', '/admin/v1/setup', base); assert.equal(made.status, 200, JSON.stringify(made.body));
     assert.equal((await call('GET', '/admin/v1/setup')).body.needed, false);
-    const again = await call('POST', '/admin/v1/setup', { ...base, email: 'second@push.test', totp: totpCode(totpSecret) });
-    assert.equal(again.status, 409, 'only once');
-    const raw = await db.owner.query<{ totp_secret: string; role: string }>(`SELECT totp_secret, role FROM admins`);
+    assert.equal((await call('POST', '/admin/v1/setup', { ...base, email: 'second@push.test' })).status, 409, 'only once');
+    const raw = await db.owner.query<{ role: string }>(`SELECT role FROM admins`);
     assert.equal(raw.rowCount, 1);
     assert.equal(raw.rows[0]!.role, 'superadmin');
-    assert.notEqual(raw.rows[0]!.totp_secret, totpSecret, 'stored encrypted');
   });
 
-  test('the new admin signs in with password and authenticator code', async () => {
-    // A fresh code (the setup used the current one; each code works once per login).
-    const step = Math.floor(Date.now() / 30_000);
-    await db.owner.query('UPDATE admins SET last_totp_step = $1', [step - 1]);
-    const r = await call('POST', '/admin/v1/login', { email: 'owner@push.test', password: 'Kvish-Arba-Tsafon-2026!', code: totpCode(totpSecret) });
+  test('the new admin signs in with email and password only; a wrong password is refused', async () => {
+    assert.equal((await call('POST', '/admin/v1/login', { email: 'owner@push.test', password: 'wrong-password-123' })).status, 401);
+    const r = await call('POST', '/admin/v1/login', { email: 'owner@push.test', password: 'Kvish-Arba-Tsafon-2026!' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     token = r.body.token;
   });

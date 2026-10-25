@@ -10,8 +10,7 @@ import { createHmac } from 'node:crypto';
 import type http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { checkPassword, DUMMY_HASH, hashPassword, verifyPassword } from '../../auth/password.js';
-import { generateTotpSecret, otpauthUrl, totpCipherKey, verifyTotpStep } from '../../auth/totp.js';
-import { qrRows } from '../qr.js';
+import { totpCipherKey, verifyTotpStep } from '../../auth/totp.js';
 import { adminHtml } from '../adminPage.js';
 import { TenantCipher } from '../../crypto/keyring.js';
 import { safeEqual } from '../../crypto/keyring.js';
@@ -119,16 +118,6 @@ export function adminModule(opts: AdminModuleOptions) {
       const r = await sql.query<{ n: number }>('SELECT count(*)::int AS n FROM admins');
       return { needed: (r.rows[0]?.n ?? 0) === 0 && !!m.setupCode && !!m.createFirstAdmin };
     });
-    api.on('POST', '/admin/v1/setup/secret', false, async ({ body, ip }) => {
-      if (!setupLimiter.take(ip)) throw new HttpError(429, 'too_many', 'יותר מדי ניסיונות; נסו שוב בעוד רבע שעה');
-      if (!m.setupCode || !m.createFirstAdmin) throw new HttpError(501, 'not_configured', 'הגדרה ראשונה לא זמינה בשרת הזה');
-      if (!safeEqual(String(body.code ?? ''), m.setupCode)) throw new HttpError(403, 'bad_code', 'קוד ההגדרה שגוי');
-      const n = await sql.query<{ n: number }>('SELECT count(*)::int AS n FROM admins');
-      if ((n.rows[0]?.n ?? 0) > 0) throw new HttpError(409, 'done', 'כבר יש מנהל במערכת');
-      const secret = generateTotpSecret();
-      const url = otpauthUrl(secret, String(body.email ?? 'admin').slice(0, 120), 'PUSH ניהול');
-      return { secret, otpauth: url, qrRows: qrRows(url) };
-    });
     api.on('POST', '/admin/v1/setup', false, async ({ body, ip }) => {
       if (!setupLimiter.take(ip)) throw new HttpError(429, 'too_many', 'יותר מדי ניסיונות; נסו שוב בעוד רבע שעה');
       if (!m.setupCode || !m.createFirstAdmin) throw new HttpError(501, 'not_configured', 'הגדרה ראשונה לא זמינה בשרת הזה');
@@ -138,10 +127,8 @@ export function adminModule(opts: AdminModuleOptions) {
       const password = String(body.password ?? '');
       const problem = checkPassword(password, email);
       if (problem || password.length < 12) throw new HttpError(400, 'weak_password', problem?.message ?? 'סיסמת מנהל צריכה לפחות 12 תווים');
-      const secret = String(body.secret ?? '');
-      if (!/^[A-Z2-7]{16,64}$/.test(secret)) throw new HttpError(400, 'bad_secret', 'התחילו את ההגדרה מחדש');
-      if (verifyTotpStep(secret, String(body.totp ?? '')) === null) throw new HttpError(400, 'bad_totp', 'הקוד מהאפליקציה לא תואם. ודאו שסרקתם את הקוד והקלידו את 6 הספרות שמופיעות עכשיו');
-      const created = await m.createFirstAdmin(email, await hashPassword(password), new TenantCipher('admins', totpCipherKey(opts.masterKeyB64)).encrypt(`totp:${email}`, secret));
+      // No authenticator app: the owner asked for email + password only (empty secret = no second step).
+      const created = await m.createFirstAdmin(email, await hashPassword(password), '');
       if (!created) throw new HttpError(409, 'done', 'כבר יש מנהל במערכת');
       return { created: true };
     });
@@ -160,18 +147,22 @@ export function adminModule(opts: AdminModuleOptions) {
         throw bad;
       }
       if (!(await verifyPassword(password, a.password_hash))) throw bad;
-      let secret: string;
-      try {
-        secret = totpCipher.decryptString(`totp:${email.toLowerCase()}`, a.totp_secret);
-      } catch {
-        throw bad;
+      if (!a.totp_secret) {
+        await sql.query(`UPDATE admins SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1`, [a.id]);
+      } else {
+        let secret: string;
+        try {
+          secret = totpCipher.decryptString(`totp:${email.toLowerCase()}`, a.totp_secret);
+        } catch {
+          throw bad;
+        }
+        const step = verifyTotpStep(secret, String(body.code ?? ''));
+        if (step === null || step <= Number(a.last_totp_step)) throw bad; // each code works once
+        const won = await sql.query(
+          `UPDATE admins SET failed_logins = 0, locked_until = NULL, last_login_at = now(), last_totp_step = $2 WHERE id = $1 AND last_totp_step < $2`,
+          [a.id, step]);
+        if (!won.rowCount) throw bad; // a concurrent login used the same code
       }
-      const step = verifyTotpStep(secret, String(body.code ?? ''));
-      if (step === null || step <= Number(a.last_totp_step)) throw bad; // each code works once
-      const won = await sql.query(
-        `UPDATE admins SET failed_logins = 0, locked_until = NULL, last_login_at = now(), last_totp_step = $2 WHERE id = $1 AND last_totp_step < $2`,
-        [a.id, step]);
-      if (!won.rowCount) throw bad; // a concurrent login used the same code
       return { token: signAdminToken({ adminId: a.id, role: a.role }, opts.adminTokenSecret), role: a.role };
     });
 

@@ -1,6 +1,6 @@
 /**
  * The management panel (/admin) for the PUSH owner: first-time setup, sign-in
- * with password + authenticator code, customers (list, details, plan,
+ * with email + password, customers (list, details, plan,
  * suspend, remove, add). Talks only to /admin/v1/*. Same CSP rules as the app:
  * no inline styles or handlers, no innerHTML.
  */
@@ -88,8 +88,6 @@ async function api(method,path,body){
   return data;
 }
 function fmtDate(d){if(!d)return '—';try{return new Date(d).toLocaleString('he-IL',{day:'numeric',month:'numeric',year:'2-digit',hour:'2-digit',minute:'2-digit'})}catch(e){return '—'}}
-function qrSvg(rows){var n=rows.length,q=3,d='';rows.forEach(function(r,y){for(var x=0;x<n;x++)if(r.charCodeAt(x)===49){var run=1;while(x+run<n&&r.charCodeAt(x+run)===49)run++;d+='M'+(x+q)+' '+(y+q)+'h'+run+'v1h-'+run+'z';x+=run-1}});
-  return s('svg',{'class':'qr',viewBox:'0 0 '+(n+2*q)+' '+(n+2*q),role:'img','aria-label':'קוד לסריקה באפליקציית אימות','shape-rendering':'crispEdges'},[s('rect',{width:n+2*q,height:n+2*q,fill:'#fff'}),s('path',{d:d,fill:'#0A1B33'})])}
 function shell(content,withLogout){
   root.replaceChildren(h('div',null,[h('div',{cls:'top'},[h('div',{cls:'logo'},[h('i'),'PUSH',h('small',{text:'ניהול'})]),
     withLogout?h('button',{type:'button',text:'יציאה',onclick:function(){setTok(null);showLogin()}}):null]),h('main',null,[content])]));
@@ -98,33 +96,25 @@ function shell(content,withLogout){
 // ---------------- first-time setup
 function showSetup(){
   var code=h('input',{cls:'i',type:'password',autocomplete:'off',dir:'ltr'}),email=h('input',{cls:'i',type:'email',dir:'ltr',autocomplete:'username'});
-  var pw=h('input',{cls:'i',type:'password',dir:'ltr',autocomplete:'new-password'}),totp=h('input',{cls:'i',inputmode:'numeric',maxlength:'6',dir:'ltr',autocomplete:'one-time-code'});
-  var err=h('p',{cls:'err',role:'alert'}),step2=h('div',{hidden:true}),secret=null;
-  var next=h('button',{cls:'btn btn-primary btn-block',type:'button',text:'המשך',onclick:async function(){
-    err.textContent='';next.disabled=true;
-    try{var r=await api('POST','/admin/v1/setup/secret',{code:code.value,email:email.value});secret=r.secret;
-      step2.replaceChildren(h('ol',{cls:'steps'},[h('li',{text:'התקינו בטלפון אפליקציית אימות (Google Authenticator או Microsoft Authenticator).'}),h('li',{text:'באפליקציה: הוספת חשבון ← סריקת קוד QR, וסרקו את הקוד:'})]),
-        qrSvg(r.qrRows),h('p',{cls:'hint'},['אם אי אפשר לסרוק, הקלידו את המפתח: ',h('span',{cls:'secret',text:r.secret})]),
-        h('label',{cls:'f'},[h('span',{text:'6 הספרות שמופיעות עכשיו באפליקציה'}),totp]),
-        h('button',{cls:'btn btn-primary btn-block',type:'button',text:'יצירת המנהל',onclick:async function(){err.textContent='';this.disabled=true;var b=this;
-          try{await api('POST','/admin/v1/setup',{code:code.value,email:email.value,password:pw.value,secret:secret,totp:totp.value});showLogin('המנהל נוצר. התחברו עם הסיסמה והקוד מהאפליקציה.')}catch(e){err.textContent=e.message;b.disabled=false}}}),err);
-      step2.hidden=false;next.hidden=true;}
-    catch(e){err.textContent=e.message;next.disabled=false}}});
-  shell(h('div',{cls:'panel auth'},[h('h1',{text:'הגדרה ראשונה'}),h('p',{cls:'sub',text:'יוצרים את חשבון המנהל הראשי. זה קורה פעם אחת בלבד.'}),
+  var pw=h('input',{cls:'i',type:'password',dir:'ltr',autocomplete:'new-password'});
+  var err=h('p',{cls:'err',role:'alert'});
+  var go=h('button',{cls:'btn btn-primary btn-block',type:'submit',text:'יצירת המנהל'});
+  shell(h('form',{cls:'panel auth',novalidate:true,onsubmit:async function(e){e.preventDefault();err.textContent='';go.disabled=true;
+      try{await api('POST','/admin/v1/setup',{code:code.value,email:email.value,password:pw.value});showLogin('המנהל נוצר. התחברו עם האימייל והסיסמה.',true)}catch(x){err.textContent=x.message;go.disabled=false}}},
+    [h('h1',{text:'הגדרה ראשונה'}),h('p',{cls:'sub',text:'יוצרים את חשבון המנהל הראשי. זה קורה פעם אחת בלבד.'}),
     h('label',{cls:'f'},[h('span',{text:'קוד הגדרה (קיבלתם אותו בנפרד)'}),code]),h('label',{cls:'f'},[h('span',{text:'אימייל המנהל'}),email]),
-    h('label',{cls:'f'},[h('span',{text:'סיסמה (לפחות 12 תווים)'}),pw]),next,step2,err]));
+    h('label',{cls:'f'},[h('span',{text:'סיסמה (לפחות 12 תווים)'}),pw]),go,err]));
 }
 
 // ---------------- sign in
-function showLogin(msg){
+function showLogin(msg,good){
   var email=h('input',{cls:'i',type:'email',dir:'ltr',autocomplete:'username'}),pw=h('input',{cls:'i',type:'password',dir:'ltr',autocomplete:'current-password'});
-  var code=h('input',{cls:'i',inputmode:'numeric',maxlength:'6',dir:'ltr',autocomplete:'one-time-code'});
-  var err=h('p',{cls:'err',role:'alert',text:msg||''});
+  var err=h('p',{cls:good?'err ok':'err',role:'alert',text:msg||''});
   var go=h('button',{cls:'btn btn-primary btn-block',type:'submit',text:'כניסה'});
-  shell(h('form',{cls:'panel auth',novalidate:true,onsubmit:async function(e){e.preventDefault();err.textContent='';go.disabled=true;
-      try{var r=await api('POST','/admin/v1/login',{email:email.value,password:pw.value,code:code.value});setTok(r.token);showHome()}catch(x){err.textContent=x.message==='bad credentials'?'האימייל, הסיסמה או הקוד שגויים':x.message;go.disabled=false}}},
-    [h('h1',{text:'כניסת מנהל'}),h('p',{cls:'sub',text:'אימייל, סיסמה וקוד מאפליקציית האימות.'}),h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),
-     h('label',{cls:'f'},[h('span',{text:'סיסמה'}),pw]),h('label',{cls:'f'},[h('span',{text:'קוד מהאפליקציה (6 ספרות)'}),code]),go,err]));
+  shell(h('form',{cls:'panel auth',novalidate:true,onsubmit:async function(e){e.preventDefault();err.textContent='';err.className='err';go.disabled=true;
+      try{var r=await api('POST','/admin/v1/login',{email:email.value,password:pw.value});setTok(r.token);showHome()}catch(x){err.textContent=x.message==='bad credentials'?'האימייל או הסיסמה שגויים':x.message;go.disabled=false}}},
+    [h('h1',{text:'כניסת מנהל'}),h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),
+     h('label',{cls:'f'},[h('span',{text:'סיסמה'}),pw]),go,err]));
 }
 
 // ---------------- home: numbers + customers
