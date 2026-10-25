@@ -20,7 +20,7 @@ import { loadConfig } from './config.js';
 import { MasterKey } from './crypto/keyring.js';
 import { PgPool } from './db/pg.js';
 import {
-  PgAuthStore, PgDedupStore, PgJobQueue, PgKillSwitchStore, PgRouteSource, PgSourceMessageStore, TenantKeys, linkedAccounts, recordConnectionEvent, recordSafetyEvent,
+  PgAuthStore, PgDedupStore, withTenant, PgJobQueue, PgKillSwitchStore, PgRouteSource, PgSourceMessageStore, TenantKeys, linkedAccounts, recordConnectionEvent, recordSafetyEvent,
 } from './db/pgStores.js';
 import { CachedKillSwitches } from './delivery/killSwitch.js';
 import { FileMediaStore } from './delivery/mediaStore.js';
@@ -131,8 +131,34 @@ if (cfg.allowRealTelegram || !cfg.telegramApiBase.includes('api.telegram.org')) 
 }
 
 // The Super Admin API runs only where its database role and secret are configured.
+// Writes the admin role itself may not do (first admin, opening and deleting customers) use the
+// owner role (first admin) and the app role inside the customer's own tenant (delete).
+const ownerPool = process.env.DATABASE_URL_OWNER ? PgPool.fromUrl(process.env.DATABASE_URL_OWNER, 2) : undefined;
 const adminModules = process.env.DATABASE_URL_ADMIN && process.env.ADMIN_TOKEN_SECRET
-  ? [adminModule({ adminPool: PgPool.fromUrl(process.env.DATABASE_URL_ADMIN, 4), adminTokenSecret: process.env.ADMIN_TOKEN_SECRET, customerTokenSecret: req('TOKEN_SECRET'), masterKeyB64: req('MASTER_KEY') })]
+  ? [adminModule({
+      adminPool: PgPool.fromUrl(process.env.DATABASE_URL_ADMIN, 4), adminTokenSecret: process.env.ADMIN_TOKEN_SECRET, customerTokenSecret: req('TOKEN_SECRET'), masterKeyB64: req('MASTER_KEY'),
+      manage: {
+        ...(process.env.ADMIN_SETUP_CODE && ownerPool ? {
+          setupCode: process.env.ADMIN_SETUP_CODE,
+          createFirstAdmin: async (email: string, passwordHash: string, totp: string) => {
+            const r = await ownerPool.query(
+              `INSERT INTO admins (email, password_hash, totp_secret, role) SELECT $1, $2, $3, 'superadmin' WHERE NOT EXISTS (SELECT 1 FROM admins)`,
+              [email, passwordHash, totp]);
+            return r.rowCount > 0;
+          },
+        } : {}),
+        createCustomer: (name: string, email: string, hash: string) => keys.provision(appPool, name, 'trial', email, hash),
+        deleteCustomer: async (tenantId: string) => {
+          const owned = await withTenant(appPool, tenantId, async (c) => ({
+            wa: (await c.query<{ id: string }>('SELECT id FROM wa_accounts')).rows.map((r) => r.id),
+            tg: (await c.query<{ id: string }>('SELECT id FROM tg_bots')).rows.map((r) => r.id),
+          }));
+          for (const id of owned.wa) await conns.disconnectAndDelete(id).catch(() => {});
+          for (const id of owned.tg) await telegram.stop(id).catch(() => {});
+          await withTenant(appPool, tenantId, (c) => c.query('SELECT delete_my_tenant()'));
+        },
+      },
+    })]
   : [];
 
 const api = new ApiServer({
