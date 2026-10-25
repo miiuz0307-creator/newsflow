@@ -222,6 +222,29 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
     for (const code of scripts) assert.doesNotThrow(() => new Function(code), 'a syntax error would leave the app blank');
   });
 
+  test('the app installs as a phone app: install page, manifest in scope, icons and worker', async () => {
+    const page = await call('GET', '/app/install');
+    assert.equal(page.status, 200);
+    assert.match(page.headers.get('content-security-policy') ?? '', /manifest-src 'self'; worker-src 'self'/);
+    assert.match(page.text, /href="\/app\/manifest\.webmanifest"/);
+    for (const m of page.text.matchAll(/<script nonce="[^"]+">([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(m[1]!));
+    assert.ok(!/innerHTML/.test(page.text));
+    const man = await call('GET', '/app/manifest.webmanifest');
+    assert.equal(man.body.start_url, '/app');
+    assert.equal(man.body.scope, '/app');
+    assert.equal(man.body.display, 'standalone');
+    assert.deepEqual(man.body.icons.map((i: { sizes: string }) => i.sizes), ['192x192', '512x512']);
+    const sw = await call('GET', '/app/sw.js');
+    assert.equal(sw.headers.get('service-worker-allowed'), '/app');
+    assert.doesNotThrow(() => new Function(sw.text));
+    const icon = await fetch(api.url + '/app/icon-512.png');
+    assert.equal(icon.headers.get('content-type'), 'image/png');
+    assert.equal(Buffer.from(await icon.arrayBuffer()).readUInt32BE(16), 512);
+    const app = await call('GET', '/app');
+    assert.match(app.text, /rel="manifest"/);
+    assert.match(app.headers.get('content-security-policy') ?? '', /worker-src 'self'/);
+  });
+
   test('the fixed signature is saved per account and added under every copy, also on edits', async () => {
     const empty = await call('GET', '/v1/push/settings', undefined, tokA);
     assert.equal(empty.status, 200, JSON.stringify(empty.body));
