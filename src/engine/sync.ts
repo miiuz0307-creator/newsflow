@@ -21,6 +21,7 @@ import type { JobQueue, StoredJob } from '../delivery/queue.js';
 import type { Logger } from '../logger.js';
 import { silentLogger } from '../logger.js';
 import { renderCopy, senderAllowed } from '../routing/router.js';
+import { parseSchedule } from '../routing/schedule.js';
 import type { PlannedJob, Route } from '../routing/types.js';
 import type { RouteSource } from './pipeline.js';
 
@@ -150,7 +151,14 @@ export class SyncPlanner {
       if (!content) continue; // edited down to nothing after cleanup: leave the copy as it is
 
       if (['queued', 'pending_approval', 'failed'].includes(copy.status)) {
-        if (await this.o.queue.replaceUnsentContent(copy.id, content, version)) {
+        // A scheduled message edited before its time: a new time moves it, a removed line sends it now.
+        let at: Date | null | undefined;
+        if (route.control) {
+          const s = parseSchedule(ev.content.text, now);
+          if (s.kind === 'scheduled') at = s.at.getTime() === copy.scheduledAt?.getTime() ? undefined : s.at;
+          else if (s.kind === 'none' && copy.scheduledAt && copy.scheduledAt > now) at = null;
+        }
+        if (await this.o.queue.replaceUnsentContent(copy.id, content, version, at)) {
           out.changedBeforeSend++;
           continue;
         }

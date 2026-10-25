@@ -85,6 +85,7 @@ export interface Template {
 }
 
 export type SkipReason =
+  | 'bad_schedule'
   | 'route_disabled'
   | 'not_a_source'
   | 'from_self'
@@ -114,6 +115,8 @@ export interface PlannedJob {
   content: MessageContent;
   /** Earliest send time. */
   notBefore: Date;
+  /** Set when the customer scheduled the message ("תזמון (12:20)"): when it is meant to go out. */
+  scheduledAt?: Date;
   requiresApproval: boolean;
   /** Unique per (inbound message, route, target): creating the same job twice is a no-op. */
   idempotencyKey: string;

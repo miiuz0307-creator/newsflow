@@ -281,6 +281,57 @@ for (const kind of ['memory', 'pg'] as const) {
       }
     });
 
+    test('תזמון (HH:MM): held with 🕐, an edit moves it, at the time it goes out without the line (⏳ then ✅); a delete cancels', async () => {
+      const israel = (d: Date) => new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jerusalem', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d);
+      const t1 = israel(new Date(Date.now() + 2 * 3_600_000)), t2 = israel(new Date(Date.now() + 3 * 3_600_000));
+      const src = { platform: 'wa' as const, accountId: w.acc, chatId: w.ctrl };
+      const sends = async (id: string) => (await w.queue.copiesOf(w.tenantId, src, id)).filter((j) => j.action === 'send');
+      // "The time came": scheduled sends become due now (their scheduled time stays as it was set).
+      const timeArrives = async () => {
+        const q = w.queue as unknown as { jobs?: Map<string, StoredJob>; sql?: { query(q: string): Promise<unknown> } };
+        if (q.jobs) { for (const j of q.jobs.values()) if (j.scheduledAt && j.status === 'queued') j.notBefore = new Date(); }
+        else await q.sql!.query(`UPDATE outbound_jobs SET not_before = now() WHERE scheduled_at IS NOT NULL AND status = 'queued'`);
+      };
+      const hist: string[] = [];
+      const orig = w.net.reactFrom.bind(w.net);
+      w.net.reactFrom = (phone: string, jid: string, mid: string, emoji: string) => { if (jid === w.ctrl) hist.push(emoji); orig(phone, jid, mid, emoji); };
+      try {
+        const before = w.waTargets.map((g) => text(w.net, g).length);
+        const id = w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: `תזמון (${t1})\nמבזק מתוזמן` });
+        await w.drain();
+        w.waTargets.forEach((g, i) => assert.equal(text(w.net, g).length, before[i], 'nothing goes out before the time'));
+        assert.deepEqual(hist, ['🕐']);
+        let jobs = await sends(id);
+        assert.equal(jobs.length, 4);
+        assert.ok(jobs.every((j) => j.status === 'queued' && j.scheduledAt && israel(j.scheduledAt) === t1));
+        assert.ok(jobs.every((j) => j.content.text === 'מבזק מתוזמן'), 'the schedule line is not part of the copy');
+
+        w.net.humanEdit(CUSTOMER, w.ctrl, id, { kind: 'text', text: `תזמון (${t2})\nמבזק מתוזמן, מעודכן` });
+        await w.drain();
+        jobs = await sends(id);
+        assert.ok(jobs.every((j) => j.status === 'queued' && israel(j.scheduledAt!) === t2), 'the edit moved the time');
+        assert.ok(jobs.every((j) => j.content.text === 'מבזק מתוזמן, מעודכן'));
+        w.waTargets.forEach((g, i) => assert.equal(text(w.net, g).length, before[i]));
+
+        await timeArrives();
+        await w.drain();
+        for (const g of w.waTargets) assert.equal(text(w.net, g).at(-1), 'מבזק מתוזמן, מעודכן');
+        assert.equal(tgTexts(w, w.tgChannel).at(-1), 'מבזק מתוזמן, מעודכן');
+        assert.deepEqual(hist, ['🕐', '⏳', '✅']);
+
+        const id2 = w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: `תזמון ${t1}\nזה יימחק לפני הזמן` });
+        await w.drain();
+        w.net.humanDeleteForEveryone(CUSTOMER, w.ctrl, id2);
+        await w.drain();
+        await timeArrives();
+        await w.drain();
+        assert.ok((await sends(id2)).every((j) => j.status === 'cancelled'));
+        for (const g of w.waTargets) assert.ok(!text(w.net, g).includes('זה יימחק לפני הזמן'));
+      } finally {
+        w.net.reactFrom = orig;
+      }
+    });
+
     test('rapid edits: only the newest version ends up in the groups', async () => {
       const id = w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'גרסה 1' });
       await w.drain();
