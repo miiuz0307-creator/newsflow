@@ -6,6 +6,26 @@
  */
 import { fontFaceCss } from './fonts.js';
 
+/** The panel's service worker: shows notifications and opens the right customer when one is tapped. */
+export function adminServiceWorker(): string {
+  return `'use strict';
+self.addEventListener('install',function(){self.skipWaiting()});
+self.addEventListener('activate',function(e){e.waitUntil(self.clients.claim())});
+self.addEventListener('push',function(e){
+  var d={};try{d=e.data?e.data.json():{}}catch(x){d={body:e.data?e.data.text():''}}
+  e.waitUntil(self.registration.showNotification(d.title||'PUSH',{body:d.body||'',icon:'/admin/icon-192.png',badge:'/admin/icon-192.png',lang:'he',dir:'rtl',tag:d.tag||undefined,data:{url:d.url||'/admin'}}));
+});
+self.addEventListener('notificationclick',function(e){
+  e.notification.close();
+  var url=(e.notification.data&&e.notification.data.url)||'/admin';
+  e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(function(list){
+    for(var i=0;i<list.length;i++){var c=list[i];if(c.url.indexOf('/admin')>=0&&'focus' in c){c.postMessage({open:url});return c.focus()}}
+    return self.clients.openWindow(url);
+  }));
+});
+`;
+}
+
 export function adminHtml(nonce: string): string {
   return `<!doctype html>
 <html lang="he" dir="rtl">
@@ -14,6 +34,12 @@ export function adminHtml(nonce: string): string {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <meta name="theme-color" content="#0A1B33">
+<link rel="manifest" href="/admin/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/admin/icon-180.png">
+<link rel="icon" type="image/png" href="/admin/icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PUSH ניהול">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <title>PUSH — ניהול</title>
 <style nonce="${nonce}">
 ${fontFaceCss()}
@@ -41,6 +67,13 @@ button,input,select{font:inherit;color:inherit}
 .logo small{font-family:var(--body);font-size:13px;color:var(--on-ink-muted);margin-inline-start:4px;letter-spacing:0}
 .top .out{background:transparent;color:var(--on-ink);border:1px solid rgba(255,255,255,.22);border-radius:10px;padding:6px 14px;cursor:pointer}
 .top .out:hover{background:rgba(255,255,255,.08)}
+.top-actions{display:flex;gap:8px;align-items:center}
+.bell{display:inline-flex;align-items:center;gap:7px}.bell svg{width:16px;height:16px}
+.bell .on-dot{width:7px;height:7px;border-radius:50%;background:var(--teal)}
+.strip{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line);border-inline-start:4px solid var(--teal);border-radius:14px;padding:12px 16px;margin-bottom:18px}
+.strip p{margin:0;margin-inline-end:auto}
+.steps{padding-inline-start:20px;margin:6px 0 14px}.steps li{margin-bottom:8px}
+.state{display:flex;align-items:center;gap:10px;font-weight:600;margin-bottom:10px}
 
 /* buttons and fields */
 .btn{border:0;border-radius:12px;padding:11px 18px;font-weight:600;cursor:pointer;display:inline-flex;align-items:center;gap:8px;justify-content:center;white-space:nowrap}
@@ -187,10 +220,77 @@ function ago(d){
 function initials(name){var w=String(name||'?').trim().split(' ').filter(Boolean);return ((w[0]||'?').charAt(0)+(w[1]?w[1].charAt(0):'')).toUpperCase()}
 function hue(id){var x=0;id=String(id||'');for(var i=0;i<id.length;i++)x=(x*31+id.charCodeAt(i))>>>0;return 'c'+(x%6)}
 function avatar(t,big){return h('div',{cls:'av '+hue(t.id)+(big?' lg':''),'aria-hidden':'true',text:initials(t.name)})}
+function bellIcon(){return s('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.8','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'},[s('path',{d:'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0'})])}
+var bellBtn=null;
 function shell(content,withLogout){
+  bellBtn=withLogout?h('button',{cls:'out bell',type:'button','aria-label':'התראות',onclick:notifySettings},[bellIcon(),h('span',{text:'התראות'})]):null;
   root.replaceChildren(h('div',{cls:'top'},[h('div',{cls:'logo'},[h('i'),'PUSH',h('small',{text:'ניהול'})]),
-    withLogout?h('button',{cls:'out',type:'button',text:'יציאה',onclick:function(){setTok(null);showLogin()}}):null]),content);
+    withLogout?h('div',{cls:'top-actions'},[bellBtn,h('button',{cls:'out',type:'button',text:'יציאה',onclick:function(){setTok(null);showLogin()}})]):null]),content);
+  if(withLogout)refreshBell();
 }
+
+// ---------------- notifications to this device (new signups)
+function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
+function isIOS(){return /iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)}
+function standalone(){return (window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true}
+function keyBytes(b64u){var b=atob(b64u.split('-').join('+').split('_').join('/')+'==='.slice((b64u.length+3)%4));var a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a}
+async function currentSub(){if(!pushSupported())return null;try{var r=await navigator.serviceWorker.getRegistration('/admin');return r?await r.pushManager.getSubscription():null}catch(e){return null}}
+async function enablePush(){
+  var info=await api('GET','/admin/v1/push');if(!info.available)throw new Error('התראות לא זמינות בשרת הזה');
+  var perm=await Notification.requestPermission();
+  if(perm!=='granted')throw new Error(perm==='denied'?'ההתראות חסומות בדפדפן הזה. אפשר לאשר אותן בהגדרות האתר ואז לנסות שוב.':'ההתראות לא אושרו');
+  var reg=await navigator.serviceWorker.register('/admin/sw.js',{scope:'/admin'});await navigator.serviceWorker.ready;
+  var sub=await reg.pushManager.getSubscription();
+  if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:keyBytes(info.publicKey)});
+  return api('POST','/admin/v1/push/subscribe',{subscription:sub.toJSON()});
+}
+async function disablePush(){var sub=await currentSub();if(!sub)return;try{await api('POST','/admin/v1/push/unsubscribe',{endpoint:sub.endpoint})}catch(e){}await sub.unsubscribe()}
+async function refreshBell(){if(!bellBtn)return;var sub=await currentSub();var dot=bellBtn.querySelector('.on-dot');if(sub&&!dot)bellBtn.appendChild(h('i',{cls:'on-dot','aria-hidden':'true'}));if(!sub&&dot)dot.remove()}
+async function notifySettings(){
+  var w=sideWindow(),box=w.box,close=w.close,body=h('div',{cls:'box'}),msg=h('p',{cls:'err',role:'status'});
+  box.replaceChildren(h('div',{cls:'d-head'},[h('button',{cls:'close',type:'button',text:'סגירה',onclick:close}),h('div',{cls:'d-id'},[h('div',null,[h('h2',{text:'התראות'}),h('p',{text:'הודעה לטלפון או למחשב ברגע שלקוח חדש נרשם.'})])])]),h('div',{cls:'d-body'},[body,msg]));
+  var draw=async function(){
+    msg.textContent='';msg.className='err';
+    if(!pushSupported()){
+      if(isIOS()&&!standalone())return body.replaceChildren(h('h3',{text:'באייפון: מוסיפים את הניהול למסך הבית'}),h('ol',{cls:'steps'},[
+        h('li',{text:'פותחים את הדף הזה בספארי.'}),h('li',{text:'לוחצים על כפתור השיתוף (ריבוע עם חץ למעלה).'}),h('li',{text:'בוחרים "הוספה למסך הבית" ולוחצים "הוספה".'}),
+        h('li',{text:'פותחים את "PUSH ניהול" ממסך הבית, נכנסים, ולוחצים כאן "הפעלת התראות".'})]),h('p',{cls:'hint',text:'אפל מאפשרת התראות מאתרים רק אחרי הוספה למסך הבית (iOS 16.4 ומעלה).'}));
+      return body.replaceChildren(h('p',{text:'הדפדפן הזה לא תומך בהתראות. אפשר להשתמש ב‑Chrome, Edge, Firefox או Safari מעודכן.'}));
+    }
+    var info;try{info=await api('GET','/admin/v1/push')}catch(e){return body.replaceChildren(h('p',{cls:'err',text:e.message}))}
+    if(!info.available)return body.replaceChildren(h('p',{text:'התראות לא זמינות בשרת הזה.'}));
+    var sub=await currentSub();
+    if(Notification.permission==='denied'&&!sub)return body.replaceChildren(h('div',{cls:'state'},[h('span',{cls:'dot off'}),'ההתראות חסומות בדפדפן הזה']),
+      h('p',{cls:'hint',text:'כדי לאשר: לוחצים על סמל המנעול ליד כתובת האתר, משנים את "התראות" ל"אפשר", ומרעננים את הדף.'}));
+    if(sub){
+      var test=h('button',{cls:'btn btn-primary',type:'button',text:'שליחת התראת בדיקה',onclick:async function(){test.disabled=true;try{await api('POST','/admin/v1/push/test');msg.className='ok';msg.textContent='נשלחה התראת בדיקה. היא אמורה להופיע תוך כמה שניות.'}catch(e){msg.className='err';msg.textContent=e.message}test.disabled=false}});
+      var off=h('button',{cls:'btn btn-ghost',type:'button',text:'כיבוי במכשיר הזה',onclick:async function(){off.disabled=true;await disablePush();refreshBell();draw()}});
+      return body.replaceChildren(h('div',{cls:'state'},[h('span',{cls:'dot on'}),'ההתראות פעילות במכשיר הזה']),
+        h('p',{cls:'hint',text:'מכשירים שמקבלים התראות: '+info.devices+'. כל טלפון או מחשב מפעילים בנפרד.'}),h('div',{cls:'actions'},[test,off]));
+    }
+    var on=h('button',{cls:'btn btn-primary btn-block',type:'button',text:'הפעלת התראות במכשיר הזה',onclick:async function(){on.disabled=true;
+      try{await enablePush();refreshBell();await draw();msg.className='ok';msg.textContent='ההתראות הופעלו.'}catch(e){msg.className='err';msg.textContent=e.message;on.disabled=false}}});
+    body.replaceChildren(h('p',{text:'הדפדפן ישאל אם לאשר התראות. אחרי האישור, כל לקוח חדש שנרשם יגיע אליכם כהתראה, ולחיצה עליה תפתח את פרטי הלקוח.'}),on);
+  };
+  draw();
+}
+async function notifyStrip(el){
+  try{if(localStorage.getItem('push-admin-notify-later'))return}catch(e){}
+  if(!pushSupported()&&!isIOS())return;
+  if(await currentSub())return;
+  try{var info=await api('GET','/admin/v1/push');if(!info.available)return}catch(e){return}
+  el.replaceChildren(h('div',{cls:'strip'},[h('p',{text:'רוצים לדעת מיד כשלקוח חדש נרשם? הפעילו התראות לטלפון או למחשב.'}),
+    h('button',{cls:'btn btn-primary btn-sm',type:'button',text:'הפעלת התראות',onclick:function(){el.replaceChildren();notifySettings()}}),
+    h('button',{cls:'btn btn-ghost btn-sm',type:'button',text:'לא עכשיו',onclick:function(){try{localStorage.setItem('push-admin-notify-later','1')}catch(e){}el.replaceChildren()}})]));
+}
+function openFromHash(reload){
+  var m=String(location.hash||'').match(/^#customer=([0-9a-f-]{36})$/);if(!m)return;
+  try{history.replaceState(null,'',location.pathname)}catch(e){}
+  openCustomer(m[1],reload);
+}
+if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',function(e){if(e.data&&e.data.open&&tok()){location.hash=String(e.data.open).split('#')[1]||''}});
+var HOME_RELOAD=null;
+window.addEventListener('hashchange',function(){if(tok()&&HOME_RELOAD)openFromHash(HOME_RELOAD)});
 
 /* A bar per period (copies delivered) with the reads drawn as a line over it. */
 function chart(rows,labelOf,tickEvery,readoutOf){
@@ -275,7 +375,9 @@ async function showHome(){
   var addBtn=h('button',{cls:'btn btn-primary',type:'button',text:'+ הוספת לקוח',onclick:addCustomer});
   var listBox=h('div',{cls:'list'},[h('div',{cls:'tablewrap'},[h('table',null,[h('thead',null,[h('tr',null,[
     h('th',{text:'לקוח'}),h('th',{cls:'col-hide',text:'מסלול'}),h('th',{text:'WhatsApp'}),h('th',{cls:'col-hide',text:'7 ימים'}),h('th',{text:'24 שעות'}),h('th',{cls:'col-hide',text:'כניסה אחרונה'}),h('th',{cls:'col-hide',text:'הצטרף'})])]),tbody])])]);
-  shell(h('div',null,[live,h('main',null,[h('div',{cls:'head'},[h('h2',null,['לקוחות ',count]),q,addBtn]),chips,listBox])]),true);
+  var stripBox=h('div');
+  shell(h('div',null,[live,h('main',null,[stripBox,h('div',{cls:'head'},[h('h2',null,['לקוחות ',count]),q,addBtn]),chips,listBox])]),true);
+  notifyStrip(stripBox);
 
   try{
     var res=await Promise.all([api('GET','/admin/v1/dashboard'),api('GET','/admin/v1/plans')]);var d=res[0];PLANS=res[1];
@@ -319,7 +421,8 @@ async function showHome(){
     catch(e){tbody.replaceChildren(h('tr',null,[h('td',{colspan:'7',cls:'err',text:e.message})]))}
   };
   var timer;q.addEventListener('input',function(){clearTimeout(timer);timer=setTimeout(load,250)});
-  load();
+  HOME_RELOAD=load;
+  load().then(function(){openFromHash(load)});
 }
 function spark(csv){
   var v=String(csv||'').split(',').map(Number).filter(function(x){return !isNaN(x)});if(!v.length)v=[0,0,0,0,0,0,0];

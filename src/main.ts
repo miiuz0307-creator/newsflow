@@ -31,6 +31,7 @@ import { supportModule } from './api/modules/support.js';
 import { pushModule } from './api/modules/push.js';
 import { fontsModule } from './api/fonts.js';
 import { NotificationService, noticeForSafety, noticeForStatus } from './notify/notifications.js';
+import { AdminPush } from './notify/adminPush.js';
 import { TelegramRuntime } from './telegram/runtime.js';
 import { CachedRouteSource } from './engine/routeCache.js';
 import { Worker } from './engine/worker.js';
@@ -134,9 +135,14 @@ if (cfg.allowRealTelegram || !cfg.telegramApiBase.includes('api.telegram.org')) 
 // Writes the admin role itself may not do (first admin, opening and deleting customers) use the
 // owner role (first admin) and the app role inside the customer's own tenant (delete).
 const ownerPool = process.env.DATABASE_URL_OWNER ? PgPool.fromUrl(process.env.DATABASE_URL_OWNER, 2) : undefined;
-const adminModules = process.env.DATABASE_URL_ADMIN && process.env.ADMIN_TOKEN_SECRET
+const adminPool = process.env.DATABASE_URL_ADMIN ? PgPool.fromUrl(process.env.DATABASE_URL_ADMIN, 4) : undefined;
+// Notifications to the owner's devices (e.g. "a new customer signed up"), when keys are configured.
+const adminPush = adminPool && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY
+  ? new AdminPush(adminPool, { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY }, process.env.VAPID_SUBJECT ?? 'mailto:admin@localhost', { log })
+  : undefined;
+const adminModules = adminPool && process.env.ADMIN_TOKEN_SECRET
   ? [adminModule({
-      adminPool: PgPool.fromUrl(process.env.DATABASE_URL_ADMIN, 4), adminTokenSecret: process.env.ADMIN_TOKEN_SECRET, customerTokenSecret: req('TOKEN_SECRET'), masterKeyB64: req('MASTER_KEY'),
+      adminPool, push: adminPush, adminTokenSecret: process.env.ADMIN_TOKEN_SECRET, customerTokenSecret: req('TOKEN_SECRET'), masterKeyB64: req('MASTER_KEY'),
       manage: {
         ...(process.env.ADMIN_SETUP_CODE && ownerPool ? {
           setupCode: process.env.ADMIN_SETUP_CODE,
@@ -166,7 +172,13 @@ const api = new ApiServer({
   onRoutesChanged: () => routeSource.invalidate(),
   trustProxyHops: Number(process.env.TRUST_PROXY_HOPS ?? 0),
   modules: [
-    authModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate() }),
+    authModule({
+      keys, telegram, onRoutesChanged: () => routeSource.invalidate(),
+      onSignup: async (t) => {
+        log.info('new signup', { tenantId: t.tenantId });
+        await adminPush?.send({ title: 'לקוח חדש נרשם ל‑PUSH', body: `${t.businessName}\n${t.email}`, url: `/admin#customer=${t.tenantId}`, tag: `signup-${t.tenantId}` });
+      },
+    }),
     manageModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate() }),
     supportModule(),
     pushModule({ onRoutesChanged: () => routeSource.invalidate() }),

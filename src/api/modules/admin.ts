@@ -11,7 +11,9 @@ import type http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { checkPassword, DUMMY_HASH, hashPassword, verifyPassword } from '../../auth/password.js';
 import { totpCipherKey, verifyTotpStep } from '../../auth/totp.js';
-import { adminHtml } from '../adminPage.js';
+import { adminHtml, adminServiceWorker } from '../adminPage.js';
+import { adminIcon } from '../adminIcon.js';
+import type { AdminPush } from '../../notify/adminPush.js';
 import { TenantCipher } from '../../crypto/keyring.js';
 import { safeEqual } from '../../crypto/keyring.js';
 import type { PgPool, Sql } from '../../db/pg.js';
@@ -56,6 +58,8 @@ export interface AdminModuleOptions {
   /** Master key (base64): TOTP secrets are stored encrypted with a key derived from it. */
   masterKeyB64: string;
   loginLimiter?: WindowLimiter;
+  /** Notifications to the admins' devices (new signups etc.). Without it the panel hides the option. */
+  push?: AdminPush;
   /**
    * Operations the admin role may not do on its own (it cannot write tenants or admins);
    * the server passes them in. Without them the matching routes answer 501.
@@ -105,12 +109,63 @@ export function adminModule(opts: AdminModuleOptions) {
       const nonce = randomBytes(16).toString('base64');
       res.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
-        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+        'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; connect-src 'self'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
         'referrer-policy': 'no-referrer',
         'x-robots-tag': 'noindex',
       });
       res.end(adminHtml(nonce));
       return undefined;
+    });
+
+    // ---- Installable panel (home screen) and its notifications worker.
+    api.on('GET', '/admin/sw.js', false, async ({ res }) => {
+      res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-cache', 'service-worker-allowed': '/admin' });
+      res.end(adminServiceWorker());
+      return undefined;
+    });
+    api.on('GET', '/admin/manifest.webmanifest', false, async ({ res }) => {
+      res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'public, max-age=3600' });
+      res.end(JSON.stringify({
+        name: 'PUSH ניהול', short_name: 'PUSH ניהול', lang: 'he', dir: 'rtl', start_url: '/admin', scope: '/admin', display: 'standalone',
+        background_color: '#0A1B33', theme_color: '#0A1B33',
+        icons: [{ src: '/admin/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' }, { src: '/admin/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }],
+      }));
+      return undefined;
+    });
+    for (const size of [180, 192, 512] as const) {
+      api.on('GET', `/admin/icon-${size}.png`, false, async ({ res }) => {
+        res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400' });
+        res.end(adminIcon(size));
+        return undefined;
+      });
+    }
+
+    // ---- Notifications to this admin's devices.
+    const push = opts.push;
+    api.on('GET', '/admin/v1/push', false, async ({ req }) => {
+      const a = await authOf(req);
+      if (!push) return { available: false };
+      return { available: true, publicKey: push.publicKey, devices: await push.devices(a.adminId) };
+    });
+    api.on('POST', '/admin/v1/push/subscribe', false, async ({ req, body }) => {
+      const a = await authOf(req);
+      if (!push) throw new HttpError(501, 'not_configured', 'התראות לא זמינות בשרת הזה');
+      const problem = push.check(body.subscription);
+      if (problem) throw new HttpError(400, 'bad_subscription', problem);
+      await push.save(a.adminId, body.subscription as never, req.headers['user-agent']);
+      return { ok: true, devices: await push.devices(a.adminId) };
+    });
+    api.on('POST', '/admin/v1/push/unsubscribe', false, async ({ req, body }) => {
+      const a = await authOf(req);
+      if (push && typeof body.endpoint === 'string') await push.remove(a.adminId, body.endpoint);
+      return { ok: true, devices: push ? await push.devices(a.adminId) : 0 };
+    });
+    api.on('POST', '/admin/v1/push/test', false, async ({ req }) => {
+      const a = await authOf(req);
+      if (!push) throw new HttpError(501, 'not_configured', 'התראות לא זמינות בשרת הזה');
+      const r = await push.send({ title: 'התראת בדיקה מ‑PUSH', body: 'ההתראות עובדות. כך תקבלו הודעה כשלקוח חדש נרשם.', url: '/admin', tag: 'test' }, a.adminId);
+      if (!r.sent) throw new HttpError(502, 'push_failed', r.failed ? 'שירות ההתראות של הדפדפן לא קיבל את ההודעה. נסו לכבות ולהפעיל התראות מחדש.' : 'אין מכשיר רשום להתראות');
+      return r;
     });
 
     // ---- First admin: allowed once, with the setup code, while no admin exists.

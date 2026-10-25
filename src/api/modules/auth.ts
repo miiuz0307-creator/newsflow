@@ -59,6 +59,8 @@ export interface AuthModuleOptions {
   onRoutesChanged?: () => void;
   loginLimiter?: WindowLimiter;
   signupLimiter?: WindowLimiter;
+  /** Called after a customer signs up on their own (for example: notify the owner). Errors are ignored. */
+  onSignup?: (t: { tenantId: string; businessName: string; email: string }) => void | Promise<void>;
 }
 
 export function authModule(opts: AuthModuleOptions) {
@@ -102,6 +104,7 @@ export function authModule(opts: AuthModuleOptions) {
       if (body.displayName) {
         await withTenant(pool, tenantId, (c) => c.query('UPDATE users SET display_name = $2 WHERE id = $1', [userId, String(body.displayName).slice(0, 80)]));
       }
+      if (opts.onSignup) void Promise.resolve().then(() => opts.onSignup!({ tenantId, businessName, email })).catch(() => {});
       return { tenantId, userId, ...(await issueTokens({ tenantId, userId, role: 'owner' }, req.headers['user-agent'])) };
     });
 
