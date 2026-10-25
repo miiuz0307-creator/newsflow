@@ -106,6 +106,7 @@ export class Worker {
       accountIds: () => this.accountIds(),
       sourceState: (job) => this.sources.state(job.source, job.sourceMessageId),
       onResult: (job, outcome) => this.track(this.reporter.onJobResult(job, outcome)),
+      onSendStart: (job) => this.track(this.reporter.onSendStart(job)),
       logger: o.logger,
       now,
       ...(o.dispatcherOverrides ?? {}),

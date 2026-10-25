@@ -7,6 +7,7 @@
 import type { ChatRef, InboundMessage, MessageContent } from '../core/types.js';
 import { chatKey } from '../core/types.js';
 import type { DedupStore } from './dedup.js';
+import { parseSchedule, stripSchedule } from './schedule.js';
 import { renderTemplate } from './template.js';
 import { codePointLength, contentFingerprint, normalizeForMatch, removeInviteLinks } from './text.js';
 import type { ControlSettings, PlannedJob, QuietHours, Route, RouteFilters, RouteTarget, RoutingPlan, SkipReason, Template } from './types.js';
@@ -45,6 +46,8 @@ export function renderCopy(
   now: Date,
 ): MessageContent | null {
   let body = source.text ?? '';
+  // A control group's "תזמון (12:20)" line is an instruction to PUSH, never part of the copy.
+  if (route.control) body = stripSchedule(body);
   if (route.filters.removeInviteLinks ?? true) body = removeInviteLinks(body);
   if (source.kind === 'text' && !body.trim()) return null;
   // The control group's fixed signature goes under the message (and under the template, if any).
@@ -160,7 +163,14 @@ export class Router {
         continue;
       }
 
-      let body = msg.content.text ?? '';
+      const now = this.now();
+      // "תזמון (12:20)" on the first line of a control-group message: send at that time (Israel), without the line.
+      const schedule = route.control ? parseSchedule(msg.content.text, now) : { kind: 'none' as const };
+      if (schedule.kind === 'invalid') {
+        plan.skipped.push({ routeId: route.id, reason: 'bad_schedule' });
+        continue;
+      }
+      let body = schedule.kind === 'scheduled' ? schedule.rest : msg.content.text ?? '';
       if (route.filters.removeInviteLinks ?? true) body = removeInviteLinks(body);
       if (msg.content.kind === 'text' && !body.trim()) {
         plan.skipped.push({ routeId: route.id, reason: 'empty_after_cleanup' });
@@ -168,9 +178,10 @@ export class Router {
       }
 
       const template = route.templateId ? await this.opts.templates(route.tenantId, route.templateId) : undefined;
-      const now = this.now();
       let notBefore = new Date(now.getTime() + (route.delaySeconds ?? 0) * 1000);
       if (route.quietHours) notBefore = nextAllowedTime(notBefore, route.quietHours);
+      const scheduledAt = schedule.kind === 'scheduled' ? schedule.at : undefined;
+      if (scheduledAt && scheduledAt > notBefore) notBefore = scheduledAt;
 
       const targets = route.targets.filter((t) => chatKey(t) !== srcKey); // a group never feeds itself
       const keyOf = (t: RouteTarget) => `fp:${route.tenantId}:${chatKey(t)}:${fingerprint}`;
@@ -194,6 +205,7 @@ export class Router {
           target,
           content,
           notBefore,
+          ...(scheduledAt ? { scheduledAt } : {}),
           requiresApproval: route.requireApproval,
           idempotencyKey: `${srcKey}|${msg.messageId}|${route.id}|${tKey}`,
           action: 'send',

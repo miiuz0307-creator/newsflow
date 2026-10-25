@@ -53,6 +53,8 @@ export interface DispatcherOptions {
   retryJitter?: number;
   random?: () => number;
   onResult?: (job: StoredJob, outcome: Outcome, detail?: string) => void;
+  /** A send is about to be attempted (used for the ⏳ mark on scheduled messages). */
+  onSendStart?: (job: StoredJob) => void;
 }
 
 export type Outcome = 'sent' | 'retry' | 'failed' | 'deferred' | 'skipped' | 'unknown';
@@ -71,8 +73,8 @@ export class Dispatcher {
   private running = false;
   private loop?: Promise<void>;
   private readonly log: Logger;
-  private readonly o: Required<Omit<DispatcherOptions, 'media' | 'accountIds' | 'logger' | 'onResult' | 'sourceState'>> &
-    Pick<DispatcherOptions, 'media' | 'accountIds' | 'onResult' | 'sourceState'>;
+  private readonly o: Required<Omit<DispatcherOptions, 'media' | 'accountIds' | 'logger' | 'onResult' | 'sourceState' | 'onSendStart'>> &
+    Pick<DispatcherOptions, 'media' | 'accountIds' | 'onResult' | 'sourceState' | 'onSendStart'>;
 
   constructor(opts: DispatcherOptions) {
     this.log = (opts.logger ?? silentLogger).child({ component: 'dispatcher', worker: opts.workerId });
@@ -139,7 +141,8 @@ export class Dispatcher {
       return o;
     };
 
-    if (now - job.createdAt.getTime() > this.o.maxJobAgeMs) {
+    // A scheduled message counts its age from the time it was set to go out.
+    if (now - Math.max(job.createdAt.getTime(), job.scheduledAt?.getTime() ?? 0) > this.o.maxJobAgeMs) {
       await q.skip(job.id, 'stale');
       return report('skipped', 'stale');
     }
@@ -173,6 +176,7 @@ export class Dispatcher {
       }
     }
 
+    if (job.action === 'send') this.o.onSendStart?.(job);
     let content: MessageContent = job.content;
     try {
       if (content.media?.ref && !content.media.data) {
