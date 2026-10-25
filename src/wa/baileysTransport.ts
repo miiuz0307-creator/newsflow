@@ -196,6 +196,8 @@ export class BaileysTransport implements WaTransport {
   private groupCache = new Map<string, any>();
   /** Message ids already handed on, so a message delivered twice (online, then offline catch-up) is processed once. */
   private seen = new Set<string>();
+  /** The original keys of recent inbound group messages, so PUSH can react to them (bounded). */
+  private inboundKeys = new Map<string, any>();
   private listeners = new Map<string, Set<(...a: unknown[]) => void>>();
   private connected = false;
   private pairingRequested = false;
@@ -331,6 +333,8 @@ export class BaileysTransport implements WaTransport {
           continue;
         }
         const seenKey = `${jid}|${msg.key.id}`;
+        this.inboundKeys.set(seenKey, { remoteJid: jid, id: msg.key.id, fromMe: !!msg.key.fromMe, ...(msg.key.participant ? { participant: msg.key.participant } : {}) });
+        if (this.inboundKeys.size > 3000) this.inboundKeys.delete(this.inboundKeys.keys().next().value as string);
         if (this.seen.has(seenKey)) continue;
         this.seen.add(seenKey);
         if (this.seen.size > 5000) this.seen.delete(this.seen.values().next().value as string);
@@ -423,6 +427,17 @@ export class BaileysTransport implements WaTransport {
         isAdmin,
       } satisfies ChatInfo;
     });
+  }
+
+  async react(chatId: string, messageId: string, emoji: string): Promise<void> {
+    if (!this.connected || !this.sock) throw new SendError('disconnected', 'not connected');
+    const key = this.inboundKeys.get(`${chatId}|${messageId}`);
+    if (!key) return; // a message from before a restart: no reaction rather than a wrong one
+    try {
+      await this.sock.sendMessage(chatId, { react: { text: emoji, key } });
+    } catch (err: any) {
+      throw mapSendError(err);
+    }
   }
 
   async send(chatId: string, content: MessageContent): Promise<SendResult> {

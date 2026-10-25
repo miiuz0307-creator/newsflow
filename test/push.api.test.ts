@@ -239,6 +239,10 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
     const now = await call('GET', '/v1/push/settings', undefined, tokA);
     assert.equal(now.body.signature, sig);
     assert.equal(now.body.reportMode, 'failures');
+    assert.equal(now.body.reactions, true, 'reactions are on by default');
+    await call('PUT', '/v1/push/settings', { reactions: false }, tokA);
+    assert.equal((await call('GET', '/v1/push/settings', undefined, tokA)).body.reactions, false);
+    await call('PUT', '/v1/push/settings', { reactions: true }, tokA);
     const r = await withTenant(db.app, tA, (c) => c.query<{ control: any }>('SELECT control FROM routes'));
     assert.deepEqual(r.rows[0]!.control.allowedSenders, ['972500000402'], 'other control settings are kept');
 
@@ -328,6 +332,8 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
     assert.equal(saved.status, 200, JSON.stringify(saved.body));
     assert.deepEqual([saved.body.position, saved.body.sizePct, saved.body.opacityPct, saved.body.applyVideo, saved.body.applyImage], ['top-right', 22, 70, true, true]);
     // Changing settings keeps the uploaded logo.
+    const smart = await call('PUT', '/v1/push/logo', { position: 'bottom-right', sizePct: 20, opacityPct: 90, smartPosition: true }, tokA);
+    assert.equal(smart.body.smartPosition, true);
     const moved = await call('PUT', '/v1/push/logo', { position: 'center', sizePct: 30, opacityPct: 100 }, tokA);
     assert.equal(moved.body.logo, 'data:image/png;base64,' + PNG);
     assert.equal(moved.body.position, 'center');

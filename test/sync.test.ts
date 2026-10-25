@@ -262,6 +262,25 @@ for (const kind of ['memory', 'pg'] as const) {
       for (const g of w.waTargets) assert.ok(!text(w.net, g).some((t) => t?.includes(REPORT_TAG)), 'reports never leave the control group');
     });
 
+    test('the control-group message gets ⏳ while distributing, then ✅ (⚠️ when a copy is unconfirmed)', async () => {
+      const hist: string[] = [];
+      const orig = w.net.reactFrom.bind(w.net);
+      w.net.reactFrom = (phone: string, jid: string, mid: string, emoji: string) => { if (jid === w.ctrl) hist.push(emoji); orig(phone, jid, mid, emoji); };
+      try {
+        const id = w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'בדיקת סימון' });
+        await w.drain();
+        assert.deepEqual(hist, ['⏳', '✅']);
+        assert.equal(w.net.reactionOf(w.ctrl, id, LINKED), '✅');
+        hist.length = 0;
+        w.net.loseNextAck(LINKED);
+        const id2 = w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'אחד מהם בלי אישור' });
+        await w.drain();
+        assert.equal(w.net.reactionOf(w.ctrl, id2, LINKED), '⚠️');
+      } finally {
+        w.net.reactFrom = orig;
+      }
+    });
+
     test('rapid edits: only the newest version ends up in the groups', async () => {
       const id = w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'גרסה 1' });
       await w.drain();

@@ -5,7 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { applyLogo, ffmpegAvailable, logoFilter } from '../src/media/watermark.js';
+import { applyLogo, ffmpegAvailable, logoFilter, parsePgmFrames, pickCorner } from '../src/media/watermark.js';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
 
@@ -64,6 +64,27 @@ describe('logo on videos and photos', { skip: !hasFfmpeg && 'ffmpeg not installe
     }
   });
 
+  test('smart position: the logo moves away from a busy corner, and stays put when all are quiet', async () => {
+    const f = fixtures();
+    try {
+      const dir = mkdtempSync(path.join(os.tmpdir(), 'wm-busy-'));
+      const busy = path.join(dir, 'busy.mp4');
+      // Black clip with a detailed test pattern (like a caption) over the bottom-left corner.
+      ff(['-f', 'lavfi', '-i', 'color=c=black:s=320x240:d=1:r=10', '-f', 'lavfi', '-i', 'testsrc=s=140x90:d=1:r=10',
+        '-filter_complex', '[0][1]overlay=0:150', '-c:v', 'libx264', '-pix_fmt', 'yuv420p', busy]);
+      const settings = { logo: f.logo, logoMime: 'image/png', position: 'bottom-left' as const, sizePct: 25, opacityPct: 100, smart: true };
+      const moved = await applyLogo(readFileSync(busy), 'video', settings);
+      assert.notEqual(moved.position, 'bottom-left', 'avoids the busy corner');
+      const [x, y] = ({ 'top-left': [40, 20], 'top-right': [270, 20], 'bottom-right': [270, 210] } as Record<string, [number, number]>)[moved.position]!;
+      assert.ok(pixel(moved.data, 'mp4', x, y)[0] > 180, `logo drawn in ${moved.position}`);
+      const calm = await applyLogo(f.video, 'video', settings);
+      assert.equal(calm.position, 'bottom-left', 'keeps the chosen corner when nothing is covered');
+      rmSync(dir, { recursive: true, force: true });
+    } finally {
+      rmSync(f.dir, { recursive: true, force: true });
+    }
+  });
+
   test('a broken file is reported, not silently passed on', async () => {
     const f = fixtures();
     try {
@@ -79,3 +100,13 @@ test('size and opacity are kept within limits in the filter', () => {
   assert.match(g, /iw\*0\.4:/);
   assert.match(g, /aa=0\.2\[/);
 });
+
+test('PGM frames are read, and the preferred corner wins unless another is clearly quieter', () => {
+  const frame = (w: number, h: number, v: number) => Buffer.concat([Buffer.from(`P5\n${w} ${h}\n255\n`), Buffer.alloc(w * h, v)]);
+  const fr = parsePgmFrames(Buffer.concat([frame(4, 3, 7), frame(2, 2, 9)]));
+  assert.deepEqual(fr.map((x) => [x.w, x.h, x.px[0]]), [[4, 3, 7], [2, 2, 9]]);
+  assert.equal(pickCorner({ 'top-left': 30, 'top-right': 28, 'bottom-left': 32, 'bottom-right': 31 }, 'bottom-left'), 'bottom-left');
+  assert.equal(pickCorner({ 'top-left': 30, 'top-right': 5, 'bottom-left': 32, 'bottom-right': 31 }, 'bottom-left'), 'top-right');
+  assert.equal(pickCorner({ 'top-left': 1, 'top-right': 0, 'bottom-left': 2, 'bottom-right': 1 }, 'bottom-left'), 'bottom-left');
+});
+

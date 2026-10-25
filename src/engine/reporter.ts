@@ -96,6 +96,8 @@ export interface ReporterOptions {
   routes: RouteSource;
   logger?: Logger;
   now?: () => Date;
+  /** Sets the linked number's reaction on the control-group message ('' removes it). */
+  react?: (tenantId: string, source: ChatRef, messageId: string, emoji: string) => Promise<void>;
 }
 
 export class Reporter {
@@ -114,6 +116,32 @@ export class Reporter {
 
   private mode(r: Route): ReportMode {
     return r.control?.reportMode ?? 'summary';
+  }
+
+  /** Reactions on one message are set in order, so ✅ never lands before ⏳. */
+  private marks = new Map<string, Promise<void>>();
+  private mark(route: Route, source: ChatRef, messageId: string, emoji: string): Promise<void> {
+    if (!this.o.react || route.control?.reactions === false) return Promise.resolve();
+    const k = `${chatKey(source)}|${messageId}`;
+    const next = (this.marks.get(k) ?? Promise.resolve()).then(async () => {
+      try {
+        await this.o.react!(route.tenantId, source, messageId, emoji);
+      } catch (err) {
+        this.log.info('reaction not set', { err: String(err).slice(0, 200) });
+      }
+    });
+    this.marks.set(k, next);
+    void next.then(() => { if (this.marks.get(k) === next) this.marks.delete(k); });
+    return next;
+  }
+
+  /** ⏳ on the control-group message as soon as it is accepted for distribution. */
+  async onDistributionStarted(tenantId: string, source: ChatRef, messageId: string, jobs: PlannedJob[]): Promise<void> {
+    const routeIds = new Set(jobs.map((j) => j.routeId));
+    for (const routeId of routeIds) {
+      const route = await this.controlRoute(tenantId, source, routeId);
+      if (route) { await this.mark(route, source, messageId, '⏳'); return; }
+    }
   }
 
   /** "🕒 received, distributing to N groups" — only in mode 'all'. */
@@ -168,12 +196,14 @@ export class Reporter {
     const route = await this.controlRoute(job.tenantId, job.source, job.routeId);
     if (!route) return;
     const mode = this.mode(route);
-    if (mode === 'off') return;
     // Counted per route: another route reading the same group never mixes into this report.
     const q = this.o.queue;
     const version = job.action === 'edit' ? job.version : undefined;
     const s = await q.summary(job.tenantId, job.source, job.sourceMessageId, job.action, version, route.id);
     if (s.pending > 0) return;
+    // The wave is done: ✅ on the message when every copy went out, ⚠️ when some did not.
+    if (job.action === 'send') await this.mark(route, job.source, job.sourceMessageId, s.failed + s.unknown > 0 ? '⚠️' : '✅');
+    if (mode === 'off') return;
     const extra: ReportExtra = {};
     if (job.action !== 'send') {
       const sends = await q.summary(job.tenantId, job.source, job.sourceMessageId, 'send', undefined, route.id);

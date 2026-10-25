@@ -117,6 +117,11 @@ export interface WaTransport {
   edit(chatId: string, messageId: string, content: MessageContent): Promise<void>;
   /** Deletes for everyone a message this number sent. */
   remove(chatId: string, messageId: string): Promise<void>;
+  /**
+   * Sets this number's reaction on a message in a chat ('' removes it). Used to mark
+   * a control-group message ⏳ while distributing and ✅ when done.
+   */
+  react?(chatId: string, messageId: string, emoji: string): Promise<void>;
   on<E extends keyof TransportEvents>(event: E, fn: TransportEvents[E]): void;
   off<E extends keyof TransportEvents>(event: E, fn: TransportEvents[E]): void;
 }

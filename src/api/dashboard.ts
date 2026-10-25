@@ -331,6 +331,8 @@ label.f.mode{margin-top:18px}
 .bg-box{margin:-6px 0 14px}.bg-row{display:flex;gap:8px;flex-wrap:wrap}
 .bg-tune{margin-top:12px}.bg-tune input[type=range]{width:100%;accent-color:var(--teal-deep)}.bg-tune .check{margin:8px 0 0;color:var(--text);font-size:13.5px}
 .bg-msg{margin:10px 0 0}
+.check.smart{align-items:flex-start;margin:12px 0 0;font-size:13.5px;line-height:1.5;color:var(--text)}.check.smart b{color:var(--teal-deep)}
+.pos:disabled{opacity:.35;cursor:not-allowed}
 </style>
 </head>
 <body>
@@ -740,7 +742,7 @@ function logoPage(){
   var wrap=h('div',null,[h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'לוגו על הסרטונים'}),h('p',{text:'הלוגו שלכם יופיע על כל סרטון שיוצא מקבוצת השליטה, בכל הקבוצות.'})])]),h('p',{cls:'hint',text:'טוען…'})]);
   (async function(){
     var cur;try{cur=await api('GET','/v1/push/logo')}catch(e){wrap.lastChild.replaceWith(h('p',{cls:'err',text:e.message}));return}
-    var st={original:cur.logo,cut:false,logo:cur.logo,position:cur.position,sizePct:cur.sizePct,opacityPct:cur.opacityPct,applyVideo:cur.applyVideo,applyImage:cur.applyImage,newLogo:null,shape:'v'};
+    var st={original:cur.logo,cut:false,logo:cur.logo,position:cur.position,sizePct:cur.sizePct,opacityPct:cur.opacityPct,applyVideo:cur.applyVideo,applyImage:cur.applyImage,smart:!!cur.smartPosition,newLogo:null,shape:'v'};
     var msg=h('p',{cls:'hint save-msg',role:'status'}),err=h('p',{cls:'err'});
     // ---- preview
     var img=h('img',{cls:'pv-logo',alt:'הלוגו'});
@@ -781,12 +783,14 @@ function logoPage(){
     var sizeV=h('span',{cls:'range-v'});size.addEventListener('input',function(){st.sizePct=Number(size.value);paint()});
     var op=h('input',{type:'range',min:'20',max:'100',step:'5','aria-label':'שקיפות'});op.value=String(st.opacityPct);
     var opV=h('span',{cls:'range-v'});op.addEventListener('input',function(){st.opacityPct=Number(op.value);paint()});
+    var smart=h('input',{type:'checkbox',checked:st.smart,onchange:function(){st.smart=smart.checked;if(st.smart&&st.position==='center')st.position='bottom-left';paint()}});
+    var smartBox=h('label',{cls:'check smart'},[smart,h('span',null,[h('b',{text:'מיקום חכם'}),' — בכל סרטון הלוגו עובר לפינה שבה הוא לא מסתיר טקסט או פרטים. הפינה שבחרתם היא ברירת המחדל.'])]);
     var vid=h('input',{type:'checkbox',checked:st.applyVideo,onchange:function(){st.applyVideo=vid.checked}});
     var pic=h('input',{type:'checkbox',checked:st.applyImage,onchange:function(){st.applyImage=pic.checked}});
     var save=h('button',{cls:'btn btn-primary',type:'button',text:'שמירה',onclick:async function(){
       err.textContent='';msg.textContent='';if(!st.logo){err.textContent='בחרו קובץ לוגו';return}
       save.disabled=true;
-      try{var b={position:st.position,sizePct:st.sizePct,opacityPct:st.opacityPct,applyVideo:st.applyVideo,applyImage:st.applyImage};if(st.newLogo)b.logo=st.newLogo;
+      try{var b={position:st.position,sizePct:st.sizePct,opacityPct:st.opacityPct,applyVideo:st.applyVideo,applyImage:st.applyImage,smartPosition:st.smart};if(st.newLogo)b.logo=st.newLogo;
         await api('PUT','/v1/push/logo',b);st.newLogo=null;msg.textContent=st.applyVideo||st.applyImage?'נשמר. מעכשיו הלוגו יתווסף אוטומטית.':'נשמר. הלוגו כבוי כרגע (לא נבחרו סרטונים או תמונות).';paint()}
       catch(e){err.textContent=e.message}
       save.disabled=false}});
@@ -802,14 +806,16 @@ function logoPage(){
       bgBox.hidden=!st.logo;undoBtn.hidden=!st.cut;tune.hidden=!st.cut;cutBtn.textContent=st.cut?'הסרה מחדש':'הסרת רקע';
       drop.querySelector('.drop-t').textContent=st.logo?'החלפת הלוגו':'העלאת לוגו';
       [].forEach.call(posBox.children,function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-p')===st.position))});
-      posName.textContent=(POS.find(function(p){return p[0]===st.position})||[0,''])[1];
+      posName.textContent=(POS.find(function(p){return p[0]===st.position})||[0,''])[1]+(st.smart?' · משתנה לפי הסרטון':'');
+      [].forEach.call(posBox.children,function(b){if(b.getAttribute('data-p')==='center')b.disabled=st.smart});
+      var lbl=posBox.parentNode&&posBox.parentNode.querySelector('.ctl-h span');if(lbl)lbl.textContent=st.smart?'פינה מועדפת':'מיקום';
       sizeV.textContent=st.sizePct+'% מרוחב הסרטון';opV.textContent=st.opacityPct===100?'אטום':st.opacityPct+'%';
       remove.hidden=!cur.logo&&!st.logo;
     }
     var row=function(label,ctrl,val){return h('div',{cls:'ctl'},[h('div',{cls:'ctl-h'},[h('span',{text:label}),val||null]),ctrl])};
     var controls=h('section',{cls:'panel logo-ctl'},[
       h('h2',{text:'הלוגו'}),file,drop,bgBox,
-      row('מיקום',posBox,posName),row('גודל',size,sizeV),row('שקיפות',op,opV),
+      row(st.smart?'פינה מועדפת':'מיקום',posBox,posName),smartBox,row('גודל',size,sizeV),row('שקיפות',op,opV),
       h('div',{cls:'ctl'},[h('div',{cls:'ctl-h'},[h('span',{text:'להוסיף ל:'})]),h('label',{cls:'check'},[vid,'סרטונים']),h('label',{cls:'check'},[pic,'תמונות'])]),
       cur.available?null:h('p',{cls:'hint left',text:'בשרת הזה (דמו) ההגדרות נשמרות, אבל הלוגו מתווסף רק בגרסה האמיתית.'}),
       h('div',{cls:'save-row'},[save,remove]),msg,err]);
@@ -833,12 +839,15 @@ function settingsPage(){
     var prevText=h('div',{cls:'pv-t'});var prevSig=h('div',{cls:'pv-s'});
     var upd=function(){prevText.textContent=sample;prevSig.textContent=sig.value.trim();prevSig.hidden=!sig.value.trim()};sig.addEventListener('input',upd);upd();
     var mode=h('select',{cls:'i'},[['summary','סיכום בסוף כל הפצה'],['all','כל שלב: התקבלה, נשלחה, נערכה'],['failures','רק כשמשהו לא הצליח'],['off','בלי דיווחים']].map(function(o){return h('option',{value:o[0],text:o[1]})}));mode.value=settings.reportMode;
+    var react=h('input',{type:'checkbox',checked:settings.reactions!==false});
     var msg=h('p',{cls:'hint save-msg',role:'status'});
     var save=h('button',{cls:'btn btn-primary',type:'button',text:'שמירה',onclick:async function(){save.disabled=true;msg.textContent='';
-      try{await api('PUT','/v1/push/settings',{signature:sig.value,reportMode:mode.value});msg.textContent='נשמר. ההודעות הבאות יישלחו עם החתימה.'}catch(e){msg.textContent=e.message}save.disabled=false}});
+      try{await api('PUT','/v1/push/settings',{signature:sig.value,reportMode:mode.value,reactions:react.checked});msg.textContent='נשמר. ההודעות הבאות יישלחו עם החתימה.'}catch(e){msg.textContent=e.message}save.disabled=false}});
     wrap.lastChild.replaceWith(h('div',{cls:'grid-2 settings'},[
       h('section',{cls:'panel'},[h('h2',{text:'חתימה קבועה'}),h('p',{cls:'hint left',text:'טקסט או קישור שיופיעו מתחת לכל הודעה, בכל הקבוצות. אפשר להשתמש גם ב-{תאריך} וב-{שעה}.'}),
-        sig,h('label',{cls:'f mode'},[h('span',{text:'דיווח בקבוצת השליטה'}),mode]),h('div',{cls:'save-row'},[save,msg])]),
+        sig,h('label',{cls:'f mode'},[h('span',{text:'דיווח בקבוצת השליטה'}),mode]),
+        h('label',{cls:'check'},[react,'סימון על ההודעה בקבוצת השליטה: ⏳ בזמן ההפצה, ✅ כשהסתיימה (⚠️ אם משהו לא הגיע)']),
+        h('div',{cls:'save-row'},[save,msg])]),
       h('section',{cls:'panel'},[h('h2',{text:'כך זה ייראה בקבוצות'}),h('div',{cls:'preview'},[h('div',{cls:'b copy pv'},[prevText,prevSig,h('div',{cls:'t',text:'12:00'})])])])]));
   })();
   return wrap;
