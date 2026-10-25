@@ -58,6 +58,7 @@ button,input,select{font:inherit;color:inherit}
 :focus-visible{outline:3px solid var(--teal);outline-offset:2px;border-radius:6px}
 .ltr{direction:ltr;unicode-bidi:isolate}
 .hint{font-size:13px;color:var(--muted);margin:0}
+.remember{display:flex;align-items:center;gap:10px;margin:2px 0 16px;font-size:14px;cursor:pointer}.remember input{width:18px;height:18px;accent-color:var(--teal-ink);margin:0}
 .err{color:var(--coral);font-size:14px;min-height:1.4em;margin:8px 0 0}.ok{color:var(--ok);font-weight:600}
 
 /* top bar */
@@ -199,8 +200,9 @@ function h(tag,attrs,kids){var e=document.createElement(tag);if(attrs)for(var k 
   (kids||[]).forEach(function(c){if(c!=null&&c!==false&&c!=='')e.appendChild(typeof c==='string'?document.createTextNode(c):c)});return e}
 var SVGNS='http://www.w3.org/2000/svg';
 function s(tag,attrs,kids){var e=document.createElementNS(SVGNS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);(kids||[]).forEach(function(c){e.appendChild(c)});return e}
-function tok(){try{return sessionStorage.getItem('push-admin')}catch(e){return null}}
-function setTok(t){try{if(t)sessionStorage.setItem('push-admin',t);else sessionStorage.removeItem('push-admin')}catch(e){}}
+// "זכור אותי": kept on this device for 30 days (localStorage); otherwise until the browser closes.
+function tok(){try{return sessionStorage.getItem('push-admin')||localStorage.getItem('push-admin')}catch(e){return null}}
+function setTok(t,keep){try{sessionStorage.removeItem('push-admin');localStorage.removeItem('push-admin');if(t)(keep?localStorage:sessionStorage).setItem('push-admin',t)}catch(e){}}
 async function api(method,path,body){
   var res=await fetch(path,{method:method,headers:Object.assign({'content-type':'application/json'},tok()?{authorization:'Bearer '+tok()}:{}),body:body?JSON.stringify(body):undefined});
   var data=await res.json().catch(function(){return {}});
@@ -354,11 +356,12 @@ function showSetup(){
 function showLogin(msg,good){
   var email=h('input',{cls:'i',type:'email',dir:'ltr',autocomplete:'username'}),pw=h('input',{cls:'i',type:'password',dir:'ltr',autocomplete:'current-password'});
   var err=h('p',{cls:good?'err ok':'err',role:'alert',text:msg||''});
+  var keep=h('input',{type:'checkbox',id:'remember'});keep.checked=true;
   var go=h('button',{cls:'btn btn-primary btn-block',type:'submit',text:'כניסה'});
   authScreen(h('form',{novalidate:true,onsubmit:async function(e){e.preventDefault();err.textContent='';err.className='err';go.disabled=true;
-      try{var r=await api('POST','/admin/v1/login',{email:email.value,password:pw.value});setTok(r.token);showHome()}catch(x){err.textContent=x.message==='bad credentials'?'האימייל או הסיסמה שגויים':x.message;go.disabled=false}}},
+      try{var r=await api('POST','/admin/v1/login',{email:email.value,password:pw.value,remember:keep.checked});setTok(r.token,keep.checked);showHome()}catch(x){err.textContent=x.message==='bad credentials'?'האימייל או הסיסמה שגויים':x.message;go.disabled=false}}},
     [h('h1',{text:'כניסת מנהל'}),h('p',{cls:'sub',text:'ניהול הלקוחות של PUSH.'}),h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),
-     h('label',{cls:'f'},[h('span',{text:'סיסמה'}),pw]),go,err]));
+     h('label',{cls:'f'},[h('span',{text:'סיסמה'}),pw]),h('label',{cls:'remember',for:'remember'},[keep,h('span',{text:'זכור אותי במכשיר הזה'})]),go,err]));
 }
 
 // ---------------- home: the last 24 hours, then customers

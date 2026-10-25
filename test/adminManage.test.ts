@@ -108,7 +108,10 @@ describe('management panel', { skip: !available && 'local test Postgres not runn
     assert.equal((await call('POST', '/admin/v1/login', { email: 'owner@push.test', password: 'wrong-password-123' })).status, 401);
     const r = await call('POST', '/admin/v1/login', { email: 'owner@push.test', password: 'Kvish-Arba-Tsafon-2026!' });
     assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.equal(r.body.expiresIn, 12 * 3600, 'without "remember me": 12 hours');
     token = r.body.token;
+    const kept = await call('POST', '/admin/v1/login', { email: 'owner@push.test', password: 'Kvish-Arba-Tsafon-2026!', remember: true });
+    assert.equal(kept.body.expiresIn, 30 * 24 * 3600, '"remember me": 30 days');
   });
 
   test('add a customer: they can sign in with the temporary password and appear in the list', async () => {
