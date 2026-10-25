@@ -99,7 +99,10 @@ const worker = new Worker({
     const b = r.rows[0];
     if (!b || !(kind === 'video' ? b.apply_video : b.apply_image)) return null;
     if (!(await ffmpegAvailable())) throw new Error('ffmpeg is not installed on this server');
-    return applyLogo(data, kind, { logo: Buffer.from(b.logo_b64, 'base64'), logoMime: b.logo_mime, position: b.position, sizePct: b.size_pct, opacityPct: b.opacity_pct, smart: b.smart_position });
+    const out = await applyLogo(data, kind, { logo: Buffer.from(b.logo_b64, 'base64'), logoMime: b.logo_mime, position: b.position, sizePct: b.size_pct, opacityPct: b.opacity_pct, smart: b.smart_position });
+    log.info('logo placement', { tenantId, kind, chosen: b.position, smart: b.smart_position, placed: out.position, sizePct: out.sizePct,
+      ...(out.smart ? { coveredAtChosen: Math.round(out.smart.preferredScore * 100), coveredAtPlaced: Math.round(out.smart.score * 100) } : {}) });
+    return out;
   },
   dailyCapFor: (accountId) => caps.get(accountId) ?? 100,
   onSafetyEvent: async (e) => {
