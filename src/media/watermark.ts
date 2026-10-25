@@ -35,10 +35,19 @@ const MARGIN = 0.03; // of the video's width, from the edges
  * Where the logo can go. The customer picks a corner or the center; smart placement may
  * also use the middle of an edge when every corner would cover something.
  */
-export type Placement = LogoPosition | 'top-center' | 'bottom-center' | 'middle-right' | 'middle-left';
+export type Placement = LogoPosition | 'top-center' | 'bottom-center' | 'middle-right' | 'middle-left' | `at:${number}:${number}`;
+
+/** A free spot found by the search: "at:fx:fy", where 0 = left/top edge and 1 = right/bottom edge (inside the margin). */
+const at = (fx: number, fy: number): Placement => `at:${Math.round(fx * 1000) / 1000}:${Math.round(fy * 1000) / 1000}`;
+function parseAt(p: Placement): [number, number] | null {
+  const m = /^at:([\d.]+):([\d.]+)$/.exec(p);
+  return m ? [Math.min(1, Math.max(0, Number(m[1]))), Math.min(1, Math.max(0, Number(m[2])))] : null;
+}
 
 function overlayXY(p: Placement): [string, string] {
   const m = `W*${MARGIN}`;
+  const xy = parseAt(p);
+  if (xy) return [`${m}+(W-w-2*${m})*${xy[0]}`, `${m}+(H-h-2*${m})*${xy[1]}`];
   switch (p) {
     case 'top-left': return [m, m];
     case 'top-right': return [`W-w-${m}`, m];
@@ -49,6 +58,7 @@ function overlayXY(p: Placement): [string, string] {
     case 'bottom-center': return ['(W-w)/2', `H-h-${m}`];
     case 'middle-right': return [`W-w-${m}`, '(H-h)/2'];
     case 'middle-left': return [m, '(H-h)/2'];
+    default: return [m, `H-h-${m}`];
   }
 }
 
@@ -116,28 +126,37 @@ const CORNERS: Placement[] = ['top-left', 'top-right', 'bottom-left', 'bottom-ri
 const EDGES: Placement[] = ['top-center', 'bottom-center', 'middle-left', 'middle-right'];
 /** Analysis width: big enough that ordinary caption text still shows as text. */
 export const ANALYSIS_WIDTH = 480;
-/** A pixel is "detail" (text edge, face, texture) above this local contrast (0–510). */
+/** Local contrast (0–510) above which a pixel counts as detail, and as crisp text-like edge. */
 const EDGE_T = 40;
+const TEXT_T = 90;
 
-/** Per frame: a summed-area table of "detail" pixels, so any box is counted in O(1). */
+/**
+ * Per frame: summed-area tables of detail pixels and of crisp edges, so any box is counted
+ * in O(1). Overlaid text (captions, headlines) is mostly crisp edges; a photo has more soft detail.
+ */
 function detailTables(frames: Frame[]) {
   return frames.map((f) => {
-    const t = new Uint32Array((f.w + 1) * (f.h + 1));
+    const W = f.w + 1;
+    const t = new Uint32Array(W * (f.h + 1)), c = new Uint32Array(W * (f.h + 1));
     for (let y = 0; y < f.h; y++) {
-      let row = 0;
+      let row = 0, rowC = 0;
       for (let x = 0; x < f.w; x++) {
         const i = y * f.w + x, v = f.px[i]!;
         const g = (x + 1 < f.w ? Math.abs(f.px[i + 1]! - v) : 0) + (y + 1 < f.h ? Math.abs(f.px[i + f.w]! - v) : 0);
         row += g > EDGE_T ? 1 : 0;
-        t[(y + 1) * (f.w + 1) + x + 1] = t[y * (f.w + 1) + x + 1]! + row;
+        rowC += g > TEXT_T ? 1 : 0;
+        t[(y + 1) * W + x + 1] = t[y * W + x + 1]! + row;
+        c[(y + 1) * W + x + 1] = c[y * W + x + 1]! + rowC;
       }
     }
-    return { f, t };
+    return { f, t, c };
   });
 }
 
 function boxOf(p: Placement, fw: number, fh: number, bw: number, bh: number): [number, number] {
   const m = Math.round(fw * MARGIN), cx = Math.round((fw - bw) / 2), cy = Math.round((fh - bh) / 2);
+  const xy = parseAt(p);
+  if (xy) return [Math.round(m + (fw - bw - 2 * m) * xy[0]), Math.round(m + (fh - bh - 2 * m) * xy[1])];
   switch (p) {
     case 'top-left': return [m, m];
     case 'top-right': return [fw - bw - m, m];
@@ -148,6 +167,7 @@ function boxOf(p: Placement, fw: number, fh: number, bw: number, bh: number): [n
     case 'bottom-center': return [cx, fh - bh - m];
     case 'middle-left': return [m, cy];
     case 'middle-right': return [fw - bw - m, cy];
+    default: return [m, fh - bh - m];
   }
 }
 
@@ -157,15 +177,16 @@ function boxOf(p: Placement, fw: number, fh: number, bw: number, bh: number): [n
  */
 export function placementScore(tables: ReturnType<typeof detailTables>, p: Placement, sizePct: number, logoAspect: number): number {
   let max = 0, sum = 0;
-  for (const { f, t } of tables) {
+  for (const { f, t, c } of tables) {
     const bw = Math.max(2, Math.round(f.w * sizePct / 100));
     const bh = Math.max(2, Math.min(f.h - 2, Math.round(bw / Math.max(0.1, logoAspect))));
     const [bx, by] = boxOf(p, f.w, f.h, bw, bh);
     const pad = Math.round(f.w * 0.015);
     const x0 = Math.max(0, bx - pad), y0 = Math.max(0, by - pad), x1 = Math.min(f.w, bx + bw + pad), y1 = Math.min(f.h, by + bh + pad);
-    const W = f.w + 1;
-    const n = t[y1 * W + x1]! - t[y0 * W + x1]! - t[y1 * W + x0]! + t[y0 * W + x0]!;
-    const share = n / Math.max(1, (x1 - x0) * (y1 - y0));
+    const W = f.w + 1, area = Math.max(1, (x1 - x0) * (y1 - y0));
+    const box = (tab: Uint32Array) => tab[y1 * W + x1]! - tab[y0 * W + x1]! - tab[y1 * W + x0]! + tab[y0 * W + x0]!;
+    // Crisp (text-like) edges count fully, soft detail a quarter.
+    const share = (box(c) + 0.25 * (box(t) - box(c))) / area;
     max = Math.max(max, share);
     sum += share;
   }
@@ -184,16 +205,27 @@ export function choosePlacement(frames: Frame[], preferred: LogoPosition, sizePc
   const tables = detailTables(frames);
   const pref: Placement = preferred === 'center' ? 'bottom-left' : preferred;
   const prefScore = placementScore(tables, pref, sizePct, logoAspect);
-  if (prefScore <= 0.015) return { position: pref, sizePct, score: prefScore, preferredScore: prefScore };
+  if (prefScore <= 0.01) return { position: pref, sizePct, score: prefScore, preferredScore: prefScore };
   let best: SmartChoice = { position: pref, sizePct, score: prefScore, preferredScore: prefScore };
   let bestCost = prefScore * 0.9;
-  for (const [scale, penalty] of [[1, 0], [0.8, 0.012], [0.65, 0.03]] as const) {
-    for (const p of [...CORNERS, ...EDGES]) {
-      const size = sizePct * scale;
-      const sc = placementScore(tables, p, size, logoAspect);
-      const cost = sc * (p === pref ? 0.9 : EDGES.includes(p) ? 1.2 : 1) + penalty;
-      if (cost < bestCost - 1e-9) { bestCost = cost; best = { position: p, sizePct: Math.round(size * 10) / 10, score: sc, preferredScore: prefScore }; }
+  const consider = (p: Placement, size: number, extra: number, bias = 1) => {
+    const sc = placementScore(tables, p, size, logoAspect);
+    const cost = sc * bias + extra;
+    if (cost < bestCost - 1e-9) { bestCost = cost; best = { position: p, sizePct: Math.round(size * 10) / 10, score: sc, preferredScore: prefScore }; }
+  };
+  // Smaller is allowed, but costs a little, so a free spot at full size wins.
+  for (const [scale, penalty] of [[1, 0], [0.8, 0.008], [0.65, 0.018], [0.5, 0.03]] as const) {
+    const size = sizePct * scale;
+    for (const p of [...CORNERS, ...EDGES]) consider(p, size, penalty, p === pref ? 0.9 : EDGES.includes(p) ? 1.1 : 1);
+    // Anywhere in the picture, a little dearer the further from the edges (a logo in the middle
+    // of a photo is more in the way than one near the border).
+    for (let fy = 0; fy <= 1.0001; fy += 0.05) {
+      for (let fx = 0; fx <= 1.0001; fx += 0.05) {
+        const edge = Math.min(fx, 1 - fx, fy, 1 - fy); // 0 at the border, 0.5 in the middle
+        consider(at(fx, fy), size, penalty + 0.004 + edge * 0.04);
+      }
     }
+    if (best.score <= 0.004) break; // found a clean spot at this size
   }
   return best;
 }
