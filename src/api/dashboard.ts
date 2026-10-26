@@ -59,6 +59,10 @@ label.f{display:block;margin-bottom:14px}
 label.f span{display:block;font-size:13px;font-weight:600;margin-bottom:6px}
 input.i,textarea.i{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:11px;background:var(--soft);color:var(--text);font:inherit;font-size:15px}
 input.i:focus,textarea.i:focus{outline:none;border-color:var(--teal);box-shadow:0 0 0 3px rgba(25,198,180,.2)}
+.tg-panel{margin-top:18px}.tg-panel .glist{max-height:280px}
+.tg-mark{display:inline-block;width:12px;height:12px;border-radius:50%;background:#229ED9;margin-inline-end:10px;vertical-align:1px}
+.tg-add{display:flex;gap:10px;align-items:center;margin:12px 0 4px}.tg-add .i{flex:1;min-width:0}
+.tg-ok{margin:4px 0 10px}
 .check{display:flex;gap:9px;align-items:flex-start;font-size:13px;color:var(--muted);margin:4px 0 18px}.check input{accent-color:#0B8A7E;width:17px;height:17px;margin:1px 0 0;flex:none}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:11px;padding:11px 18px;font-weight:600;cursor:pointer;text-decoration:none;transition:background .15s}
 .btn-primary{background:var(--teal);color:var(--ink)}.btn-primary:hover{background:#2fd8c6}
@@ -644,7 +648,14 @@ function connectPage(){
     var max=(me.tenant.plan.limits&&me.tenant.plan.limits.targets)||10;
     var guess=groups.find(function(g){return g.title.indexOf('שליטה')>=0});
     var ctrl=existing?existing.source.chatId:guess?guess.chatId:null;
-    var picked=new Set(existing?existing.targets.map(function(t){return t.chatId}):[]);
+    var picked=new Set(existing?existing.targets.filter(function(t){return t.platform!=='tg'}).map(function(t){return t.chatId}):[]);
+    // Telegram: the customer's own bot; its channels and groups are targets of the same control group.
+    var bots=[];if(!demo){try{bots=await api('GET','/v1/tg/bots')}catch(e){}}
+    var tg={bot:bots[0]||null,chats:[]};
+    if(tg.bot){try{tg.chats=await api('GET','/v1/tg/bots/'+tg.bot.id+'/chats')}catch(e){}}
+    var pickedTg=new Set(existing?existing.targets.filter(function(t){return t.platform==='tg'}).map(function(t){return t.chatId}):[]);
+    var total=function(){return picked.size+pickedTg.size};
+    var tgBox=h('section',{cls:'panel tg-panel'});
     var q=h('input',{cls:'i',type:'search',placeholder:'חיפוש קבוצת יעד…','aria-label':'חיפוש קבוצת יעד'});
     var qc=h('input',{cls:'i',type:'search',placeholder:'חיפוש קבוצת שליטה…','aria-label':'חיפוש קבוצת שליטה'});
     var ctrlNow=h('p',{cls:'picked'});
@@ -653,20 +664,21 @@ function connectPage(){
     var save=h('button',{cls:'btn btn-primary',type:'button',text:existing?'שמירת השינויים':'שמירה והפעלה',onclick:async function(){
       err.textContent='';done.textContent='';
       if(!ctrl){err.textContent='בחרו קבוצת שליטה';return}
-      if(!picked.size){err.textContent='בחרו לפחות קבוצת יעד אחת';return}
+      if(!total()){err.textContent='בחרו לפחות קבוצת יעד אחת';return}
       save.disabled=true;
       var cg=groups.find(function(g){return g.chatId===ctrl});
       var payload={name:'PUSH — '+(cg?cg.title:'קבוצת שליטה'),control:(existing&&existing.control)||{reportMode:'summary'},
         sources:[{platform:'wa',accountId:a.id,chatId:ctrl}],
-        targets:groups.filter(function(g){return picked.has(g.chatId)}).map(function(g){return {platform:'wa',accountId:a.id,chatId:g.chatId,title:g.title}})};
+        targets:groups.filter(function(g){return picked.has(g.chatId)}).map(function(g){return {platform:'wa',accountId:a.id,chatId:g.chatId,title:g.title}})
+          .concat(tg.bot?tg.chats.filter(function(c){return pickedTg.has(c.chatId)}).map(function(c){return {platform:'tg',accountId:tg.bot.id,chatId:c.chatId,title:c.title}}):[])};
       if(existing)payload.id=existing.id;
       try{var r=await api('POST','/v1/routes',payload);existing=Object.assign(existing||{},{id:r.id,control:payload.control});save.textContent='שמירת השינויים';
-        done.textContent='מוכן. כל הודעה שתכתבו ב"'+(cg?cg.title:'')+'" תופץ ל-'+picked.size+' קבוצות.'}
+        done.textContent='מוכן. כל הודעה שתכתבו ב"'+(cg?cg.title:'')+'" תופץ ל-'+total()+' קבוצות'+(pickedTg.size?' (מהן '+pickedTg.size+' בטלגרם)':'')+'.'}
       catch(e){err.textContent=(e.details&&e.details.length?e.details.map(function(p){return p.message}).join(' · '):e.message)}
       save.disabled=false}});
     var row=function(g,kind){
       var isCtrl=kind==='ctrl',on=isCtrl?ctrl===g.chatId:picked.has(g.chatId);
-      var dis=!isCtrl&&(g.chatId===ctrl||!g.canSend||(!on&&picked.size>=max));
+      var dis=!isCtrl&&(g.chatId===ctrl||!g.canSend||(!on&&total()>=max));
       var why=!isCtrl&&g.chatId===ctrl?'קבוצת השליטה':!isCtrl&&!g.canSend?'רק מנהלים כותבים בה':'';
       var inp=h('input',{type:isCtrl?'radio':'checkbox',name:isCtrl?'ctrl':null,checked:on,disabled:dis,onchange:function(){
         if(isCtrl){ctrl=g.chatId;picked.delete(g.chatId)}else{if(inp.checked)picked.add(g.chatId);else picked.delete(g.chatId)}paintLists()}});
@@ -683,7 +695,51 @@ function connectPage(){
       listEl.replaceChildren.apply(listEl,tRows.length?tRows:[none()]);
       var cg=groups.find(function(g){return g.chatId===ctrl});
       ctrlNow.textContent=cg?'נבחרה: '+cg.title:'עדיין לא נבחרה קבוצת שליטה';
-      count.textContent=picked.size+' מתוך '+max+' קבוצות במסלול שלכם';
+      count.textContent=total()+' מתוך '+max+' קבוצות במסלול שלכם';
+      paintTg();
+    }
+    function paintTg(){
+      if(demo){tgBox.hidden=true;return}
+      var tErr=h('p',{cls:'err',role:'alert'});
+      var head=h('div',{cls:'ph'},[h('h2',null,[h('span',{cls:'tg-mark','aria-hidden':'true'}),'טלגרם']),tg.bot?h('span',{cls:'gcount',text:pickedTg.size+' נבחרו'}):null]);
+      if(!tg.bot){
+        var token=h('input',{cls:'i',dir:'ltr',autocomplete:'off',spellcheck:'false',placeholder:'123456789:AAH…','aria-label':'הטוקן של הבוט'});
+        var go=h('button',{cls:'btn btn-dark',type:'button',text:'חיבור הבוט',onclick:async function(){
+          tErr.textContent='';go.disabled=true;
+          try{var b=await api('POST','/v1/tg/bots',{token:token.value.trim()});tg.bot={id:b.id,username:b.username};tg.chats=[];
+            try{tg.chats=await api('GET','/v1/tg/bots/'+b.id+'/chats')}catch(e){}paintTg()}
+          catch(e){tErr.textContent=e.message;go.disabled=false}}});
+        tgBox.replaceChildren(head,
+          h('p',{cls:'hint left',text:'כל הודעה מקבוצת השליטה תצא גם לערוצים ולקבוצות שלכם בטלגרם, כולל עריכה, מחיקה ותזמון.'}),
+          h('ol',{cls:'how'},[h('li',null,['בטלגרם פותחים את ',h('b',{dir:'ltr',text:'@BotFather'}),' ושולחים ',h('b',{dir:'ltr',text:'/newbot'})]),
+            h('li',{text:'בוחרים שם לבוט ושם משתמש שמסתיים ב-bot'}),
+            h('li',{text:'BotFather שולח טוקן (שורה ארוכה עם נקודתיים). מעתיקים ומדביקים כאן:'})]),
+          h('div',{cls:'tg-add'},[token,go]),tErr);
+        return;
+      }
+      var uname=tg.bot.username?'@'+tg.bot.username:'הבוט';
+      var rows=tg.chats.length?tg.chats.map(function(c){
+        var on=pickedTg.has(c.chatId),dis=!c.canSend||(!on&&total()>=max);
+        var inp=h('input',{type:'checkbox',checked:on,disabled:dis,onchange:function(){if(inp.checked)pickedTg.add(c.chatId);else pickedTg.delete(c.chatId);paintLists()}});
+        return h('label',{cls:'grow'+(on?' on':'')+(dis?' dis':'')},[inp,h('span',{cls:'gt',text:c.title||c.chatId}),
+          h('span',{cls:'gm',text:!c.canSend?'הבוט לא מנהל':c.type==='channel'?'ערוץ':'קבוצה'})]);
+      }):[h('p',{cls:'hint glist-empty'},['עדיין אין כאן ערוצים. הוסיפו את ',h('b',{dir:'ltr',text:uname}),' כמנהל לערוץ או לקבוצה, ולחצו "רענון".'])];
+      var chan=h('input',{cls:'i',dir:'ltr',placeholder:'@שם_הערוץ','aria-label':'הוספת ערוץ לפי שם'});
+      var add=h('button',{cls:'btn btn-ghost',type:'button',text:'הוספה',onclick:async function(){
+        tErr.textContent='';add.disabled=true;
+        try{var c=await api('POST','/v1/tg/bots/'+tg.bot.id+'/chats',{chatId:chan.value.trim()});
+          tg.chats=tg.chats.filter(function(x){return x.chatId!==c.chatId}).concat([c]);if(c.canSend&&total()<max)pickedTg.add(c.chatId);paintLists()}
+        catch(e){tErr.textContent=e.message;add.disabled=false}}});
+      var again=h('button',{cls:'linkish',type:'button',text:'רענון',onclick:async function(){again.disabled=true;try{tg.chats=await api('GET','/v1/tg/bots/'+tg.bot.id+'/chats')}catch(e){tErr.textContent=e.message}paintLists()}});
+      var off=h('button',{cls:'linkish',type:'button',text:'ניתוק הבוט',onclick:async function(){
+        if(off.getAttribute('data-sure')!=='1'){off.setAttribute('data-sure','1');off.textContent='לחצו שוב לאישור הניתוק';return}
+        off.disabled=true;try{await api('DELETE','/v1/tg/bots/'+tg.bot.id);tg.bot=null;tg.chats=[];pickedTg.clear();paintLists()}catch(e){tErr.textContent=e.message;off.disabled=false}}});
+      tgBox.replaceChildren(head,
+        h('div',{cls:'conn-ok tg-ok'},[h('span',{cls:'dot'}),h('div',{cls:'conn-num'},[h('b',{text:'הבוט מחובר'}),h('span',{dir:'ltr',text:uname})])]),
+        h('p',{cls:'hint left'},['מוסיפים את ',h('b',{dir:'ltr',text:uname}),' כמנהל עם הרשאה לפרסם לכל ערוץ או קבוצה בטלגרם, ומסמנים כאן לאן להפיץ. ערוץ שלא מופיע אפשר להוסיף לפי השם שלו.']),
+        h('div',{cls:'glist'},rows),
+        h('div',{cls:'tg-add'},[chan,add]),
+        h('div',{cls:'refresh-row'},[again,off]),tErr);
     }
     q.addEventListener('input',paintLists);qc.addEventListener('input',paintLists);paintLists();
     var discon=h('button',{cls:'btn btn-ghost btn-sm',type:'button',text:'ניתוק המספר',onclick:async function(){
@@ -699,6 +755,7 @@ function connectPage(){
           h('div',{cls:'refresh-row'},[h('span',{cls:'hint',text:'חסרה קבוצה? המספר צריך להיות חבר בה.'}),
             h('button',{cls:'linkish',type:'button',text:'רענון הרשימה מ‑WhatsApp',onclick:async function(){this.disabled=true;body.replaceChildren(await groupsStep(true))}})])]),
         h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'קבוצות יעד'}),count]),q,listEl])]),
+      tgBox,
       h('div',{cls:'save-bar'},[save,done,err])]);
   }
   load();
