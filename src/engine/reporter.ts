@@ -157,6 +157,16 @@ export class Reporter {
     }
   }
 
+  /** A "תזמון" line whose time could not be read: ⚠️ on the message and a short how-to (nothing was sent). */
+  async onBadSchedule(tenantId: string, source: ChatRef, messageId: string): Promise<void> {
+    const route = (await this.o.routes.routesForSource(source)).find((r) => r.tenantId === tenantId && r.control);
+    if (!route) return;
+    await this.mark(route, source, messageId, '⚠️');
+    if (this.mode(route) === 'off') return;
+    await this.post(route, source, messageId, 'bad_schedule',
+      `${tag('⚠️')}לא הצלחתי לקרוא את שעת התזמון, ולכן ההודעה לא נשלחה.\nכותבים בשורה הראשונה: תזמון (12:20)\nובשורה הבאה את ההודעה.`, 1);
+  }
+
   /** A scheduled message's time came and its first copy is going out: 🕐 becomes ⏳ (once per message). */
   private sending = new Set<string>();
   async onSendStart(job: StoredJob): Promise<void> {
