@@ -20,7 +20,9 @@ export interface RateRules {
 
 /** Defaults per platform. Telegram documents ~20 msgs/min per group and ~30/s per bot. */
 export const DEFAULT_RULES: Record<'wa' | 'tg', Omit<RateRules, 'dailyCap'>> = {
-  wa: { accountMinGapMs: 3_000, accountPerMinute: 15, chatMinGapMs: 10_000 },
+  // WhatsApp: 30 groups a minute per number (one every 1.5 s). Doubled from 15 at the owner's request;
+  // faster sending raises the chance that WhatsApp limits the number.
+  wa: { accountMinGapMs: 1_500, accountPerMinute: 30, chatMinGapMs: 10_000 },
   tg: { accountMinGapMs: 50, accountPerMinute: 600, chatMinGapMs: 3_100 },
 };
 
