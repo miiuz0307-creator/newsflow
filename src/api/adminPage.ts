@@ -154,7 +154,8 @@ tr.susp td{color:var(--muted)}tr.susp .av{filter:grayscale(1);opacity:.6}
 .plan.p-premium{border-color:#BFEDE7;background:var(--teal-mist);color:var(--teal-ink)}
 .wa{display:inline-flex;align-items:center;gap:8px}
 .dot{width:9px;height:9px;border-radius:50%;background:#B8C3D3;flex:none}
-.dot.on{background:var(--ok);box-shadow:0 0 0 4px rgba(15,159,110,.15)}.dot.off{background:var(--coral)}
+.dot.on{background:var(--ok);box-shadow:0 0 0 4px rgba(15,159,110,.15)}.dot.off{background:var(--coral)}.dot.tg{background:#229ED9;box-shadow:0 0 0 4px rgba(34,158,217,.15)}
+.sub-l{display:block;color:var(--muted);font-size:12px;margin-top:2px;padding-inline-start:17px}.tg-list{margin-top:10px}
 .spark{width:96px;height:28px;display:block}
 .spark polyline{fill:none;stroke:var(--teal-ink);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
 .spark .area{fill:rgba(25,198,180,.14);stroke:none}
@@ -368,8 +369,8 @@ function showLogin(msg,good){
 var PLANS=[];
 function planName(code){return (PLANS.find(function(p){return p.code===code})||{name:code}).name}
 function greeting(){var hr=new Date().getHours();return hr>=5&&hr<12?'בוקר טוב':hr<17&&hr>=12?'צהריים טובים':hr>=17&&hr<21?'ערב טוב':'לילה טוב'}
-var FILTERS=[['all','הכל'],['active','פעילים'],['online','מחוברים ל‑WhatsApp'],['nowa','בלי מספר מחובר'],['susp','מושעים']];
-function matches(f,t){return f==='all'||(f==='active'&&t.status==='active')||(f==='online'&&t.connected>0)||(f==='nowa'&&!t.connected)||(f==='susp'&&t.status!=='active')}
+var FILTERS=[['all','הכל'],['active','פעילים'],['online','מחוברים ל‑WhatsApp'],['tg','עם טלגרם'],['nowa','בלי מספר מחובר'],['susp','מושעים']];
+function matches(f,t){return f==='all'||(f==='active'&&t.status==='active')||(f==='online'&&t.connected>0)||(f==='tg'&&t.tg_bots>0)||(f==='nowa'&&!t.connected)||(f==='susp'&&t.status!=='active')}
 
 async function showHome(){
   var live=h('section',{cls:'live','aria-label':'24 השעות האחרונות'},[h('p',{cls:'greet',text:greeting()}),h('p',{cls:'headline',text:'טוען…'})]);
@@ -377,7 +378,7 @@ async function showHome(){
   var q=h('input',{cls:'i',type:'search',placeholder:'חיפוש לפי שם או אימייל','aria-label':'חיפוש לקוח'});
   var addBtn=h('button',{cls:'btn btn-primary',type:'button',text:'+ הוספת לקוח',onclick:addCustomer});
   var listBox=h('div',{cls:'list'},[h('div',{cls:'tablewrap'},[h('table',null,[h('thead',null,[h('tr',null,[
-    h('th',{text:'לקוח'}),h('th',{cls:'col-hide',text:'מסלול'}),h('th',{text:'WhatsApp'}),h('th',{cls:'col-hide',text:'7 ימים'}),h('th',{text:'24 שעות'}),h('th',{cls:'col-hide',text:'כניסה אחרונה'}),h('th',{cls:'col-hide',text:'הצטרף'})])]),tbody])])]);
+    h('th',{text:'לקוח'}),h('th',{cls:'col-hide',text:'מסלול'}),h('th',{text:'WhatsApp'}),h('th',{text:'טלגרם'}),h('th',{cls:'col-hide',text:'7 ימים'}),h('th',{text:'24 שעות'}),h('th',{cls:'col-hide',text:'כניסה אחרונה'}),h('th',{cls:'col-hide',text:'הצטרף'})])]),tbody])])]);
   var stripBox=h('div');
   shell(h('div',null,[live,h('main',null,[stripBox,h('div',{cls:'head'},[h('h2',null,['לקוחות ',count]),q,addBtn]),chips,listBox])]),true);
   notifyStrip(stripBox);
@@ -396,7 +397,7 @@ async function showHome(){
     var T=d.tenants||{},WA=d.whatsappNumbers||{},waAll=Object.keys(WA).reduce(function(a,k){return a+WA[k]},0);
     var fact=function(v,k,cls){return h('div',{cls:cls||''},[h('b',{text:v}),h('span',{text:k})])};
     live.replaceChildren(h('p',{cls:'greet',text:greeting()}),head,ch,readout,h('div',{cls:'facts'},[
-      fact(num(T.active||0),'לקוחות פעילים'),fact(num(WA.connected||0)+' מתוך '+num(waAll),'מספרי WhatsApp מחוברים'),
+      fact(num(T.active||0),'לקוחות פעילים'),fact(num(WA.connected||0)+' מתוך '+num(waAll),'מספרי WhatsApp מחוברים'),fact(num(d.telegramBots||0),'בוטי טלגרם מחוברים'),
       fact(num(T.suspended||0),'מושעים',(T.suspended||0)?'warn':''),fact('₪'+num(d.monthlyRevenueEstimateIls||0),'בחודש לפי המסלולים')]));
   }catch(e){live.replaceChildren(h('p',{cls:'headline',text:'לא הצלחנו לטעון את הנתונים'}),h('p',{cls:'greet',text:e.message}))}
 
@@ -405,15 +406,18 @@ async function showHome(){
     return h('button',{cls:'chip',type:'button','aria-pressed':String(filter===f[0]),onclick:function(){filter=f[0];drawChips();drawRows()}},[f[1],h('em',{text:String(n)})])}))};
   var drawRows=function(){
     var rows=all.filter(function(t){return matches(filter,t)});count.textContent='('+all.length+')';
-    if(!all.length&&!q.value.trim()){tbody.replaceChildren(h('tr',null,[h('td',{colspan:'7'},[h('div',{cls:'empty'},[h('h3',{text:'עוד אין לקוחות'}),h('p',{text:'לקוחות שנרשמים באתר יופיעו כאן. אפשר גם לפתוח חשבון ללקוח בעצמכם.'}),h('button',{cls:'btn btn-primary',type:'button',text:'+ הוספת לקוח',onclick:addCustomer})])])]));return}
-    if(!rows.length){tbody.replaceChildren(h('tr',null,[h('td',{colspan:'7'},[h('div',{cls:'empty'},[h('p',{text:q.value.trim()?'אין לקוח שמתאים לחיפוש.':'אין לקוחות בסינון הזה.'})])])]));return}
+    if(!all.length&&!q.value.trim()){tbody.replaceChildren(h('tr',null,[h('td',{colspan:'8'},[h('div',{cls:'empty'},[h('h3',{text:'עוד אין לקוחות'}),h('p',{text:'לקוחות שנרשמים באתר יופיעו כאן. אפשר גם לפתוח חשבון ללקוח בעצמכם.'}),h('button',{cls:'btn btn-primary',type:'button',text:'+ הוספת לקוח',onclick:addCustomer})])])]));return}
+    if(!rows.length){tbody.replaceChildren(h('tr',null,[h('td',{colspan:'8'},[h('div',{cls:'empty'},[h('p',{text:q.value.trim()?'אין לקוח שמתאים לחיפוש.':'אין לקוחות בסינון הזה.'})])])]));return}
     tbody.replaceChildren.apply(tbody,rows.map(function(t){
       var on=t.connected>0,susp=t.status!=='active';
       var open=function(){openCustomer(t.id,load)};
       return h('tr',{cls:'rowlink'+(susp?' susp':''),tabindex:'0',onclick:open,onkeydown:function(e){if(e.key==='Enter'||e.key===' '){e.preventDefault();open()}}},[
         h('td',null,[h('div',{cls:'who'},[avatar(t),h('div',null,[h('b',null,[t.name,susp?h('span',{cls:'pill bad',text:'מושעה'}):'']),h('small',{cls:'ltr',text:t.owner_email||'—'})])])]),
         h('td',{cls:'col-hide'},[h('span',{cls:'plan p-'+t.plan_code,text:planName(t.plan_code)})]),
-        h('td',null,[h('span',{cls:'wa'},[h('span',{cls:'dot'+(on?' on':t.numbers?' off':'')}),on?(t.connected>1?t.connected+' מחוברים':'מחובר'):t.numbers?'מנותק':'לא חובר'])]),
+        h('td',null,[h('span',{cls:'wa'},[h('span',{cls:'dot'+(on?' on':t.numbers?' off':'')}),on?(t.connected>1?t.connected+' מחוברים':'מחובר'):t.numbers?'מנותק':'לא חובר']),
+          t.wa_targets?h('small',{cls:'sub-l',text:t.wa_targets+' קבוצות'}):'']),
+        h('td',null,[h('span',{cls:'wa'},[h('span',{cls:'dot'+(t.tg_bots?' tg':'')}),t.tg_bots?h('span',{cls:'ltr',text:t.tg_bot?'@'+t.tg_bot:'מחובר'}):'לא חובר']),
+          t.tg_bots?h('small',{cls:'sub-l',text:t.tg_targets?t.tg_targets+' ערוצים':'עוד לא נבחרו ערוצים'}):'']),
         h('td',{cls:'col-hide'},[spark(t.spark_7d)]),
         h('td',{cls:'nums'},[h('b',{text:num(t.sent_24h)}),t.reads_24h?h('small',{text:num(t.reads_24h)+' קריאות'}):'']),
         h('td',{cls:'col-hide',text:ago(t.last_login_at)}),h('td',{cls:'col-hide',text:fmtDate(t.created_at)})])
@@ -421,7 +425,7 @@ async function showHome(){
   };
   var load=async function(){
     try{all=await api('GET','/admin/v1/tenants?q='+encodeURIComponent(q.value.trim()));drawChips();drawRows()}
-    catch(e){tbody.replaceChildren(h('tr',null,[h('td',{colspan:'7',cls:'err',text:e.message})]))}
+    catch(e){tbody.replaceChildren(h('tr',null,[h('td',{colspan:'8',cls:'err',text:e.message})]))}
   };
   var timer;q.addEventListener('input',function(){clearTimeout(timer);timer=setTimeout(load,250)});
   HOME_RELOAD=load;
@@ -473,11 +477,24 @@ async function openCustomer(id,reload){
         h('dt',{text:'אישר את הסבר הסיכונים'}),h('dd',{text:t.risk_accepted_at?fmtDate(t.risk_accepted_at):'עדיין לא'})])]),
       h('div',{cls:'box'},[h('h3',{text:'מספרי WhatsApp'}),waLines.length?h('div',{cls:'lines'},waLines.map(function(x){var on=x.status==='connected';
         return h('div',null,[h('span',{cls:'wa ltr'},[h('span',{cls:'dot'+(on?' on':' off')}),x.phone_number?'+'+x.phone_number:'(לא חובר)']),h('span',{cls:'hint',text:on?'מחובר':'מנותק'+(x.last_connected_at?', חובר לאחרונה '+ago(x.last_connected_at):'')})])})):h('p',{cls:'hint',text:'הלקוח עוד לא חיבר מספר.'})]),
+      tgBox(d),
       (d.activeStops||[]).length?h('div',{cls:'box'},[h('h3',{text:'עצירות פעילות'}),h('div',{cls:'lines'},d.activeStops.map(function(x){return h('div',null,[h('span',{text:x.reason}),h('span',{cls:'hint',text:ago(x.set_at)})])}))]):'',
       h('div',{cls:'box'},[h('h3',{text:'משתמשים'}),h('div',{cls:'lines'},(d.users||[]).map(function(u){return h('div',null,[h('span',{cls:'ltr',text:u.email}),h('span',{cls:'hint',text:(u.role==='owner'?'בעלים, ':'')+(u.last_login_at?'נכנס '+ago(u.last_login_at):'עוד לא נכנס')})])}))]),
       h('div',{cls:'box'},[h('h3',{text:'מסלול ומצב'}),h('div',{cls:'actions'},[h('label',{cls:'f'},[h('span',{text:'מסלול'}),plan]),savePlan,toggle]),msg]),
       h('div',{cls:'box danger'},[h('h3',{text:'הסרה מהמערכת'}),h('p',{cls:'hint',text:'המספרים מתנתקים, הקבוצות וההיסטוריה נמחקות, והמשתמשים לא יוכלו להיכנס. אי אפשר לבטל את זה.'}),
         h('label',{cls:'f'},[h('span',{text:'לאישור, הקלידו את שם העסק'}),confirmIn]),del,delMsg])]));
+}
+
+function tgBox(d){
+  var bots=(d.telegram||[]).filter(function(b){return b.status!=='deleted'});
+  var chans=(d.targets||[]).filter(function(x){return x.platform==='tg'}),waT=(d.targets||[]).filter(function(x){return x.platform==='wa'}).length;
+  return h('div',{cls:'box'},[h('h3',{text:'טלגרם'}),
+    bots.length?h('div',{cls:'lines'},bots.map(function(b){var ok=b.status==='active'&&!b.last_error;
+      return h('div',null,[h('span',{cls:'wa'},[h('span',{cls:'dot'+(ok?' tg':' off')}),h('span',{cls:'ltr',text:b.username?'@'+b.username:'בוט'})]),h('span',{cls:'hint',text:ok?'מחובר':(b.last_error?'שגיאה: '+String(b.last_error).slice(0,60):b.status)})])}))
+      :h('p',{cls:'hint',text:'הלקוח עוד לא חיבר בוט טלגרם.'}),
+    chans.length?h('p',{cls:'hint tg-list',text:'מפיץ ל‑'+chans.length+' ערוצים: '+chans.map(function(c){return c.title||c.chatId}).slice(0,8).join(', ')+(chans.length>8?'…':'')})
+      :bots.length?h('p',{cls:'hint tg-list',text:'עוד לא נבחרו ערוצי טלגרם להפצה.'}):'',
+    h('p',{cls:'hint tg-list',text:'קבוצות WhatsApp בהפצה: '+waT})]);
 }
 
 // ---------------- add a customer

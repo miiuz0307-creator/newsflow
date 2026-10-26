@@ -32,6 +32,9 @@ import { pushModule } from './api/modules/push.js';
 import { fontsModule } from './api/fonts.js';
 import { NotificationService, noticeForSafety, noticeForStatus } from './notify/notifications.js';
 import { AdminPush } from './notify/adminPush.js';
+import { CustomerPush } from './notify/customerPush.js';
+import { notifyPushModule } from './api/modules/notifyPush.js';
+import { latestRelease } from './releases.js';
 import { TelegramRuntime } from './telegram/runtime.js';
 import { CachedRouteSource } from './engine/routeCache.js';
 import { Worker } from './engine/worker.js';
@@ -81,7 +84,10 @@ async function refreshCaps() {
 await refreshCaps();
 setInterval(() => void refreshCaps().catch((e) => log.error('caps refresh failed', { err: String(e) })), 5 * 60_000).unref();
 
-const notifications = new NotificationService(workerPool);
+// Customers' devices: alerts about their number, and "what's new" (when VAPID keys are configured).
+const vapidKeys = process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY ? { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY } : undefined;
+const customerPush = vapidKeys ? new CustomerPush(workerPool, vapidKeys, process.env.VAPID_SUBJECT ?? 'mailto:admin@localhost', { log }) : undefined;
+const notifications = new NotificationService(workerPool, customerPush);
 const routeSource = new CachedRouteSource(new PgRouteSource(workerPool));
 
 const worker = new Worker({
@@ -137,8 +143,8 @@ if (cfg.allowRealTelegram || !cfg.telegramApiBase.includes('api.telegram.org')) 
 const ownerPool = process.env.DATABASE_URL_OWNER ? PgPool.fromUrl(process.env.DATABASE_URL_OWNER, 2) : undefined;
 const adminPool = process.env.DATABASE_URL_ADMIN ? PgPool.fromUrl(process.env.DATABASE_URL_ADMIN, 4) : undefined;
 // Notifications to the owner's devices (e.g. "a new customer signed up"), when keys are configured.
-const adminPush = adminPool && process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY
-  ? new AdminPush(adminPool, { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY }, process.env.VAPID_SUBJECT ?? 'mailto:admin@localhost', { log })
+const adminPush = adminPool && vapidKeys
+  ? new AdminPush(adminPool, vapidKeys, process.env.VAPID_SUBJECT ?? 'mailto:admin@localhost', { log })
   : undefined;
 const adminModules = adminPool && process.env.ADMIN_TOKEN_SECRET
   ? [adminModule({
@@ -167,6 +173,9 @@ const adminModules = adminPool && process.env.ADMIN_TOKEN_SECRET
     })]
   : [];
 
+// The running version (the app shows "יש גרסה חדשה" when it changes).
+const APP_VERSION = (process.env.RAILWAY_GIT_COMMIT_SHA ?? '').slice(0, 12) || `boot-${Date.now()}`;
+
 const api = new ApiServer({
   appPool, connections: conns, queue, killSwitches, tokenSecret: req('TOKEN_SECRET'),
   onRoutesChanged: () => routeSource.invalidate(),
@@ -183,6 +192,7 @@ const api = new ApiServer({
     supportModule(),
     pushModule({ onRoutesChanged: () => routeSource.invalidate() }),
     fontsModule(),
+    notifyPushModule({ push: customerPush, version: APP_VERSION }),
     ...adminModules,
   ],
   devTokens: cfg.env === 'development' && process.env.DEV_TOKENS === '1', logger: log,
@@ -196,6 +206,25 @@ setInterval(() => void worker.media.sweep(30 * 3_600_000).catch((e) => log.error
 setInterval(() => void workerPool.query('SELECT * FROM purge_expired(7)').catch((e) => log.error('purge failed', { err: String(e) })), 3_600_000).unref();
 
 await api.listen(cfg.apiPort, process.env.API_HOST ?? '127.0.0.1');
+
+// "What's new": once per release, to every device that allowed notifications (customers and admins).
+// Marked as announced before sending, so a restart never sends it twice.
+void (async () => {
+  const rel = latestRelease();
+  if (!rel || (!customerPush && !adminPush)) return;
+  try {
+    const r = await workerPool.query(
+      `INSERT INTO system_meta (key, value) VALUES ('announced_release', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now() WHERE system_meta.value <> EXCLUDED.value`, [rel.id]);
+    if (!r.rowCount) return;
+    const notice = { title: rel.title, body: rel.items.slice(0, 3).join(' · '), url: '/app#whatsnew', tag: `release-${rel.id}` };
+    const c = await customerPush?.sendToAll(notice);
+    const a = await adminPush?.send({ ...notice, title: `${rel.title} (עלה לשרת)`, url: '/admin' });
+    log.info('release announced', { release: rel.id, customers: c?.sent ?? 0, admins: a?.sent ?? 0 });
+  } catch (e) {
+    log.warn('release announcement failed', { err: String(e).slice(0, 200) });
+  }
+})();
 worker.dispatcher.start();
 log.info('started', { api: api.url, waMode: mode });
 

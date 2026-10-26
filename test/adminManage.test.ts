@@ -131,11 +131,16 @@ describe('management panel', { skip: !available && 'local test Postgres not runn
     assert.equal(row.sent_24h, 0);
     assert.ok('last_login_at' in row && 'connected' in row);
     assert.equal(row.spark_7d.split(',').length, 7, 'a 7-day trend per customer');
+    assert.equal(row.tg_bots, 0, 'Telegram shown per customer');
+    assert.equal(row.tg_targets, 0);
+    assert.equal(row.wa_targets, 0);
     const dash = await call('GET', '/admin/v1/dashboard', undefined, token);
     assert.equal(dash.body.hourly.length, 24, 'the last 24 hours, hour by hour');
     assert.equal(dash.body.sentLast24h, 0);
     const one = await call('GET', `/admin/v1/tenants/${customerId}`, undefined, token);
     assert.equal(one.body.daily.length, 14, '14 days for the customer chart');
+    assert.deepEqual(one.body.targets, []);
+    assert.deepEqual(one.body.telegram, []);
     assert.equal((await call('POST', '/admin/v1/tenants', { businessName: 'x', email: 'x@push.test' })).status, 401, 'admins only');
   });
 

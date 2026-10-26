@@ -275,6 +275,12 @@ export function adminModule(opts: AdminModuleOptions) {
                 (SELECT count(*)::int FROM outbound_jobs j WHERE j.tenant_id = t.id AND j.status = 'sent' AND j.action = 'send'
                     AND j.created_at > now() - interval '24 hours') AS sent_24h,
                 (SELECT count(*)::int FROM message_reads r WHERE r.tenant_id = t.id AND r.read_at > now() - interval '24 hours') AS reads_24h,
+                (SELECT min(b.username) FROM tg_bots b WHERE b.tenant_id = t.id AND b.status <> 'deleted') AS tg_bot,
+                (SELECT count(*)::int FROM tg_bots b WHERE b.tenant_id = t.id AND b.status <> 'deleted') AS tg_bots,
+                (SELECT count(DISTINCT rt.chat_id)::int FROM route_targets rt JOIN routes ro ON ro.id = rt.route_id
+                  WHERE ro.tenant_id = t.id AND ro.enabled AND rt.platform = 'tg') AS tg_targets,
+                (SELECT count(DISTINCT rt.chat_id)::int FROM route_targets rt JOIN routes ro ON ro.id = rt.route_id
+                  WHERE ro.tenant_id = t.id AND ro.enabled AND rt.platform = 'wa') AS wa_targets,
                 (SELECT string_agg(c.n::text, ',' ORDER BY d.d)
                    FROM generate_series(current_date::timestamptz - interval '6 days', current_date::timestamptz, interval '1 day') AS d(d)
                    CROSS JOIN LATERAL (SELECT count(*)::int AS n FROM outbound_jobs j WHERE j.tenant_id = t.id AND j.status = 'sent'
@@ -299,13 +305,19 @@ export function adminModule(opts: AdminModuleOptions) {
         sql.query('SELECT kind, detail, created_at FROM safety_events WHERE tenant_id = $1 ORDER BY id DESC LIMIT 20', [params.id]),
         sql.query('SELECT scope, scope_id, reason, set_by, set_at FROM kill_switches WHERE tenant_id = $1 AND active', [params.id]),
       ]);
+      const targets = await sql.query<{ platform: string; chat_id: string; title: string | null }>(
+        `SELECT DISTINCT ON (rt.platform, rt.chat_id) rt.platform, rt.chat_id, COALESCE(rt.title, ch.title) AS title
+           FROM route_targets rt JOIN routes ro ON ro.id = rt.route_id
+           LEFT JOIN chats ch ON ch.platform = rt.platform AND ch.account_id = rt.account_id AND ch.chat_id = rt.chat_id
+          WHERE ro.tenant_id = $1 AND ro.enabled ORDER BY rt.platform, rt.chat_id`, [params.id]);
       const daily = await sql.query<{ d: string; sent: number; reads: number }>(
         `SELECT d.d,
                 (SELECT count(*)::int FROM outbound_jobs j WHERE j.tenant_id = $1 AND j.status = 'sent' AND j.sent_at >= d.d AND j.sent_at < d.d + interval '1 day') AS sent,
                 (SELECT count(*)::int FROM message_reads r WHERE r.tenant_id = $1 AND r.read_at >= d.d AND r.read_at < d.d + interval '1 day') AS reads
            FROM generate_series(current_date::timestamptz - interval '13 days', current_date::timestamptz, interval '1 day') AS d(d)
           ORDER BY d.d`, [params.id]);
-      return { tenant: t.rows[0], users: users.rows, whatsapp: accounts.rows, telegram: bots.rows, routes: routes.rows, jobs7d: jobs.rows, safetyEvents: safety.rows, activeStops: stops.rows, daily: daily.rows };
+      return { tenant: t.rows[0], users: users.rows, whatsapp: accounts.rows, telegram: bots.rows, routes: routes.rows, jobs7d: jobs.rows, safetyEvents: safety.rows, activeStops: stops.rows, daily: daily.rows,
+        targets: targets.rows.map((x) => ({ platform: x.platform, chatId: x.chat_id, title: x.title })) };
     });
 
     // ---- Add a customer by hand: the owner gets a temporary password, shown here once.
