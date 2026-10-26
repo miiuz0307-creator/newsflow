@@ -32,6 +32,8 @@ import { pushModule } from './api/modules/push.js';
 import { fontsModule } from './api/fonts.js';
 import { NotificationService, noticeForSafety, noticeForStatus } from './notify/notifications.js';
 import { AdminPush } from './notify/adminPush.js';
+import { TelegramPhoneLinker } from './telegram/phoneLink.js';
+import { GramUserClient } from './telegram/gramClient.js';
 import { CustomerPush } from './notify/customerPush.js';
 import { notifyPushModule } from './api/modules/notifyPush.js';
 import { latestRelease } from './releases.js';
@@ -173,6 +175,14 @@ const adminModules = adminPool && process.env.ADMIN_TOKEN_SECRET
     })]
   : [];
 
+// Telegram by QR / phone login (we create the customer's bot for them). Needs the app's
+// api_id / api_hash from my.telegram.org; without them customers connect a bot token.
+const tgApiId = Number(process.env.TELEGRAM_API_ID ?? 0);
+const phoneLinker = tgApiId && process.env.TELEGRAM_API_HASH
+  ? new TelegramPhoneLinker({ clientFactory: () => new GramUserClient(tgApiId, process.env.TELEGRAM_API_HASH!) })
+  : undefined;
+if (!phoneLinker) log.info('telegram QR linking off (no TELEGRAM_API_ID / TELEGRAM_API_HASH)');
+
 // The running version (the app shows "יש גרסה חדשה" when it changes).
 const APP_VERSION = (process.env.RAILWAY_GIT_COMMIT_SHA ?? '').slice(0, 12) || `boot-${Date.now()}`;
 
@@ -188,7 +198,7 @@ const api = new ApiServer({
         await adminPush?.send({ title: 'לקוח חדש נרשם ל‑PUSH', body: `${t.businessName}\n${t.email}`, url: `/admin#customer=${t.tenantId}`, tag: `signup-${t.tenantId}` });
       },
     }),
-    manageModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate() }),
+    manageModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate(), ...(phoneLinker ? { phoneLinker } : {}) }),
     supportModule(),
     pushModule({ onRoutesChanged: () => routeSource.invalidate() }),
     fontsModule(),
