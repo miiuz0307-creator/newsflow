@@ -63,6 +63,10 @@ input.i:focus,textarea.i:focus{outline:none;border-color:var(--teal);box-shadow:
 .tg-mark{display:inline-block;width:12px;height:12px;border-radius:50%;background:#229ED9;margin-inline-end:10px;vertical-align:1px}
 .tg-add{display:flex;gap:10px;align-items:center;margin:12px 0 4px}.tg-add .i{flex:1;min-width:0}
 .tg-ok{margin:4px 0 10px}
+.tg-tabs{display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px}.tg-tabs button{border:1px solid #DFE6EF;background:#fff;border-radius:99px;padding:6px 14px;font:inherit;font-size:14px;cursor:pointer}
+.tg-tabs button[aria-pressed=true]{background:#0A1B33;color:#fff;border-color:#0A1B33}
+.tg-qr{display:flex;gap:24px;align-items:center;flex-wrap:wrap}.tg-qr .qr{width:200px;height:200px}.tg-qr .qr-wait{width:200px;height:200px}
+.ok-line{color:#0F9F6E;font-weight:600;margin:6px 0}.tg-flow{margin:6px 0}
 .notices{padding:24px 40px 0;display:grid;gap:12px}.notices:empty{display:none}
 @media (max-width:760px){.notices{padding:16px 16px 0}}
 .notice-card{background:#fff;border:1px solid #DFE6EF;border-inline-start:4px solid #19C6B4;border-radius:16px;padding:14px 18px}
@@ -729,7 +733,8 @@ function connectPage(){
     var picked=new Set(existing?existing.targets.filter(function(t){return t.platform!=='tg'}).map(function(t){return t.chatId}):[]);
     // Telegram: the customer's own bot; its channels and groups are targets of the same control group.
     var bots=[];if(!demo){try{bots=await api('GET','/v1/tg/bots')}catch(e){}}
-    var tg={bot:bots[0]||null,chats:[]};
+    var tg={bot:bots[0]||null,chats:[],link:{available:false},mode:null,poll:null};
+    if(!demo&&!tg.bot){try{tg.link=await api('GET','/v1/tg/link')}catch(e){}}
     if(tg.bot){try{tg.chats=await api('GET','/v1/tg/bots/'+tg.bot.id+'/chats')}catch(e){}}
     var pickedTg=new Set(existing?existing.targets.filter(function(t){return t.platform==='tg'}).map(function(t){return t.chatId}):[]);
     var total=function(){return picked.size+pickedTg.size};
@@ -774,25 +779,78 @@ function connectPage(){
       var cg=groups.find(function(g){return g.chatId===ctrl});
       ctrlNow.textContent=cg?'נבחרה: '+cg.title:'עדיין לא נבחרה קבוצת שליטה';
       count.textContent=total()+' מתוך '+max+' קבוצות במסלול שלכם';
-      paintTg();
+      // The Telegram box is redrawn only when it shows the bot's channels (never under a half-typed form).
+      if(tg.bot||!tgBox.firstChild)paintTg();
     }
     function paintTg(){
       if(demo){tgBox.hidden=true;return}
       var tErr=h('p',{cls:'err',role:'alert'});
       var head=h('div',{cls:'ph'},[h('h2',null,[h('span',{cls:'tg-mark','aria-hidden':'true'}),'טלגרם']),tg.bot?h('span',{cls:'gcount',text:pickedTg.size+' נבחרו'}):null]);
       if(!tg.bot){
-        var token=h('input',{cls:'i',dir:'ltr',autocomplete:'off',spellcheck:'false',placeholder:'123456789:AAH…','aria-label':'הטוקן של הבוט'});
-        var go=h('button',{cls:'btn btn-dark',type:'button',text:'חיבור הבוט',onclick:async function(){
-          tErr.textContent='';go.disabled=true;
-          try{var b=await api('POST','/v1/tg/bots',{token:token.value.trim()});tg.bot={id:b.id,username:b.username};tg.chats=[];
-            try{tg.chats=await api('GET','/v1/tg/bots/'+b.id+'/chats')}catch(e){}paintTg()}
-          catch(e){tErr.textContent=e.message;go.disabled=false}}});
-        tgBox.replaceChildren(head,
-          h('p',{cls:'hint left',text:'כל הודעה מקבוצת השליטה תצא גם לערוצים ולקבוצות שלכם בטלגרם, כולל עריכה, מחיקה ותזמון.'}),
-          h('ol',{cls:'how'},[h('li',null,['בטלגרם פותחים את ',h('b',{dir:'ltr',text:'@BotFather'}),' ושולחים ',h('b',{dir:'ltr',text:'/newbot'})]),
-            h('li',{text:'בוחרים שם לבוט ושם משתמש שמסתיים ב-bot'}),
-            h('li',{text:'BotFather שולח טוקן (שורה ארוכה עם נקודתיים). מעתיקים ומדביקים כאן:'})]),
-          h('div',{cls:'tg-add'},[token,go]),tErr);
+        clearTimeout(tg.poll);
+        var mode=tg.mode||(tg.link.available?'qr':'bot');
+        var tabs=tg.link.available?h('div',{cls:'tg-tabs',role:'group'},[['qr','סריקת QR'],['phone','מספר טלפון'],['bot','עם בוט (מתקדם)']].map(function(t){
+          return h('button',{type:'button','aria-pressed':String(mode===t[0]),text:t[1],onclick:function(){if(tg.mode!==t[0]){api('POST','/v1/tg/link/cancel',{}).catch(function(){});tg.link={available:true,step:'none'}}tg.mode=t[0];paintTg()}})})):null;
+        var intro=h('p',{cls:'hint left',text:'כל הודעה מקבוצת השליטה תצא גם לערוצים ולקבוצות שלכם בטלגרם, כולל עריכה, מחיקה ותזמון.'});
+        if(mode==='bot'){
+          var token=h('input',{cls:'i',dir:'ltr',autocomplete:'off',spellcheck:'false',placeholder:'123456789:AAH…','aria-label':'הטוקן של הבוט'});
+          var go=h('button',{cls:'btn btn-dark',type:'button',text:'חיבור הבוט',onclick:async function(){
+            tErr.textContent='';go.disabled=true;
+            try{var b=await api('POST','/v1/tg/bots',{token:token.value.trim()});tg.bot={id:b.id,username:b.username};tg.chats=[];
+              try{tg.chats=await api('GET','/v1/tg/bots/'+b.id+'/chats')}catch(e){}paintTg()}
+            catch(e){tErr.textContent=e.message;go.disabled=false}}});
+          tgBox.replaceChildren(head,tabs,intro,
+            h('ol',{cls:'how'},[h('li',null,['בטלגרם פותחים את ',h('b',{dir:'ltr',text:'@BotFather'}),' ושולחים ',h('b',{dir:'ltr',text:'/newbot'})]),
+              h('li',{text:'בוחרים שם לבוט ושם משתמש שמסתיים ב-bot'}),
+              h('li',{text:'BotFather שולח טוקן (שורה ארוכה עם נקודתיים). מעתיקים ומדביקים כאן:'})]),
+            h('div',{cls:'tg-add'},[token,go]),tErr);
+          return;
+        }
+        var st=tg.link||{},step=st.step||'none';
+        var body2=h('div',{cls:'tg-flow'});
+        var setStatus=function(x){tg.link=Object.assign({available:true},x);paintTg()};
+        var call=async function(btn,path,b){tErr.textContent='';if(btn)btn.disabled=true;try{setStatus(await api('POST',path,b||{}))}catch(e){tErr.textContent=e.message;if(btn)btn.disabled=false}};
+        if(step==='chats'){
+          var chosen=new Set((st.chats||[]).filter(function(c){return c.canAddBot}).map(function(c){return c.chatId}));
+          var list=(st.chats||[]).length?(st.chats||[]).map(function(c){
+            var inp=h('input',{type:'checkbox',checked:chosen.has(c.chatId),disabled:!c.canAddBot,onchange:function(){if(inp.checked)chosen.add(c.chatId);else chosen.delete(c.chatId)}});
+            return h('label',{cls:'grow'+(c.canAddBot?'':' dis')},[inp,h('span',{cls:'gt',text:c.title}),h('span',{cls:'gm',text:!c.canAddBot?'אין לכם הרשאה להוסיף מנהלים':c.type==='channel'?'ערוץ':'קבוצה'})]);
+          }):[h('p',{cls:'hint glist-empty',text:'לא מצאנו ערוצים או קבוצות שאתם מנהלים בהם. צרו ערוץ בטלגרם ונסו שוב.'})];
+          var fin=h('button',{cls:'btn btn-primary',type:'button',text:'חיבור הערוצים',onclick:async function(){
+            tErr.textContent='';if(!chosen.size){tErr.textContent='בחרו לפחות ערוץ אחד';return}
+            fin.disabled=true;fin.textContent='יוצרים בוט ומחברים… (עד דקה)';
+            try{var r=await api('POST','/v1/tg/link/finish',{chatIds:Array.from(chosen)});
+              tg.bot=r.bot;tg.chats=r.chats;tg.link={available:true,step:'none'};tg.mode=null;
+              r.chats.forEach(function(c){if(c.canSend&&total()<max)pickedTg.add(c.chatId)});
+              tg.note='חיברנו את הבוט ל‑'+r.chats.length+' ערוצים והתנתקנו מהחשבון האישי שלכם.'+(r.failed.length?' לא הצלחנו להוסיף ל: '+r.failed.map(function(f){return f.title}).join(', '):'');
+              paintLists();if(ctrl)save.click()}
+            catch(e){tErr.textContent=e.message;fin.disabled=false;fin.textContent='חיבור הערוצים'}}});
+          body2.replaceChildren(h('p',{cls:'ok-line',text:'התחברתם לטלגרם. סמנו לאן להפיץ:'}),h('div',{cls:'glist'},list),
+            h('p',{cls:'hint',text:'ניצור בשבילכם בוט, נוסיף אותו כמנהל לערוצים שסימנתם, ונתנתק מהחשבון שלכם. ההודעות ייצאו דרך הבוט.'}),h('div',{cls:'save-row'},[fin]));
+        }else if(step==='password'){
+          var pw=h('input',{cls:'i',type:'password',dir:'ltr',autocomplete:'current-password','aria-label':'סיסמת אימות דו-שלבי'});
+          var ok=h('button',{cls:'btn btn-dark',type:'button',text:'המשך',onclick:function(){call(ok,'/v1/tg/link/password',{password:pw.value})}});
+          body2.replaceChildren(h('p',{text:'בחשבון הטלגרם שלכם יש סיסמת אימות דו-שלבי. הקלידו אותה:'}),st.error?h('p',{cls:'err',text:st.error}):null,h('div',{cls:'tg-add'},[pw,ok]));
+          if(!st.error){tg.poll=setTimeout(async function(){if(route!=='connect')return;try{var x=await api('GET','/v1/tg/link');if(x.step!=='password')setStatus(x)}catch(e){}},3000)}
+        }else if(step==='code'){
+          var code=h('input',{cls:'i',dir:'ltr',inputmode:'numeric',autocomplete:'one-time-code',placeholder:'12345','aria-label':'הקוד מטלגרם'});
+          var ok2=h('button',{cls:'btn btn-dark',type:'button',text:'אישור',onclick:function(){call(ok2,'/v1/tg/link/code',{code:code.value})}});
+          body2.replaceChildren(h('p',{text:'טלגרם שלח קוד לאפליקציית הטלגרם שלכם (בצ׳אט "Telegram"). הקלידו אותו כאן:'}),h('div',{cls:'tg-add'},[code,ok2]));
+        }else if(step==='qr'&&mode==='qr'){
+          body2.replaceChildren(h('div',{cls:'tg-qr'},[st.qrRows?qrSvg(st.qrRows):h('div',{cls:'qr-wait'}),
+            h('ol',{cls:'how'},[h('li',{text:'פותחים טלגרם בטלפון'}),h('li',{text:'הגדרות ← מכשירים ← קישור מכשיר שולחני'}),h('li',{text:'סורקים את הקוד. הוא מתחלף לבד כל חצי דקה.'})])]));
+          tg.poll=setTimeout(async function(){if(route!=='connect')return;try{setStatus(await api('GET','/v1/tg/link'))}catch(e){}},2000);
+        }else if(step==='error'){
+          body2.replaceChildren(h('p',{cls:'err',text:st.error||'החיבור נכשל'}),h('button',{cls:'btn btn-ghost',type:'button',text:'נסו שוב',onclick:function(){tg.link={available:true,step:'none'};paintTg()}}));
+        }else if(mode==='phone'){
+          var ph=h('input',{cls:'i',type:'tel',dir:'ltr',placeholder:'050-1234567',autocomplete:'tel','aria-label':'מספר הטלפון בטלגרם'});
+          var send=h('button',{cls:'btn btn-dark',type:'button',text:'שליחת קוד',onclick:function(){call(send,'/v1/tg/link/phone',{phone:ph.value})}});
+          body2.replaceChildren(h('p',{text:'המספר של חשבון הטלגרם שלכם. טלגרם ישלח אליו קוד.'}),h('div',{cls:'tg-add'},[ph,send]));
+        }else{
+          var show=h('button',{cls:'btn btn-dark',type:'button',text:'הצגת קוד QR',onclick:function(){call(show,'/v1/tg/link/qr')}});
+          body2.replaceChildren(h('p',{text:'סורקים קוד מהטלגרם שבטלפון, כמו בחיבור WhatsApp. מתאים לערוצים וקבוצות שאתם מנהלים.'}),h('div',{cls:'save-row'},[show]));
+        }
+        tgBox.replaceChildren(head,tabs,intro,body2,tErr);
         return;
       }
       var uname=tg.bot.username?'@'+tg.bot.username:'הבוט';
@@ -814,6 +872,7 @@ function connectPage(){
         off.disabled=true;try{await api('DELETE','/v1/tg/bots/'+tg.bot.id);tg.bot=null;tg.chats=[];pickedTg.clear();paintLists()}catch(e){tErr.textContent=e.message;off.disabled=false}}});
       tgBox.replaceChildren(head,
         h('div',{cls:'conn-ok tg-ok'},[h('span',{cls:'dot'}),h('div',{cls:'conn-num'},[h('b',{text:'הבוט מחובר'}),h('span',{dir:'ltr',text:uname})])]),
+        tg.note?h('p',{cls:'ok-line',text:tg.note}):null,
         h('p',{cls:'hint left'},['מוסיפים את ',h('b',{dir:'ltr',text:uname}),' כמנהל עם הרשאה לפרסם לכל ערוץ או קבוצה בטלגרם, ומסמנים כאן לאן להפיץ. ערוץ שלא מופיע אפשר להוסיף לפי השם שלו.']),
         h('div',{cls:'glist'},rows),
         h('div',{cls:'tg-add'},[chan,add]),
