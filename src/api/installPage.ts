@@ -23,6 +23,18 @@ export function appServiceWorker(): string {
   return `'use strict';
 self.addEventListener('install',function(){self.skipWaiting()});
 self.addEventListener('activate',function(e){e.waitUntil(self.clients.claim())});
+self.addEventListener('push',function(e){
+  var d={};try{d=e.data?e.data.json():{}}catch(x){d={body:e.data?e.data.text():''}}
+  e.waitUntil(self.registration.showNotification(d.title||'PUSH',{body:d.body||'',icon:'/app/icon-192.png',badge:'/app/icon-192.png',lang:'he',dir:'rtl',tag:d.tag||undefined,data:{url:d.url||'/app'}}));
+});
+self.addEventListener('notificationclick',function(e){
+  e.notification.close();
+  var url=(e.notification.data&&e.notification.data.url)||'/app';
+  e.waitUntil(self.clients.matchAll({type:'window',includeUncontrolled:true}).then(function(list){
+    for(var i=0;i<list.length;i++){var c=list[i];if(c.url.indexOf('/app')>=0&&'focus' in c)return c.focus()}
+    return self.clients.openWindow(url);
+  }));
+});
 self.addEventListener('fetch',function(e){
   if(e.request.mode!=='navigate')return;
   e.respondWith(fetch(e.request).catch(function(){

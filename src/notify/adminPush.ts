@@ -19,6 +19,18 @@ interface Log { info(msg: string, f?: Record<string, unknown>): void; warn(msg: 
 /** Push services of the major browsers. Endpoints elsewhere are refused (the server POSTs to them). */
 const PUSH_HOSTS = [/^fcm\.googleapis\.com$/, /^android\.googleapis\.com$/, /(^|\.)push\.services\.mozilla\.com$/, /^web\.push\.apple\.com$/, /(^|\.)notify\.windows\.com$/];
 
+/** Checks a browser subscription before it is stored; returns an error message (Hebrew) or null. */
+export function checkPushSubscription(sub: unknown, allowLocal = false): string | null {
+  const s = sub as Partial<PushSubscriptionJson> | null;
+  if (!s || typeof s.endpoint !== 'string' || s.endpoint.length > 1000 || !s.keys || typeof s.keys.p256dh !== 'string' || typeof s.keys.auth !== 'string') return 'פרטי המכשיר חסרים';
+  let u: URL;
+  try { u = new URL(s.endpoint); } catch { return 'כתובת ההתראות של המכשיר לא תקינה'; }
+  const local = allowLocal && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
+  if (!local && (u.protocol !== 'https:' || !PUSH_HOSTS.some((r) => r.test(u.hostname)))) return 'שירות ההתראות של הדפדפן הזה לא נתמך';
+  if (Buffer.from(s.keys.p256dh, 'base64url').length !== 65 || Buffer.from(s.keys.auth, 'base64url').length < 16) return 'מפתחות המכשיר לא תקינים';
+  return null;
+}
+
 export class AdminPush {
   constructor(
     private readonly sql: Sql,
@@ -31,14 +43,7 @@ export class AdminPush {
 
   /** Checks a subscription sent by the panel; returns an error message (Hebrew) or null. */
   check(sub: unknown): string | null {
-    const s = sub as Partial<PushSubscriptionJson> | null;
-    if (!s || typeof s.endpoint !== 'string' || s.endpoint.length > 1000 || !s.keys || typeof s.keys.p256dh !== 'string' || typeof s.keys.auth !== 'string') return 'פרטי המכשיר חסרים';
-    let u: URL;
-    try { u = new URL(s.endpoint); } catch { return 'כתובת ההתראות של המכשיר לא תקינה'; }
-    const local = this.opts.allowLocalEndpoints && (u.hostname === '127.0.0.1' || u.hostname === 'localhost');
-    if (!local && (u.protocol !== 'https:' || !PUSH_HOSTS.some((r) => r.test(u.hostname)))) return 'שירות ההתראות של הדפדפן הזה לא נתמך';
-    if (Buffer.from(s.keys.p256dh, 'base64url').length !== 65 || Buffer.from(s.keys.auth, 'base64url').length < 16) return 'מפתחות המכשיר לא תקינים';
-    return null;
+    return checkPushSubscription(sub, !!this.opts.allowLocalEndpoints);
   }
 
   async save(adminId: string, sub: PushSubscriptionJson, userAgent?: string): Promise<void> {

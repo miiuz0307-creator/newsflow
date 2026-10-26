@@ -63,6 +63,15 @@ input.i:focus,textarea.i:focus{outline:none;border-color:var(--teal);box-shadow:
 .tg-mark{display:inline-block;width:12px;height:12px;border-radius:50%;background:#229ED9;margin-inline-end:10px;vertical-align:1px}
 .tg-add{display:flex;gap:10px;align-items:center;margin:12px 0 4px}.tg-add .i{flex:1;min-width:0}
 .tg-ok{margin:4px 0 10px}
+.notices{padding:24px 40px 0;display:grid;gap:12px}.notices:empty{display:none}
+@media (max-width:760px){.notices{padding:16px 16px 0}}
+.notice-card{background:#fff;border:1px solid #DFE6EF;border-inline-start:4px solid #19C6B4;border-radius:16px;padding:14px 18px}
+.notice-card.news{border-inline-start-color:#F2B33D}.notice-card.update{border-inline-start-color:#0A1B33}
+.notice-card p{margin:6px 0 0}
+.nc-h{display:flex;justify-content:space-between;align-items:center;gap:12px}.nc-h b{font-size:16px}
+.nc-list{margin:8px 0 0;padding-inline-start:20px;display:grid;gap:4px;font-size:14px}
+.np{margin-top:10px}.np-row{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.np-on{display:flex;align-items:center;gap:8px;font-weight:600;margin:0 0 10px}.np-on .dot{width:9px;height:9px;border-radius:50%;background:#0F9F6E}
 .check{display:flex;gap:9px;align-items:flex-start;font-size:13px;color:var(--muted);margin:4px 0 18px}.check input{accent-color:#0B8A7E;width:17px;height:17px;margin:1px 0 0;flex:none}
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;border:0;border-radius:11px;padding:11px 18px;font-weight:600;cursor:pointer;text-decoration:none;transition:background .15s}
 .btn-primary{background:var(--teal);color:var(--ink)}.btn-primary:hover{background:#2fd8c6}
@@ -450,19 +459,88 @@ async function start(){
   var r=(location.hash||'').slice(1);route=ROUTES.some(function(x){return x.id===r&&(!x.demo||demo)})?r:(demo?'sim':linked?'overview':'connect');
   buildShell();await refresh();
   clearInterval(timer);timer=setInterval(refresh,demo?3000:10000);
+  if(!demo)initNotices();
 }
-var mainEl,stopEl,navLinks=[];
+
+// ---------------- notices above every page: a new version, what's new, notifications
+var verNow=null,verBox=null,newsBox=null,pushBox=null;
+function lsGet(k){try{return localStorage.getItem(k)}catch(e){return null}}
+function lsSet(k,v){try{localStorage.setItem(k,v)}catch(e){}}
+async function initNotices(){
+  verBox=h('div');newsBox=h('div');pushBox=h('div');noticeEl.replaceChildren(verBox,newsBox,pushBox);
+  try{verNow=(await api('GET','/v1/version')).version}catch(e){}
+  if(!window.__pushVerWatch){window.__pushVerWatch=true;setInterval(checkVersion,5*60000);document.addEventListener('visibilitychange',function(){if(!document.hidden)checkVersion()})}
+  try{var rel=(await api('GET','/v1/releases'))[0];
+    // "What's new" is for customers who were here before it: a new account just started with it.
+    var isNew=me.tenant.createdAt&&String(me.tenant.createdAt).slice(0,10)>=rel.date;
+    if(rel&&isNew)lsSet('push-seen-release',rel.id);
+    if(rel&&!isNew&&lsGet('push-seen-release')!==rel.id){
+      var ok=h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:'הבנתי',onclick:function(){lsSet('push-seen-release',rel.id);newsBox.replaceChildren()}});
+      newsBox.replaceChildren(h('section',{cls:'notice-card news',id:'whatsnew'},[h('div',{cls:'nc-h'},[h('b',{text:rel.title}),ok]),
+        h('ul',{cls:'nc-list'},rel.items.map(function(x){return h('li',{text:x})}))]));
+    }}catch(e){}
+  if(lsGet('push-notify-later')!=='1'&&(pushSupported()||isIOS())&&!(await currentSub())){
+    try{var info=await api('GET','/v1/notify/push');if(!info.available)return}catch(e){return}
+    var later=h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:'לא עכשיו',onclick:function(){lsSet('push-notify-later','1');pushBox.replaceChildren()}});
+    pushBox.replaceChildren(h('section',{cls:'notice-card'},[h('div',{cls:'nc-h'},[h('b',{text:'התראות לטלפון'}),later]),
+      h('p',{text:'קבלו הודעה מיד כשהמספר מתנתק, כשמשהו עוצר את השליחה, וכשיש עדכון ל‑PUSH.'}),notifyPanel()]));
+  }
+}
+async function checkVersion(){
+  if(!verBox)return;
+  try{var v=(await api('GET','/v1/version')).version}catch(e){return}
+  if(verNow&&v&&v!==verNow)verBox.replaceChildren(h('section',{cls:'notice-card update'},[h('div',{cls:'nc-h'},[h('b',{text:'יש גרסה חדשה של PUSH'}),
+    h('button',{cls:'btn btn-sm btn-primary',type:'button',text:'רענון',onclick:function(){location.reload()}})]),h('p',{text:'לחצו "רענון" כדי לקבל את העדכון.'})]));
+}
+function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
+function isIOS(){return /iPhone|iPad|iPod/.test(navigator.userAgent)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1)}
+function standalone(){return (window.matchMedia&&matchMedia('(display-mode: standalone)').matches)||navigator.standalone===true}
+function keyBytes(b64u){var b=atob(b64u.split('-').join('+').split('_').join('/')+'==='.slice((b64u.length+3)%4));var a=new Uint8Array(b.length);for(var i=0;i<b.length;i++)a[i]=b.charCodeAt(i);return a}
+async function currentSub(){if(!pushSupported())return null;try{var r=await navigator.serviceWorker.getRegistration('/app');return r?await r.pushManager.getSubscription():null}catch(e){return null}}
+async function enablePush(){
+  var info=await api('GET','/v1/notify/push');if(!info.available)throw new Error('התראות לא זמינות כרגע');
+  var perm=await Notification.requestPermission();
+  if(perm!=='granted')throw new Error(perm==='denied'?'ההתראות חסומות בדפדפן. אפשר לאשר אותן בהגדרות האתר ואז לנסות שוב.':'ההתראות לא אושרו');
+  var reg=await navigator.serviceWorker.register('/app/sw.js',{scope:'/app'});await navigator.serviceWorker.ready;
+  var sub=await reg.pushManager.getSubscription();
+  if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:keyBytes(info.publicKey)});
+  return api('POST','/v1/notify/push/subscribe',{subscription:sub.toJSON()});
+}
+async function disablePush(){var sub=await currentSub();if(!sub)return;try{await api('POST','/v1/notify/push/unsubscribe',{endpoint:sub.endpoint})}catch(e){}await sub.unsubscribe()}
+/** The notifications control: shows this device's state and the right next step. */
+function notifyPanel(){
+  var box=h('div',{cls:'np'}),msg=h('p',{cls:'hint',role:'status'});
+  var draw2=async function(){
+    msg.textContent='';
+    if(!pushSupported()){
+      if(isIOS()&&!standalone())return box.replaceChildren(h('p',{cls:'hint',text:'באייפון: פותחים את PUSH ממסך הבית (שיתוף ← הוספה למסך הבית), ואז מפעילים כאן התראות.'}),h('a',{cls:'linkish',href:'/app/install',text:'איך מוסיפים למסך הבית'}));
+      return box.replaceChildren(h('p',{cls:'hint',text:'הדפדפן הזה לא תומך בהתראות.'}));
+    }
+    var sub=await currentSub();
+    if(!sub&&Notification.permission==='denied')return box.replaceChildren(h('p',{cls:'hint',text:'ההתראות חסומות בדפדפן. לוחצים על סמל המנעול ליד הכתובת, מאשרים "התראות", ומרעננים.'}));
+    if(sub){
+      var test=h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:'שליחת התראת בדיקה',onclick:async function(){test.disabled=true;try{await api('POST','/v1/notify/push/test');msg.textContent='נשלחה התראת בדיקה.'}catch(e){msg.textContent=e.message}test.disabled=false}});
+      var off=h('button',{cls:'linkish',type:'button',text:'כיבוי במכשיר הזה',onclick:async function(){off.disabled=true;await disablePush();draw2()}});
+      return box.replaceChildren(h('p',{cls:'np-on'},[h('span',{cls:'dot'}),'ההתראות פעילות במכשיר הזה']),h('div',{cls:'np-row'},[test,off]),msg);
+    }
+    var on=h('button',{cls:'btn btn-primary btn-sm',type:'button',text:'הפעלת התראות',onclick:async function(){on.disabled=true;
+      try{await enablePush();lsSet('push-notify-later','1');await draw2();msg.textContent='ההתראות הופעלו.'}catch(e){msg.textContent=e.message;on.disabled=false}}});
+    box.replaceChildren(h('div',{cls:'np-row'},[on]),msg);
+  };
+  draw2();return box;
+}
+var mainEl,stopEl,noticeEl,navLinks=[];
 function navItems(cls){return ROUTES.filter(function(x){return !x.demo||demo}).map(function(x){
   var a=h('a',{href:'#'+x.id,'data-r':x.id,onclick:function(e){e.preventDefault();go(x.id)}},[icon(x.icon),h('span',{text:x.label})]);navLinks.push(a);return a})}
 function buildShell(){
   navLinks=[];formDrawn=null;
-  mainEl=h('main',{id:'main'});stopEl=h('div',{cls:'stopwrap',hidden:true,role:'alert'});
+  mainEl=h('main',{id:'main'});stopEl=h('div',{cls:'stopwrap',hidden:true,role:'alert'});noticeEl=h('div',{cls:'notices'});
   var logout=h('button',{type:'button',text:'יציאה',onclick:async function(){try{await api('POST','/v1/auth/logout',{refreshToken:tok('rt')})}catch(e){}clearTok();showAuth('login')}});
   root.replaceChildren(h('div',{cls:'shell'},[
     h('aside',{cls:'side'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'PUSH']),h('nav',{cls:'nav','aria-label':'ניווט'},navItems()),
       h('div',{cls:'who'},[h('b',{text:me.tenant.name}),h('span',{text:'מסלול '+me.tenant.plan.name}),h('br'),logout])]),
     h('div',null,[h('div',{cls:'mob'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'PUSH']),
-      h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:'יציאה',style:null,onclick:function(){logout.click()}})]),stopEl,mainEl]),
+      h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:'יציאה',style:null,onclick:function(){logout.click()}})]),stopEl,noticeEl,mainEl]),
     h('nav',{cls:'tabbar','aria-label':'ניווט'},navItems())]));
   markNav();
 }
@@ -956,7 +1034,8 @@ function settingsPage(){
         sig,h('label',{cls:'f mode'},[h('span',{text:'דיווח בקבוצת השליטה'}),mode]),
         h('label',{cls:'check'},[react,'סימון על ההודעה בקבוצת השליטה: ⏳ בזמן ההפצה, ✅ כשהסתיימה (⚠️ אם משהו לא הגיע)']),
         h('div',{cls:'save-row'},[save,msg])]),
-      h('section',{cls:'panel'},[h('h2',{text:'כך זה ייראה בקבוצות'}),h('div',{cls:'preview'},[h('div',{cls:'b copy pv'},[prevText,prevSig,h('div',{cls:'t',text:'12:00'})])])])]));
+      h('section',{cls:'panel'},[h('h2',{text:'כך זה ייראה בקבוצות'}),h('div',{cls:'preview'},[h('div',{cls:'b copy pv'},[prevText,prevSig,h('div',{cls:'t',text:'12:00'})])])]),
+      demo?null:h('section',{cls:'panel'},[h('h2',{text:'התראות לטלפון'}),h('p',{cls:'hint left',text:'הודעה כשהמספר מתנתק, כשמשהו עוצר את השליחה, וכשיש עדכון ל‑PUSH. כל מכשיר מפעילים בנפרד.'}),notifyPanel()])]));
   })();
   return wrap;
 }

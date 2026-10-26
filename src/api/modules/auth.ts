@@ -170,14 +170,14 @@ export function authModule(opts: AuthModuleOptions) {
 
     api.on('GET', '/v1/me', true, async ({ auth }) =>
       api.tenantTx(auth!, async (c) => {
-        const r = await c.query<{ email: string; display_name: string | null; role: string; name: string; plan_code: string; plan_name: string; limits: unknown; risk_accepted_at: Date | null }>(
-          `SELECT u.email, u.display_name, u.role, t.name, t.plan_code, p.name AS plan_name, p.limits, t.risk_accepted_at
+        const r = await c.query<{ email: string; display_name: string | null; role: string; name: string; plan_code: string; plan_name: string; limits: unknown; risk_accepted_at: Date | null; created_at: Date }>(
+          `SELECT u.email, u.display_name, u.role, t.name, t.plan_code, p.name AS plan_name, p.limits, t.risk_accepted_at, t.created_at
              FROM users u JOIN tenants t ON t.id = u.tenant_id JOIN plans p ON p.code = t.plan_code WHERE u.id = $1`, [auth!.userId]);
         const row = r.rows[0];
         if (!row) throw new HttpError(404, 'not_found', 'user not found');
         return {
           user: { id: auth!.userId, email: row.email, displayName: row.display_name, role: row.role },
-          tenant: { id: auth!.tenantId, name: row.name, plan: { code: row.plan_code, name: row.plan_name, limits: row.limits }, riskAccepted: !!row.risk_accepted_at },
+          tenant: { id: auth!.tenantId, name: row.name, plan: { code: row.plan_code, name: row.plan_name, limits: row.limits }, riskAccepted: !!row.risk_accepted_at, createdAt: row.created_at },
         };
       }));
 
