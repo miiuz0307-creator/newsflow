@@ -3,25 +3,44 @@
  *   תזמון (12:20)
  * goes out at 12:20 Israel time, without that line. The time is today; a time that
  * has already passed (by more than two minutes) means tomorrow.
- * Accepted forms of the first line: "תזמון (12:20)", "תזמון 12:20", "תזמון: 9.05", "תזמון [08:30]".
+ *
+ * Written on phones, so the reading is forgiving: invisible direction marks that
+ * WhatsApp adds to Hebrew text, *bold* / _italic_ markers, "ל-12:20" / "לשעה 12:20",
+ * 12.20 or 12:20, a whole hour ("תזמון 9"), and the message itself continuing on the
+ * same line ("תזמון 12:20 מבזק: ...") are all accepted.
  */
 
 export const SCHEDULE_TIME_ZONE = 'Asia/Jerusalem';
 /** A time this far in the past still counts as "now" (someone typing 12:20 at 12:21). */
 const GRACE_MS = 2 * 60_000;
 
-const LINE = /^\s*תזמון\s*[:\-–]?\s*[([]?\s*(\d{1,2})\s*[:.]\s*(\d{2})\s*[)\]]?\s*$/u;
-const STARTS = /^\s*תזמון(?![\p{L}])/u;
+/** Direction marks, zero-width characters and other invisible format characters. */
+const INVISIBLE = /[\p{Cf}­]/gu;
+/** WhatsApp formatting markers and the bullets people put in front. */
+const MARKS = /^[\s*_~>•\-–—]+|[\s*_~]+$/gu;
+/** "תזמון", also spelled "תיזמון", or "תזמן". */
+const WORD = /^(?:תי?זמון|תזמן)(?![\p{L}])/u;
+const TIME = /^\s*(?:[:\-–]\s*)?(?:(?:לשעה|בשעה|ל-?|ב-?)\s*)?[([]?\s*(\d{1,2})(?:\s*[:.]\s*(\d{2}))?\s*[)\]]?(?![\d:.])\s*[:\-–]?\s*(.*)$/u;
 
 export type ScheduleParse =
   | { kind: 'none' }
   | { kind: 'invalid' }
   | { kind: 'scheduled'; at: Date; hhmm: string; rest: string };
 
+/** Arabic-Indic and Persian digits → 0-9 (some keyboards type those). */
+function asciiDigits(s: string): string {
+  return s.replace(/[٠-٩۰-۹]/g, (c) => String((c.charCodeAt(0) & 0xf) % 10));
+}
+
 function firstLine(text: string): { line: string; rest: string } {
-  const t = text.replace(/^\s*\n/, '');
+  const t = text.replace(/^(?:[\s\p{Cf}]*\n)+/u, '');
   const i = t.indexOf('\n');
-  return i < 0 ? { line: t, rest: '' } : { line: t.slice(0, i), rest: t.slice(i + 1).replace(/^\s*\n/, '') };
+  return i < 0 ? { line: t, rest: '' } : { line: t.slice(0, i), rest: t.slice(i + 1).replace(/^(?:[\s\p{Cf}]*\n)+/u, '') };
+}
+
+/** The first line as a person reads it: no invisible marks, no bold/italic markers. */
+function clean(line: string): string {
+  return asciiDigits(line.replace(INVISIBLE, '').replace(/ /g, ' ')).replace(MARKS, '').trim();
 }
 
 const partsFmt = new Map<string, Intl.DateTimeFormat>();
@@ -48,12 +67,17 @@ export function zonedTime(y: number, mo: number, d: number, h: number, mi: numbe
 export function parseSchedule(text: string | undefined, now: Date, timeZone = SCHEDULE_TIME_ZONE): ScheduleParse {
   if (!text) return { kind: 'none' };
   const { line, rest } = firstLine(text);
-  if (!STARTS.test(line)) return { kind: 'none' };
-  const m = LINE.exec(line);
+  const c = clean(line);
+  const w = WORD.exec(c);
+  if (!w) return { kind: 'none' };
+  const m = TIME.exec(c.slice(w[0].length));
   if (!m) return { kind: 'invalid' };
   const h = Number(m[1]);
-  const mi = Number(m[2]);
+  const mi = m[2] === undefined ? 0 : Number(m[2]);
   if (h > 23 || mi > 59) return { kind: 'invalid' };
+  // The message may start on the same line, right after the time.
+  const sameLine = (m[3] ?? '').trim();
+  const body = sameLine ? (rest ? `${sameLine}\n${rest}` : sameLine) : rest;
   const today = zonedParts(now, timeZone);
   let at = zonedTime(today.y, today.mo, today.d, h, mi, timeZone);
   if (at.getTime() < now.getTime() - GRACE_MS) {
@@ -63,11 +87,11 @@ export function parseSchedule(text: string | undefined, now: Date, timeZone = SC
   } else if (at.getTime() < now.getTime()) {
     at = now;
   }
-  return { kind: 'scheduled', at, hhmm: `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`, rest };
+  return { kind: 'scheduled', at, hhmm: `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`, rest: body };
 }
 
 /** The message without its schedule line (unchanged when there is none). */
 export function stripSchedule(text: string): string {
-  const { line, rest } = firstLine(text);
-  return STARTS.test(line) && LINE.test(line) ? rest : text;
+  const p = parseSchedule(text, new Date());
+  return p.kind === 'scheduled' ? p.rest : text;
 }

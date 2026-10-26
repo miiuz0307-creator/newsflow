@@ -332,6 +332,22 @@ for (const kind of ['memory', 'pg'] as const) {
       }
     });
 
+    test('a "תזמון" line that cannot be read: nothing goes out, ⚠️ and a short how-to in the control group', async () => {
+      const hist: string[] = [];
+      const orig = w.net.reactFrom.bind(w.net);
+      w.net.reactFrom = (phone: string, jid: string, mid: string, emoji: string) => { if (jid === w.ctrl) hist.push(emoji); orig(phone, jid, mid, emoji); };
+      try {
+        const before = w.waTargets.map((g) => text(w.net, g).length);
+        w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'תזמון (25:99)\nלא אמור לצאת' });
+        await w.drain();
+        w.waTargets.forEach((g, i) => assert.equal(text(w.net, g).length, before[i]));
+        assert.deepEqual(hist, ['⚠️']);
+        assert.match(reports(w).at(-1)!, /לא הצלחתי לקרוא את שעת התזמון/);
+      } finally {
+        w.net.reactFrom = orig;
+      }
+    });
+
     test('rapid edits: only the newest version ends up in the groups', async () => {
       const id = w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'גרסה 1' });
       await w.drain();
