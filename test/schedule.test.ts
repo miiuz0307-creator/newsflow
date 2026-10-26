@@ -46,6 +46,9 @@ describe('scheduled messages', () => {
     assert.deepEqual(iso('תזמון 12:20 מבזק: הכביש נפתח\nפרטים בהמשך'), ['2026-11-10T10:20:00.000Z', 'מבזק: הכביש נפתח\nפרטים בהמשך'], 'same line');
     assert.deepEqual(iso('תזמון (12:20)\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק'], 'no-break space');
     assert.deepEqual(iso('\nתזמון (12:20)\n\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק'], 'blank lines around');
+    assert.deepEqual(iso('תזמון (05:13) *ספר ים 170ש* מסילת יוסף זמן'), ['2026-11-11T03:13:00.000Z', '*ספר ים 170ש* מסילת יוסף זמן'], 'the example from the owner: same line, bold kept');
+    assert.deepEqual(iso('תזמון (12:20) מבזק *חשוב*\nעוד שורה'), ['2026-11-10T10:20:00.000Z', 'מבזק *חשוב*\nעוד שורה'], 'bold at the end of the line kept');
+    assert.deepEqual(iso('*תזמון 12:20 מבזק*'), ['2026-11-10T10:20:00.000Z', '*מבזק*'], 'whole line in bold');
     assert.deepEqual(iso('תיזמון (12:20)\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק'], 'spelled with yod');
     assert.deepEqual(iso('תזמן 12:20\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק']);
     assert.equal(iso('תזמון 1220\nמבזק'), 'invalid');

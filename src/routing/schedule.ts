@@ -43,6 +43,18 @@ function clean(line: string): string {
   return asciiDigits(line.replace(INVISIBLE, '').replace(/ /g, ' ')).replace(MARKS, '').trim();
 }
 
+const HEAD = /^[\s*_~>•\-–—]*(?:תי?זמון|תזמן)\s*[*_~]*\s*(?:[:\-–]\s*)?(?:(?:לשעה|בשעה|ל-?|ב-?)\s*)?[([]?\s*\d{1,2}(?:\s*[:.]\s*\d{2})?\s*[)\]]?\s*(?:[*_~](?=\s|$))?\s*[:\-–]?\s*/u;
+function sameLineRest(line: string): string {
+  const l = asciiDigits(line.replace(INVISIBLE, '').replace(/\u00A0/g, ' '));
+  const head = HEAD.exec(l);
+  if (!head) return '';
+  let rest = l.slice(head[0].length).trim();
+  // "*תזמון 12:20 מבזק*": the opening marker was before the word; give the text its pair back.
+  const open = /^\s*([*_~])/.exec(l)?.[1];
+  if (open && rest.endsWith(open) && (rest.split(open).length - 1) % 2 === 1) rest = open + rest;
+  return rest;
+}
+
 const partsFmt = new Map<string, Intl.DateTimeFormat>();
 function zonedParts(d: Date, timeZone: string) {
   let f = partsFmt.get(timeZone);
@@ -75,8 +87,9 @@ export function parseSchedule(text: string | undefined, now: Date, timeZone = SC
   const h = Number(m[1]);
   const mi = m[2] === undefined ? 0 : Number(m[2]);
   if (h > 23 || mi > 59) return { kind: 'invalid' };
-  // The message may start on the same line, right after the time.
-  const sameLine = (m[3] ?? '').trim();
+  // The message may start on the same line, right after the time ("תזמון (05:13) *מבזק* ...").
+  // Taken from the line as written, so its own *bold* and _italic_ markers stay intact.
+  const sameLine = sameLineRest(line);
   const body = sameLine ? (rest ? `${sameLine}\n${rest}` : sameLine) : rest;
   const today = zonedParts(now, timeZone);
   let at = zonedTime(today.y, today.mo, today.d, h, mi, timeZone);
