@@ -25,6 +25,7 @@
     "typescript": "^5.6.0"
   },
   "dependencies": {
-    "baileys": "7.0.0-rc14"
+    "baileys": "7.0.0-rc14",
+    "telegram": "2.26.22"
   }
 }

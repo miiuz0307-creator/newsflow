@@ -6,6 +6,9 @@
 import type { TenantKeys } from '../../db/pgStores.js';
 import { isValidBotToken } from '../../telegram/botApi.js';
 import type { TelegramRuntime } from '../../telegram/runtime.js';
+import { PhoneLinkError, type LinkStatus, type TelegramPhoneLinker } from '../../telegram/phoneLink.js';
+import { qrRows } from '../qr.js';
+import type { TokenClaims as AuthClaims } from '../auth.js';
 import { HttpError, type ApiServer } from '../server.js';
 
 export interface ManageModuleOptions {
@@ -13,6 +16,8 @@ export interface ManageModuleOptions {
   telegram: TelegramRuntime;
   /** Called after any route/template change (e.g. to clear the worker's route cache). */
   onRoutesChanged?: () => void;
+  /** Connect Telegram by scanning a QR / phone login (needs the app's api_id). Without it only bot tokens. */
+  phoneLinker?: TelegramPhoneLinker;
 }
 
 interface RouteRow {
@@ -25,13 +30,12 @@ export function manageModule(opts: ManageModuleOptions) {
     const changed = () => opts.onRoutesChanged?.();
 
     // ---------------- Telegram bots
-    api.on('POST', '/v1/tg/bots', true, async ({ auth, body }) => {
-      api.requireRole(auth!, 'owner', 'admin');
-      const token = String(body.token ?? '').trim();
+    /** Verifies a bot token with Telegram, stores it encrypted (plan limit under a lock) and starts the bot. */
+    const connectBot = async (auth: AuthClaims, token: string): Promise<{ id: string; username: string | null }> => {
       if (!isValidBotToken(token)) throw new HttpError(400, 'bad_token', 'הטוקן אינו תקין. מעתיקים אותו מ־@BotFather');
       // Quick check before calling Telegram; the authoritative check runs under a lock below.
-      const pre = await api.tenantTx(auth!, async (c) => {
-        const l = await c.query<{ limits: { tgBots?: number } }>('SELECT p.limits FROM tenants t JOIN plans p ON p.code = t.plan_code WHERE t.id = $1', [auth!.tenantId]);
+      const pre = await api.tenantTx(auth, async (c) => {
+        const l = await c.query<{ limits: { tgBots?: number } }>('SELECT p.limits FROM tenants t JOIN plans p ON p.code = t.plan_code WHERE t.id = $1', [auth.tenantId]);
         const n = await c.query<{ n: number }>(`SELECT count(*)::int AS n FROM tg_bots WHERE status <> 'deleted'`);
         return n.rows[0]!.n < (l.rows[0]?.limits.tgBots ?? 1);
       });
@@ -42,27 +46,82 @@ export function manageModule(opts: ManageModuleOptions) {
       } catch {
         throw new HttpError(400, 'token_rejected', 'Telegram לא אישר את הטוקן. בדוק שהעתקת אותו במלואו');
       }
-      const cipher = await opts.keys.cipher(auth!.tenantId);
-      const id = await api.tenantTx(auth!, async (c) => {
+      const cipher = await opts.keys.cipher(auth.tenantId);
+      const id = await api.tenantTx(auth, async (c) => {
         // Count and insert under one per-tenant lock, so parallel requests can't exceed the plan.
-        await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`tg-bots:${auth!.tenantId}`]);
-        const l = await c.query<{ limits: { tgBots?: number } }>('SELECT p.limits FROM tenants t JOIN plans p ON p.code = t.plan_code WHERE t.id = $1', [auth!.tenantId]);
+        await c.query('SELECT pg_advisory_xact_lock(hashtext($1))', [`tg-bots:${auth.tenantId}`]);
+        const l = await c.query<{ limits: { tgBots?: number } }>('SELECT p.limits FROM tenants t JOIN plans p ON p.code = t.plan_code WHERE t.id = $1', [auth.tenantId]);
         const n = await c.query<{ n: number }>(`SELECT count(*)::int AS n FROM tg_bots WHERE status <> 'deleted'`);
         if (n.rows[0]!.n >= (l.rows[0]?.limits.tgBots ?? 1)) throw new HttpError(403, 'plan_limit', 'המסלול שלך לא מאפשר בוטים נוספים');
         const r = await c.query<{ id: string }>(
           `INSERT INTO tg_bots (tenant_id, username, token_blob, bot_user_id) VALUES ($1, $2, 'pending', $3) RETURNING id`,
-          [auth!.tenantId, me.username ?? null, me.id]).catch((e: { code?: string }) => {
+          [auth.tenantId, me.username ?? null, me.id]).catch((e: { code?: string }) => {
           if (e.code === '23505') throw new HttpError(409, 'bot_in_use', 'הבוט הזה כבר מחובר לחשבון');
           throw e;
         });
         const botId = r.rows[0]!.id;
         // The token's encryption is bound to the bot row id.
         await c.query('UPDATE tg_bots SET token_blob = $2 WHERE id = $1', [botId, cipher.encrypt(`tg-token:${botId}`, token)]);
-        await api.audit(c, auth!, 'tg_bot.added', botId, { username: me.username });
+        await api.audit(c, auth, 'tg_bot.added', botId, { username: me.username });
         return botId;
       });
-      await opts.telegram.start(auth!.tenantId, id, token);
+      await opts.telegram.start(auth.tenantId, id, token);
       return { id, username: me.username ?? null };
+    };
+
+    api.on('POST', '/v1/tg/bots', true, async ({ auth, body }) => {
+      api.requireRole(auth!, 'owner', 'admin');
+      return connectBot(auth!, String(body.token ?? '').trim());
+    });
+
+    // ---------------- Telegram by QR / phone: we create the bot for the customer
+    const linker = opts.phoneLinker;
+    const linkCall = async <T>(f: () => Promise<T>): Promise<T> => {
+      if (!linker) throw new HttpError(501, 'not_configured', 'חיבור טלגרם בסריקה עוד לא הופעל בשרת. אפשר לחבר עם בוט.');
+      try {
+        return await f();
+      } catch (e) {
+        if (e instanceof PhoneLinkError) throw new HttpError(400, e.code, e.message);
+        throw e;
+      }
+    };
+    /** The status as the app draws it: a QR link also comes as rows of the QR code. */
+    const view = (st: LinkStatus) => (st.step === 'qr' && st.qr ? { ...st, qrRows: qrRows(st.qr) } : st);
+    api.on('GET', '/v1/tg/link', true, async ({ auth }) => (linker ? { available: true, ...view(linker.status(auth!.tenantId)) } : { available: false }));
+    api.on('POST', '/v1/tg/link/qr', true, async ({ auth }) => {
+      api.requireRole(auth!, 'owner', 'admin');
+      return linkCall(async () => view(await linker!.startQr(auth!.tenantId)));
+    });
+    api.on('POST', '/v1/tg/link/phone', true, async ({ auth, body }) => {
+      api.requireRole(auth!, 'owner', 'admin');
+      return linkCall(() => linker!.start(auth!.tenantId, String(body.phone ?? '')));
+    });
+    api.on('POST', '/v1/tg/link/code', true, async ({ auth, body }) => linkCall(() => linker!.code(auth!.tenantId, String(body.code ?? ''))));
+    api.on('POST', '/v1/tg/link/password', true, async ({ auth, body }) => linkCall(async () => view(await linker!.password(auth!.tenantId, String(body.password ?? '')))));
+    api.on('POST', '/v1/tg/link/cancel', true, async ({ auth }) => { linker?.cancel(auth!.tenantId); return { ok: true }; });
+    api.on('POST', '/v1/tg/link/finish', true, async ({ auth, body }) => {
+      api.requireRole(auth!, 'owner', 'admin');
+      const ids = Array.isArray(body.chatIds) ? body.chatIds.map(String).slice(0, 100) : [];
+      const name = await api.tenantTx(auth!, async (c) => (await c.query<{ name: string }>('SELECT name FROM tenants WHERE id = $1', [auth!.tenantId])).rows[0]?.name ?? '');
+      // Check the plan before creating anything in the customer's Telegram.
+      const free = await api.tenantTx(auth!, async (c) => {
+        const l = await c.query<{ limits: { tgBots?: number } }>('SELECT p.limits FROM tenants t JOIN plans p ON p.code = t.plan_code WHERE t.id = $1', [auth!.tenantId]);
+        const n = await c.query<{ n: number }>(`SELECT count(*)::int AS n FROM tg_bots WHERE status <> 'deleted'`);
+        return n.rows[0]!.n < (l.rows[0]?.limits.tgBots ?? 1);
+      });
+      if (!free) throw new HttpError(403, 'plan_limit', 'במסלול שלכם כבר מחובר בוט טלגרם. נתקו אותו קודם, או שדרגו מסלול.');
+      const made = await linkCall(() => linker!.finish(auth!.tenantId, ids, `${name || 'PUSH'} · PUSH`));
+      const bot = await connectBot(auth!, made.token);
+      const chats = [];
+      for (const c of made.added) {
+        try {
+          const info = await opts.telegram.addChat(bot.id, c.chatId);
+          chats.push({ chatId: info.ref.chatId, title: info.title, type: info.type, canSend: info.canSend });
+        } catch {
+          chats.push({ chatId: c.chatId, title: c.title, type: c.type, canSend: true });
+        }
+      }
+      return { bot, chats, failed: made.failed.map((f) => ({ title: f.chat.title, error: f.error })) };
     });
 
     api.on('GET', '/v1/tg/bots', true, async ({ auth }) =>
