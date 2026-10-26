@@ -82,6 +82,8 @@ Object.assign(process.env, {
   VAPID_SUBJECT: process.env.VAPID_SUBJECT ?? (process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : 'mailto:admin@localhost'),
   WA_MODE: process.env.WA_MODE ?? 'baileys',
   ALLOW_REAL_WHATSAPP: process.env.ALLOW_REAL_WHATSAPP ?? '1',
+  // Customers connect their own Telegram bots from the app (their channels are targets too).
+  ALLOW_REAL_TELEGRAM: process.env.ALLOW_REAL_TELEGRAM ?? '1',
   API_PORT: process.env.PORT ?? '8787',
   API_HOST: '0.0.0.0',
   TRUST_PROXY_HOPS: process.env.TRUST_PROXY_HOPS ?? '1',
