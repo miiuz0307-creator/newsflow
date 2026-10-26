@@ -35,6 +35,22 @@ describe('scheduled messages', () => {
     assert.equal(stripSchedule('מבזק רגיל'), 'מבזק רגיל');
   });
 
+  test('forgiving: invisible marks, bold, "ל-", whole hours, message on the same line', () => {
+    const now = at('2026-11-10T08:00:00Z'); // 10:00 in Israel
+    const iso = (t: string) => { const p = parseSchedule(t, now); return p.kind === 'scheduled' ? [p.at.toISOString(), p.rest] : p.kind; };
+    assert.deepEqual(iso('‏תזמון (12:20)‏\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק'], 'RLM marks WhatsApp adds');
+    assert.deepEqual(iso('*תזמון (12:20)*\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק'], 'bold');
+    assert.deepEqual(iso('תזמון ל-12:20\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק']);
+    assert.deepEqual(iso('תזמון לשעה 12:20\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק']);
+    assert.deepEqual(iso('תזמון 13\nמבזק'), ['2026-11-10T11:00:00.000Z', 'מבזק'], 'a whole hour');
+    assert.deepEqual(iso('תזמון 12:20 מבזק: הכביש נפתח\nפרטים בהמשך'), ['2026-11-10T10:20:00.000Z', 'מבזק: הכביש נפתח\nפרטים בהמשך'], 'same line');
+    assert.deepEqual(iso('תזמון (12:20)\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק'], 'no-break space');
+    assert.deepEqual(iso('\nתזמון (12:20)\n\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק'], 'blank lines around');
+    assert.deepEqual(iso('תיזמון (12:20)\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק'], 'spelled with yod');
+    assert.deepEqual(iso('תזמן 12:20\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק']);
+    assert.equal(iso('תזמון 1220\nמבזק'), 'invalid');
+  });
+
   test('wall-clock time in summer and winter', () => {
     assert.equal(zonedTime(2026, 8, 1, 12, 20).toISOString(), '2026-08-01T09:20:00.000Z');
     assert.equal(zonedTime(2026, 12, 1, 12, 20).toISOString(), '2026-12-01T10:20:00.000Z');

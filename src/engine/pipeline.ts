@@ -91,7 +91,12 @@ export class InboundPipeline {
       await this.o.router.release(plan).catch(() => {});
       throw err;
     }
-    this.log.info('planned', { tenantId: msg.tenantId, messageId: msg.messageId, jobs: plan.jobs.length, inserted, skipped: plan.skipped.length });
+    const scheduledAt = plan.jobs.find((j) => j.scheduledAt)?.scheduledAt;
+    this.log.info('planned', {
+      tenantId: msg.tenantId, messageId: msg.messageId, jobs: plan.jobs.length, inserted, skipped: plan.skipped.length,
+      ...(plan.skipped.length ? { reasons: [...new Set(plan.skipped.map((s) => s.reason))].join(',') } : {}),
+      ...(scheduledAt ? { scheduledAt: scheduledAt.toISOString() } : {}),
+    });
     this.o.onPlanned?.(msg, plan, inserted);
     return { planned: plan.jobs.length, inserted, skipped: plan.skipped };
   }

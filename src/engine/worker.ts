@@ -93,6 +93,10 @@ export class Worker {
       onStart: (msg, plan) => this.track(this.reporter.onDistributionStarted(msg.tenantId, msg.source, msg.messageId, plan.jobs)),
       onPlanned: (msg, plan, inserted) => {
         if (inserted) this.track(this.reporter.onDistributionPlanned(msg.tenantId, msg.source, msg.messageId, plan.jobs));
+        // "תזמון ..." that could not be read: nothing went out, so say so in the control group.
+        if (!plan.jobs.length && plan.skipped.some((s) => s.reason === 'bad_schedule')) {
+          this.track(this.reporter.onBadSchedule(msg.tenantId, msg.source, msg.messageId));
+        }
       },
     });
     this.dispatcher = new Dispatcher({
