@@ -69,8 +69,30 @@ export function manageModule(opts: ManageModuleOptions) {
       return { id, username: me.username ?? null };
     };
 
+    /**
+     * On the free plan PUSH also publishes its own posts in the customer's Telegram channels.
+     * Connecting Telegram on that plan needs the customer's agreement (promoOk in the body,
+     * recorded once); other plans pass.
+     */
+    const promoConsent = async (auth: AuthClaims, ok: unknown): Promise<void> => {
+      await api.tenantTx(auth, async (c) => {
+        const r = await c.query<{ plan_code: string; tg_promo_ok_at: Date | null }>('SELECT plan_code, tg_promo_ok_at FROM tenants WHERE id = $1', [auth.tenantId]);
+        const t = r.rows[0];
+        if (!t || t.plan_code !== 'free' || t.tg_promo_ok_at) return;
+        if (ok !== true) throw new HttpError(403, 'promo_consent', 'במסלול החינמי PUSH מפרסמת מדי פעם הודעות משלה בערוצי הטלגרם שמחוברים. סמנו שאתם מאשרים כדי להמשיך.');
+        await c.query('UPDATE tenants SET tg_promo_ok_at = now() WHERE id = $1', [auth.tenantId]);
+        await api.audit(c, auth, 'tg_promo.accepted', auth.tenantId, {});
+      });
+    };
+    api.on('POST', '/v1/tg/promo-consent', true, async ({ auth }) => {
+      api.requireRole(auth!, 'owner', 'admin');
+      await promoConsent(auth!, true);
+      return { ok: true };
+    });
+
     api.on('POST', '/v1/tg/bots', true, async ({ auth, body }) => {
       api.requireRole(auth!, 'owner', 'admin');
+      await promoConsent(auth!, body.promoOk);
       return connectBot(auth!, String(body.token ?? '').trim());
     });
 
@@ -88,12 +110,14 @@ export function manageModule(opts: ManageModuleOptions) {
     /** The status as the app draws it: a QR link also comes as rows of the QR code. */
     const view = (st: LinkStatus) => (st.step === 'qr' && st.qr ? { ...st, qrRows: qrRows(st.qr) } : st);
     api.on('GET', '/v1/tg/link', true, async ({ auth }) => (linker ? { available: true, ...view(linker.status(auth!.tenantId)) } : { available: false }));
-    api.on('POST', '/v1/tg/link/qr', true, async ({ auth }) => {
+    api.on('POST', '/v1/tg/link/qr', true, async ({ auth, body }) => {
       api.requireRole(auth!, 'owner', 'admin');
+      await promoConsent(auth!, body.promoOk);
       return linkCall(async () => view(await linker!.startQr(auth!.tenantId)));
     });
     api.on('POST', '/v1/tg/link/phone', true, async ({ auth, body }) => {
       api.requireRole(auth!, 'owner', 'admin');
+      await promoConsent(auth!, body.promoOk);
       return linkCall(() => linker!.start(auth!.tenantId, String(body.phone ?? '')));
     });
     api.on('POST', '/v1/tg/link/code', true, async ({ auth, body }) => linkCall(() => linker!.code(auth!.tenantId, String(body.code ?? ''))));
@@ -110,6 +134,7 @@ export function manageModule(opts: ManageModuleOptions) {
         return n.rows[0]!.n < (l.rows[0]?.limits.tgBots ?? 1);
       });
       if (!free) throw new HttpError(403, 'plan_limit', 'במסלול שלכם כבר מחובר בוט טלגרם. נתקו אותו קודם, או שדרגו מסלול.');
+      await promoConsent(auth!, body.promoOk);
       const made = await linkCall(() => linker!.finish(auth!.tenantId, ids, `${name || 'PUSH'} · PUSH`));
       const bot = await connectBot(auth!, made.token);
       const chats = [];

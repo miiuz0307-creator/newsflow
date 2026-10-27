@@ -14,6 +14,7 @@ import { totpCipherKey, verifyTotpStep } from '../../auth/totp.js';
 import { adminHtml, adminServiceWorker } from '../adminPage.js';
 import { adminIcon } from '../adminIcon.js';
 import type { AdminPush } from '../../notify/adminPush.js';
+import type { TelegramPromo } from '../../telegram/promo.js';
 import { TenantCipher } from '../../crypto/keyring.js';
 import { safeEqual } from '../../crypto/keyring.js';
 import type { PgPool, Sql } from '../../db/pg.js';
@@ -60,6 +61,8 @@ export interface AdminModuleOptions {
   loginLimiter?: WindowLimiter;
   /** Notifications to the admins' devices (new signups etc.). Without it the panel hides the option. */
   push?: AdminPush;
+  /** PUSH's own posts in free customers' Telegram channels (runs on the worker, which holds the bots). */
+  tgPromo?: Pick<TelegramPromo, 'audience' | 'list' | 'send' | 'retract'>;
   /**
    * Operations the admin role may not do on its own (it cannot write tenants or admins);
    * the server passes them in. Without them the matching routes answer 501.
@@ -267,7 +270,9 @@ export function adminModule(opts: AdminModuleOptions) {
       await authOf(req);
       const q = new URL(req.url ?? '/', 'http://x').searchParams.get('q') ?? '';
       const r = await sql.query(
-        `SELECT t.id, t.name, t.plan_code, t.status, t.created_at,
+        `SELECT t.id, t.name, t.plan_code, t.status, t.created_at, t.tg_promo_ok_at IS NOT NULL AS tg_promo_ok,
+                (SELECT EXISTS (SELECT 1 FROM kill_switches k JOIN tg_bots b ON k.scope = 'account' AND k.scope_id = b.id::text
+                   WHERE k.active AND b.tenant_id = t.id AND b.status <> 'deleted')) AS tg_stopped,
                 (SELECT min(email) FROM users u WHERE u.tenant_id = t.id AND u.role = 'owner') AS owner_email,
                 (SELECT count(*)::int FROM wa_accounts a WHERE a.tenant_id = t.id AND a.status <> 'deleted') AS numbers,
                 (SELECT count(*)::int FROM wa_accounts a WHERE a.tenant_id = t.id AND a.status = 'connected') AS connected,
@@ -294,7 +299,7 @@ export function adminModule(opts: AdminModuleOptions) {
 
     api.on('GET', '/admin/v1/tenants/:id', false, async ({ req, params }) => {
       await authOf(req);
-      const t = await sql.query('SELECT id, name, plan_code, status, risk_accepted_at, created_at FROM tenants WHERE id = $1', [params.id]);
+      const t = await sql.query('SELECT id, name, plan_code, status, risk_accepted_at, created_at, tg_promo_ok_at FROM tenants WHERE id = $1', [params.id]);
       if (!t.rowCount) throw new HttpError(404, 'not_found', 'tenant not found');
       const [users, accounts, bots, routes, jobs, safety, stops] = await Promise.all([
         sql.query('SELECT id, email, role, last_login_at FROM users WHERE tenant_id = $1', [params.id]),
@@ -382,6 +387,67 @@ export function adminModule(opts: AdminModuleOptions) {
       if (!r.rowCount) throw new HttpError(404, 'not_found', 'no active stop');
       await audit(a, 'kill_switch.cleared', `${scope}:${scopeId}`, r.rows[0]!.tenant_id);
       return { resumed: { scope, id: scopeId } };
+    });
+
+    // ---- Stop / resume one customer's Telegram (all their bots), without touching WhatsApp.
+    api.on('POST', '/admin/v1/tenants/:id/telegram', false, async ({ req, params, body }) => {
+      const a = await authOf(req, 'superadmin');
+      const bots = await sql.query<{ id: string }>(`SELECT id FROM tg_bots WHERE tenant_id = $1 AND status <> 'deleted'`, [params.id]);
+      if (!bots.rowCount) throw new HttpError(404, 'not_found', 'ללקוח הזה אין טלגרם מחובר');
+      const stop = body.stopped === true;
+      for (const b of bots.rows) {
+        if (stop) {
+          await sql.query(
+            `INSERT INTO kill_switches (scope, scope_id, tenant_id, active, reason, set_by) VALUES ('account', $1, $2, true, 'עצירת טלגרם על ידי מנהל', $3)
+             ON CONFLICT (scope, scope_id) DO UPDATE SET active = true, reason = EXCLUDED.reason, set_by = EXCLUDED.set_by, set_at = now()`,
+            [b.id, params.id, `admin:${a.adminId}`]);
+        } else {
+          await sql.query(`UPDATE kill_switches SET active = false WHERE scope = 'account' AND scope_id = $1 AND active`, [b.id]);
+        }
+      }
+      await audit(a, stop ? 'telegram.stopped' : 'telegram.resumed', String(params.id), String(params.id), { bots: bots.rowCount });
+      return { stopped: stop, bots: bots.rowCount };
+    });
+
+    // ---- PUSH posts in the Telegram channels of free-plan customers.
+    const promo = () => {
+      if (!opts.tgPromo) throw new HttpError(501, 'not_configured', 'not available on this server');
+      return opts.tgPromo;
+    };
+    api.on('GET', '/admin/v1/tg-promo', false, async ({ req }) => {
+      await authOf(req);
+      const p = promo();
+      const [aud, history] = await Promise.all([p.audience(), p.list()]);
+      const byTenant = new Map<string, { tenantId: string; name: string; channels: string[] }>();
+      for (const t of aud.targets) {
+        const e = byTenant.get(t.tenantId) ?? { tenantId: t.tenantId, name: t.tenantName, channels: [] };
+        e.channels.push(t.title || t.chatId);
+        byTenant.set(t.tenantId, e);
+      }
+      return { audience: { tenants: aud.tenants, channels: aud.channels, awaitingConsent: aud.awaitingConsent, list: [...byTenant.values()] }, history };
+    });
+    api.on('POST', '/admin/v1/tg-promo', false, async ({ req, body }) => {
+      const a = await authOf(req, 'superadmin');
+      const text = String(body.body ?? '').trim();
+      if (!text) throw new HttpError(400, 'bad_request', 'כתבו את ההודעה');
+      if (text.length > 4000) throw new HttpError(400, 'too_long', 'עד 4,000 תווים');
+      const r = await promo().send(text, `admin:${a.adminId}`);
+      if (!r.targets) throw new HttpError(409, 'no_audience', 'אין כרגע ערוצים של לקוחות חינמיים שאישרו פרסום');
+      await audit(a, 'tg_promo.sent', String(r.id), null, { targets: r.targets });
+      return r;
+    });
+    api.on('POST', '/admin/v1/tg-promo/:id/remove', false, async ({ req, params }) => {
+      const a = await authOf(req, 'superadmin');
+      const id = Number(params.id);
+      if (!Number.isInteger(id) || id <= 0) throw new HttpError(400, 'bad_id', 'bad id');
+      let r: { removed: number; failed: number };
+      try {
+        r = await promo().retract(id);
+      } catch {
+        throw new HttpError(404, 'not_found', 'הפרסום לא נמצא או שכבר הוסר');
+      }
+      await audit(a, 'tg_promo.removed', String(id), null, r);
+      return r;
     });
 
     // Plans: prices and limits are data.

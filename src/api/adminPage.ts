@@ -184,6 +184,11 @@ tr.susp td{color:var(--muted)}tr.susp .av{filter:grayscale(1);opacity:.6}
 .dl dt{color:var(--muted)}.dl dd{margin:0}
 .lines{display:flex;flex-direction:column;gap:8px;font-size:14px}
 .lines>div{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.promo-ta{min-height:150px;resize:vertical;line-height:1.55;font:inherit;width:100%}
+.promo-big{display:flex;gap:22px;flex-wrap:wrap;margin:2px 0 10px}.promo-big b{display:block;font-family:var(--display);font-size:30px;line-height:1.1;color:var(--ink)}.promo-big span{font-size:13px;color:var(--muted)}
+.promo-item{border-top:1px solid var(--line);padding:12px 0;display:flex;flex-direction:column;gap:6px}.promo-item:first-of-type{border-top:0;padding-top:4px}
+.promo-item p{margin:0;white-space:pre-wrap;font-size:14px;max-height:4.6em;overflow:hidden}.promo-item .meta{display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--muted)}
+.counter{font-size:12px;color:var(--muted);text-align:left;margin:4px 0 10px}
 .actions{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}.actions label.f{margin:0;flex:1;min-width:160px}
 .danger{border-color:#F3C9C5}.danger h3{color:#B0302A}
 .temp{background:var(--ok-mist);border:1px solid #BCE8D6;border-radius:14px;padding:16px;margin-top:14px}
@@ -223,12 +228,13 @@ function ago(d){
 function initials(name){var w=String(name||'?').trim().split(' ').filter(Boolean);return ((w[0]||'?').charAt(0)+(w[1]?w[1].charAt(0):'')).toUpperCase()}
 function hue(id){var x=0;id=String(id||'');for(var i=0;i<id.length;i++)x=(x*31+id.charCodeAt(i))>>>0;return 'c'+(x%6)}
 function avatar(t,big){return h('div',{cls:'av '+hue(t.id)+(big?' lg':''),'aria-hidden':'true',text:initials(t.name)})}
+function megaIcon(){return s('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.8','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'},[s('path',{d:'M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1ZM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13'})])}
 function bellIcon(){return s('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.8','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'},[s('path',{d:'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0'})])}
 var bellBtn=null;
 function shell(content,withLogout){
   bellBtn=withLogout?h('button',{cls:'out bell',type:'button','aria-label':'התראות',onclick:notifySettings},[bellIcon(),h('span',{text:'התראות'})]):null;
   root.replaceChildren(h('div',{cls:'top'},[h('div',{cls:'logo'},[h('i'),'PUSH',h('small',{text:'ניהול'})]),
-    withLogout?h('div',{cls:'top-actions'},[bellBtn,h('button',{cls:'out',type:'button',text:'יציאה',onclick:function(){setTok(null);showLogin()}})]):null]),content);
+    withLogout?h('div',{cls:'top-actions'},[h('button',{cls:'out bell',type:'button','aria-label':'פרסום בטלגרם',onclick:function(){openPromo()}},[megaIcon(),h('span',{cls:'col-hide',text:'פרסום בטלגרם'})]),bellBtn,h('button',{cls:'out',type:'button',text:'יציאה',onclick:function(){setTok(null);showLogin()}})]):null]),content);
   if(withLogout)refreshBell();
 }
 
@@ -416,7 +422,7 @@ async function showHome(){
         h('td',{cls:'col-hide'},[h('span',{cls:'plan p-'+t.plan_code,text:planName(t.plan_code)})]),
         h('td',null,[h('span',{cls:'wa'},[h('span',{cls:'dot'+(on?' on':t.numbers?' off':'')}),on?(t.connected>1?t.connected+' מחוברים':'מחובר'):t.numbers?'מנותק':'לא חובר']),
           t.wa_targets?h('small',{cls:'sub-l',text:t.wa_targets+' קבוצות'}):'']),
-        h('td',null,[h('span',{cls:'wa'},[h('span',{cls:'dot'+(t.tg_bots?' tg':'')}),t.tg_bots?h('span',{cls:'ltr',text:t.tg_bot?'@'+t.tg_bot:'מחובר'}):'לא חובר']),
+        h('td',null,[h('span',{cls:'wa'},[h('span',{cls:'dot'+(t.tg_bots?(t.tg_stopped?' off':' tg'):'')}),t.tg_bots?h('span',{cls:'ltr',text:t.tg_bot?'@'+t.tg_bot:'מחובר'}):'לא חובר',t.tg_stopped?h('span',{cls:'pill bad',text:'עצור'}):'']),
           t.tg_bots?h('small',{cls:'sub-l',text:t.tg_targets?t.tg_targets+' ערוצים':'עוד לא נבחרו ערוצים'}):'']),
         h('td',{cls:'col-hide'},[spark(t.spark_7d)]),
         h('td',{cls:'nums'},[h('b',{text:num(t.sent_24h)}),t.reads_24h?h('small',{text:num(t.reads_24h)+' קריאות'}):'']),
@@ -477,7 +483,7 @@ async function openCustomer(id,reload){
         h('dt',{text:'אישר את הסבר הסיכונים'}),h('dd',{text:t.risk_accepted_at?fmtDate(t.risk_accepted_at):'עדיין לא'})])]),
       h('div',{cls:'box'},[h('h3',{text:'מספרי WhatsApp'}),waLines.length?h('div',{cls:'lines'},waLines.map(function(x){var on=x.status==='connected';
         return h('div',null,[h('span',{cls:'wa ltr'},[h('span',{cls:'dot'+(on?' on':' off')}),x.phone_number?'+'+x.phone_number:'(לא חובר)']),h('span',{cls:'hint',text:on?'מחובר':'מנותק'+(x.last_connected_at?', חובר לאחרונה '+ago(x.last_connected_at):'')})])})):h('p',{cls:'hint',text:'הלקוח עוד לא חיבר מספר.'})]),
-      tgBox(d),
+      tgBox(d,function(){close();reload();openCustomer(id,reload)}),
       (d.activeStops||[]).length?h('div',{cls:'box'},[h('h3',{text:'עצירות פעילות'}),h('div',{cls:'lines'},d.activeStops.map(function(x){return h('div',null,[h('span',{text:x.reason}),h('span',{cls:'hint',text:ago(x.set_at)})])}))]):'',
       h('div',{cls:'box'},[h('h3',{text:'משתמשים'}),h('div',{cls:'lines'},(d.users||[]).map(function(u){return h('div',null,[h('span',{cls:'ltr',text:u.email}),h('span',{cls:'hint',text:(u.role==='owner'?'בעלים, ':'')+(u.last_login_at?'נכנס '+ago(u.last_login_at):'עוד לא נכנס')})])}))]),
       h('div',{cls:'box'},[h('h3',{text:'מסלול ומצב'}),h('div',{cls:'actions'},[h('label',{cls:'f'},[h('span',{text:'מסלול'}),plan]),savePlan,toggle]),msg]),
@@ -485,8 +491,15 @@ async function openCustomer(id,reload){
         h('label',{cls:'f'},[h('span',{text:'לאישור, הקלידו את שם העסק'}),confirmIn]),del,delMsg])]));
 }
 
-function tgBox(d){
+function tgBox(d,redraw){
   var bots=(d.telegram||[]).filter(function(b){return b.status!=='deleted'});
+  var ids=bots.map(function(b){return b.id});
+  var stopped=bots.length>0&&(d.activeStops||[]).some(function(x){return x.scope==='account'&&ids.indexOf(x.scope_id)>=0});
+  var t=d.tenant,msg=h('p',{cls:'err',role:'status'});
+  var promoLine=t.plan_code==='free'?(t.tg_promo_ok_at?'מסלול חינמי: אישר פרסומים של PUSH בערוצים שלו ('+fmtDate(t.tg_promo_ok_at)+')':'מסלול חינמי: עוד לא אישר פרסומים, ולכן לא מקבל אותם')
+    :'מסלול בתשלום: לא מקבל פרסומים של PUSH';
+  var tgBtn=bots.length?h('button',{cls:'btn '+(stopped?'btn-primary':'btn-ghost'),type:'button',text:stopped?'חידוש ההפצה לטלגרם':'עצירת ההפצה לטלגרם',onclick:async function(){
+    tgBtn.disabled=true;try{await api('POST','/admin/v1/tenants/'+t.id+'/telegram',{stopped:!stopped});redraw()}catch(e){msg.textContent=e.message;tgBtn.disabled=false}}}):null;
   var chans=(d.targets||[]).filter(function(x){return x.platform==='tg'}),waT=(d.targets||[]).filter(function(x){return x.platform==='wa'}).length;
   return h('div',{cls:'box'},[h('h3',{text:'טלגרם'}),
     bots.length?h('div',{cls:'lines'},bots.map(function(b){var ok=b.status==='active'&&!b.last_error;
@@ -494,7 +507,53 @@ function tgBox(d){
       :h('p',{cls:'hint',text:'הלקוח עוד לא חיבר בוט טלגרם.'}),
     chans.length?h('p',{cls:'hint tg-list',text:'מפיץ ל‑'+chans.length+' ערוצים: '+chans.map(function(c){return c.title||c.chatId}).slice(0,8).join(', ')+(chans.length>8?'…':'')})
       :bots.length?h('p',{cls:'hint tg-list',text:'עוד לא נבחרו ערוצי טלגרם להפצה.'}):'',
-    h('p',{cls:'hint tg-list',text:'קבוצות WhatsApp בהפצה: '+waT})]);
+    h('p',{cls:'hint tg-list',text:'קבוצות WhatsApp בהפצה: '+waT}),
+    bots.length?h('p',{cls:'hint tg-list',text:promoLine}):'',
+    stopped?h('p',{cls:'tg-list'},[h('span',{cls:'pill bad',text:'ההפצה לטלגרם עצורה'}),' ',h('span',{cls:'hint',text:'שום הודעה (גם לא פרסום) לא יוצאת לערוצים של הלקוח. WhatsApp ממשיך כרגיל.'})]):'',
+    tgBtn?h('div',{cls:'actions tg-list'},[tgBtn]):'',msg]);
+}
+
+// ---------------- PUSH posts in free customers' Telegram channels
+async function openPromo(){
+  var w=sideWindow(),box=w.box,close0=w.close,timer=null;
+  var close=function(){clearTimeout(timer);close0()};
+  var aud=h('div',{cls:'box'},[h('p',{cls:'hint',text:'טוען…'})]),hist=h('div',{cls:'box'});
+  var ta=h('textarea',{cls:'i promo-ta',maxlength:'4000',placeholder:'מה לפרסם? טקסט וקישורים, עד 4,000 תווים.','aria-label':'נוסח הפרסום'});
+  var counter=h('p',{cls:'counter',text:'0 / 4,000'}),msg=h('p',{cls:'err',role:'status'}),channels=0;
+  var go=h('button',{cls:'btn btn-primary',type:'button',text:'פרסום',onclick:async function(){
+    msg.className='err';msg.textContent='';
+    if(!ta.value.trim()){msg.textContent='כתבו את ההודעה';return}
+    if(!channels){msg.textContent='אין כרגע ערוצים לפרסם בהם';return}
+    if(go.getAttribute('data-sure')!=='1'){go.setAttribute('data-sure','1');go.textContent='לחצו שוב: לפרסם ב‑'+num(channels)+' ערוצים';return}
+    go.disabled=true;
+    try{var r=await api('POST','/admin/v1/tg-promo',{body:ta.value});ta.value='';counter.textContent='0 / 4,000';msg.className='ok';msg.textContent='הפרסום יוצא ל‑'+num(r.targets)+' ערוצים. ההתקדמות מתעדכנת למטה.';await load()}
+    catch(e){msg.textContent=e.message}
+    go.disabled=false;go.removeAttribute('data-sure');go.textContent='פרסום ב‑'+num(channels)+' ערוצים'}});
+  ta.addEventListener('input',function(){counter.textContent=num(ta.value.length)+' / 4,000';go.removeAttribute('data-sure');go.textContent='פרסום ב‑'+num(channels)+' ערוצים'});
+  box.replaceChildren(h('div',{cls:'d-head'},[h('button',{cls:'close',type:'button',text:'סגירה',onclick:close}),h('div',{cls:'d-id'},[h('div',null,[h('h2',{text:'פרסום בטלגרם'}),
+      h('p',{text:'הודעה של PUSH לערוצים ולקבוצות של הלקוחות במסלול החינמי, דרך הבוט של כל לקוח. לקוחות בתשלום לא מקבלים פרסומים.'})])])]),
+    h('div',{cls:'d-body'},[aud,h('div',{cls:'box'},[h('h3',{text:'הודעה חדשה'}),ta,counter,h('div',{cls:'actions'},[go]),msg]),hist]));
+  var statusText=function(p){return p.status==='sending'?'יוצא… '+num(p.sent)+' מתוך '+num(p.targets):p.status==='retracted'?'הוסר מהערוצים':'נשלח ל‑'+num(p.sent)+' מתוך '+num(p.targets)+(p.failed?' · '+num(p.failed)+' לא נשלחו':'')};
+  var load=async function(){
+    clearTimeout(timer);
+    var d;try{d=await api('GET','/admin/v1/tg-promo')}catch(e){aud.replaceChildren(h('p',{cls:'err',text:e.message}));return}
+    var a=d.audience;channels=a.channels;if(go.getAttribute('data-sure')!=='1')go.textContent='פרסום ב‑'+num(channels)+' ערוצים';
+    aud.replaceChildren(h('h3',{text:'למי זה יגיע'}),h('div',{cls:'promo-big'},[h('div',null,[h('b',{text:num(a.tenants)}),h('span',{text:'לקוחות חינמיים'})]),h('div',null,[h('b',{text:num(a.channels)}),h('span',{text:'ערוצים וקבוצות'})])]),
+      a.list.length?h('div',{cls:'lines'},a.list.slice(0,12).map(function(x){return h('div',null,[h('span',{text:x.name}),h('span',{cls:'hint',text:x.channels.slice(0,3).join(', ')+(x.channels.length>3?' ועוד '+(x.channels.length-3):'')})])})):h('p',{cls:'hint',text:'עדיין אין לקוח חינמי עם ערוץ טלגרם מחובר שאישר פרסומים.'}),
+      a.list.length>12?h('p',{cls:'hint tg-list',text:'ועוד '+(a.list.length-12)+' לקוחות'}):'',
+      a.awaitingConsent?h('p',{cls:'hint tg-list',text:num(a.awaitingConsent)+' לקוחות חינמיים עם טלגרם עוד לא אישרו פרסומים, ולכן לא יקבלו. הם רואים בקשת אישור במסך החיבור.'}):'',
+      h('p',{cls:'hint tg-list',text:'לא נשלח ללקוחות מושעים או לערוצים שעצרתם. אפשר להסיר פרסום מכל הערוצים גם אחרי שיצא.'}));
+    var items=(d.history||[]).map(function(p){
+      var rm=p.status==='retracted'?null:h('button',{cls:'btn btn-ghost btn-sm',type:'button',text:'הסרה מכל הערוצים',onclick:async function(){
+        if(rm.getAttribute('data-sure')!=='1'){rm.setAttribute('data-sure','1');rm.textContent='לחצו שוב לאישור ההסרה';return}
+        rm.disabled=true;try{var r=await api('POST','/admin/v1/tg-promo/'+p.id+'/remove');msg.className='ok';msg.textContent='הוסר מ‑'+num(r.removed)+' ערוצים'+(r.failed?' ('+num(r.failed)+' לא הוסרו)':'');load()}catch(e){msg.className='err';msg.textContent=e.message;rm.disabled=false}}});
+      return h('div',{cls:'promo-item'},[h('p',{text:p.body}),h('div',{cls:'meta'},[h('span',{text:fmtDate(p.createdAt)+' · '+ago(p.createdAt)}),
+        h('span',{cls:'pill '+(p.status==='retracted'?'mute':p.status==='sending'?'mute':'ok'),text:statusText(p)}),rm||''])]);
+    });
+    hist.replaceChildren.apply(hist,[h('h3',{text:'פרסומים קודמים'})].concat(items.length?items:[h('p',{cls:'hint',text:'עוד לא פורסם כלום.'})]));
+    if((d.history||[]).some(function(p){return p.status==='sending'})&&document.body.contains(box))timer=setTimeout(load,3000);
+  };
+  load();
 }
 
 // ---------------- add a customer

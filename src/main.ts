@@ -38,6 +38,7 @@ import { CustomerPush } from './notify/customerPush.js';
 import { notifyPushModule } from './api/modules/notifyPush.js';
 import { latestRelease } from './releases.js';
 import { TelegramRuntime } from './telegram/runtime.js';
+import { TelegramPromo } from './telegram/promo.js';
 import { CachedRouteSource } from './engine/routeCache.js';
 import { Worker } from './engine/worker.js';
 import { createLogger } from './logger.js';
@@ -139,6 +140,10 @@ if (cfg.allowRealTelegram || !cfg.telegramApiBase.includes('api.telegram.org')) 
   log.info('telegram bots started', { count: await telegram.loadAll() });
 }
 
+// PUSH's own posts in free customers' Telegram channels (sent through each customer's bot).
+const tgPromo = new TelegramPromo({ workerSql: workerPool, sender: (botId) => telegram.get(botId), logger: log });
+await tgPromo.closeInterrupted();
+
 // The Super Admin API runs only where its database role and secret are configured.
 // Writes the admin role itself may not do (first admin, opening and deleting customers) use the
 // owner role (first admin) and the app role inside the customer's own tenant (delete).
@@ -150,7 +155,7 @@ const adminPush = adminPool && vapidKeys
   : undefined;
 const adminModules = adminPool && process.env.ADMIN_TOKEN_SECRET
   ? [adminModule({
-      adminPool, push: adminPush, adminTokenSecret: process.env.ADMIN_TOKEN_SECRET, customerTokenSecret: req('TOKEN_SECRET'), masterKeyB64: req('MASTER_KEY'),
+      adminPool, push: adminPush, tgPromo, adminTokenSecret: process.env.ADMIN_TOKEN_SECRET, customerTokenSecret: req('TOKEN_SECRET'), masterKeyB64: req('MASTER_KEY'),
       manage: {
         ...(process.env.ADMIN_SETUP_CODE && ownerPool ? {
           setupCode: process.env.ADMIN_SETUP_CODE,
