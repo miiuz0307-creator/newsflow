@@ -114,7 +114,7 @@ describe('phase 2 API', { skip: !available && 'local test Postgres not running' 
       assert.ok(!row.rows[0]!.token_blob.includes(tg.token.split(':')[1]!), 'token stored in plaintext');
       const list = await call('GET', '/v1/tg/bots', undefined, tokA);
       assert.equal(list.body[0].running, true);
-      assert.equal((await call('POST', '/v1/tg/bots', { token: tg.token }, tokB)).status, 409, 'the same bot cannot join another account');
+      assert.equal((await call('POST', '/v1/tg/bots', { token: tg.token, promoOk: true }, tokB)).status, 409, 'the same bot cannot join another account');
     });
 
     test('chats appear when the bot is added; channels can be added by id; B cannot see them', async () => {
@@ -144,7 +144,7 @@ describe('phase 2 API', { skip: !available && 'local test Postgres not running' 
       await second.start();
       // Tenant B is on the free plan (1 bot) and already has one.
       await withTenant(db.app, tB, (c) => c.query(`INSERT INTO tg_bots (tenant_id, username, token_blob) VALUES ($1, 'x', 'x')`, [tB]));
-      const r = await call('POST', '/v1/tg/bots', { token: second.token }, tokB);
+      const r = await call('POST', '/v1/tg/bots', { token: second.token, promoOk: true }, tokB);
       assert.equal(r.body.error.code, 'plan_limit');
       await second.stop();
     });
