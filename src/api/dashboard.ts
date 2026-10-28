@@ -111,6 +111,7 @@ main{padding:34px 40px 80px;min-width:0}
   .shell{grid-template-columns:1fr}.side{display:none}
   .mob{display:flex;align-items:center;justify-content:space-between;background:var(--ink);padding:14px 18px;position:sticky;top:0;z-index:5}
   .mob .logo{font-size:22px}
+  .mob .btn-ghost{color:#fff;border-color:rgba(255,255,255,.3)}
   .tabbar{position:fixed;bottom:0;inset-inline:0;background:var(--card);border-top:1px solid var(--line);display:flex;z-index:5;padding-bottom:env(safe-area-inset-bottom)}
   .tabbar a{flex:1;text-align:center;padding:9px 4px 8px;font-size:11px;color:var(--muted);text-decoration:none;display:flex;flex-direction:column;align-items:center;gap:2px}
   .tabbar a[aria-current=page]{color:var(--teal-deep)}
@@ -316,6 +317,15 @@ label.f.mode{margin-top:18px}
 .refresh-row{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}.refresh-row .hint{margin:0}.refresh-row .linkish{margin:0}
 .picked{margin:10px 0 0;font-size:13.5px;font-weight:600;color:var(--teal-deep)}.glist-empty{padding:14px;margin:0}
 .stopwrap{padding:24px 40px 0}
+.viewbar{position:sticky;top:0;z-index:30;display:flex;align-items:center;gap:12px;flex-wrap:wrap;background:#0A1B33;color:#fff;padding:10px 40px;font-size:14px;box-shadow:0 6px 18px rgba(10,27,51,.18)}
+.viewbar .live{display:inline-flex;align-items:center;gap:8px;font-weight:600;color:#7FE9DD}
+.viewbar .live i{width:9px;height:9px;border-radius:50%;background:#19C6B4;box-shadow:0 0 0 0 rgba(25,198,180,.6);animation:vpulse 1.6s infinite}
+@keyframes vpulse{0%{box-shadow:0 0 0 0 rgba(25,198,180,.55)}70%{box-shadow:0 0 0 9px rgba(25,198,180,0)}100%{box-shadow:0 0 0 0 rgba(25,198,180,0)}}
+.viewbar b{font-weight:600}.viewbar small{color:#93A5C0;font-size:12.5px}
+.viewbar a{margin-inline-start:auto;color:#0A1B33;background:#19C6B4;border-radius:99px;padding:6px 14px;font-weight:600;text-decoration:none;white-space:nowrap}
+.view-end{min-height:100vh;display:grid;place-items:center;text-align:center;padding:24px}.view-end a{display:inline-block;margin-top:14px}
+@media (max-width:860px){.viewbar{padding:9px 16px;position:relative}.viewbar small{flex-basis:100%;order:3}}
+@media (prefers-reduced-motion:reduce){.viewbar .live i{animation:none}}
 @media (max-width:760px){.stopwrap{padding:16px 16px 0}}
 .stop{display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;background:var(--warn-soft);border:1px solid rgba(183,121,31,.35);border-radius:14px;padding:14px 18px}
 .stop b{display:block;color:var(--warn);font-size:15px}.stop span{font-size:14px}
@@ -370,7 +380,10 @@ function remembered(){try{return localStorage.getItem('push-remember')==='1'}cat
 function setRemember(on){try{if(on)localStorage.setItem('push-remember','1');else localStorage.removeItem('push-remember');['at','rt'].forEach(function(k){localStorage.removeItem(k);sessionStorage.removeItem(k)})}catch(e){}}
 function bin(){return remembered()?localStorage:sessionStorage}
 var store={get:function(k){try{return bin().getItem(k)}catch(e){return null}},set:function(k,v){try{bin().setItem(k,v)}catch(e){}},del:function(k){try{localStorage.removeItem(k);sessionStorage.removeItem(k)}catch(e){}}};
-var mem={};function tok(k){return mem[k]||store.get(k)}function setTok(a,r){mem.at=a;mem.rt=r;store.set('at',a);store.set('rt',r)}function clearTok(){mem={};store.del('at');store.del('rt')}
+// An admin watching this customer's app (opened from the panel as /app#view=<token>): read-only,
+// the token lives only in this page's memory and never replaces a sign-in stored on the device.
+var VIEW=(function(){var m=/^#view=([A-Za-z0-9_.-]+)$/.exec(location.hash||'');if(!m)return null;try{history.replaceState(null,'',location.pathname+'#overview')}catch(e){}return {token:m[1]}})();
+var mem={};function tok(k){if(VIEW)return k==='at'?VIEW.token:null;return mem[k]||store.get(k)}function setTok(a,r){mem.at=a;mem.rt=r;store.set('at',a);store.set('rt',r)}function clearTok(){mem={};store.del('at');store.del('rt')}
 function h(tag,attrs,kids){var e=document.createElement(tag);if(attrs)for(var k in attrs){var v=attrs[k];if(v==null||v===false)continue;if(k==='text')e.textContent=v;else if(k==='cls')e.className=v;else if(k.slice(0,2)==='on')e.addEventListener(k.slice(2),v);else e.setAttribute(k,v===true?'':v)}
   (kids||[]).forEach(function(c){if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c)});return e}
 var SVGNS='http://www.w3.org/2000/svg';
@@ -389,6 +402,7 @@ var ICON={
 function icon(name){return s('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.8','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'},[s('path',{d:ICON[name]})])}
 async function api(method,path,body,retried){
   var res=await fetch(path,{method:method,headers:Object.assign({'content-type':'application/json'},tok('at')?{authorization:'Bearer '+tok('at')}:{}),body:body?JSON.stringify(body):undefined});
+  if(VIEW&&res.status===401){viewEnded();throw new Error('זמן הצפייה הסתיים')}
   if(res.status===401&&!retried&&tok('rt')&&path.indexOf('/v1/auth/')!==0){
     var r=await fetch('/v1/auth/refresh',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({refreshToken:tok('rt')})});
     if(r.ok){var j=await r.json();setTok(j.accessToken,j.refreshToken);return api(method,path,body,true)}
@@ -399,6 +413,8 @@ async function api(method,path,body,retried){
   return data;
 }
 var root=document.getElementById('root');
+function viewEnded(){clearInterval(timer);root.replaceChildren(h('div',{cls:'view-end'},[h('div',null,[h('h2',{text:'זמן הצפייה הסתיים'}),
+  h('p',{cls:'sub',text:'הצפייה בחשבון של לקוח פתוחה לחצי שעה. אפשר לפתוח אותה שוב מהניהול.'}),h('a',{cls:'btn btn-primary',href:'/admin',text:'חזרה לניהול'})])]))}
 var STATUS={sent:['נשלח','ok'],failed:['נכשל','bad'],unknown:['ממתין לאימות','warn'],queued:['בתור','info'],sending:['נשלח עכשיו','info'],pending_approval:['ממתין לאישור','info'],skipped:['דולג','mute'],cancelled:['בוטל','mute']};
 var REASON={forbidden:'אין הרשאה לשלוח בקבוצה',not_found:'הקבוצה או ההודעה לא נמצאו',window_closed:'עבר חלון הזמן של הפלטפורמה',rate_limited:'הפלטפורמה ביקשה להאט',transient:'תקלה זמנית',disconnected:'החיבור מנותק',account_blocked:'המספר חסום',invalid:'תוכן לא תקין',stale:'עבר יותר מדי זמן',source_deleted:'נמחקה בקבוצת השליטה',superseded:'הוחלפה בעריכה חדשה',merged_into_send:'עודכנה לפני השליחה',copy_not_sent:'העותק לא נשלח',copy_unknown:'מצב העותק לא ידוע',not_supported:'הפלטפורמה לא תומכת',unknown:'אין תשובה מהפלטפורמה',cancelled_before_send:'בוטלה לפני השליחה'};
 function hhmm(d){try{var x=new Date(d),t=x.toLocaleTimeString('he-IL',{hour:'2-digit',minute:'2-digit',hourCycle:'h23',timeZone:'Asia/Jerusalem'});return x.toDateString()===new Date().toDateString()?t:t+' מחר'}catch(e){return ''}}
@@ -457,15 +473,15 @@ function showAuth(mode,msg,prefill){
 var formDrawn=null,me=null,demo=false,simulated=false,timer=null,route='overview',dists=[],caps=null;
 var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'connect',label:'חיבור',icon:'link'},{id:'settings',label:'חתימה',icon:'pen'},{id:'logo',label:'לוגו',icon:'image'}];
 async function start(){
-  try{me=await api('GET','/v1/me')}catch(e){return showAuth('login')}
+  try{me=await api('GET','/v1/me')}catch(e){if(VIEW)return viewEnded();return showAuth('login')}
   try{await api('GET','/v1/demo/state');demo=true}catch(e){demo=false}
   try{simulated=!!(await api('GET','/v1/demo/env')).simulated}catch(e){simulated=false}
   // A new customer starts at "חיבור" until a number is linked.
   var linked=demo;if(!demo){try{linked=(await api('GET','/v1/wa/accounts')).some(function(x){return x.status==='connected'||x.phoneNumber})}catch(e){}}
   var r=(location.hash||'').slice(1);route=ROUTES.some(function(x){return x.id===r&&(!x.demo||demo)})?r:(demo?'sim':linked?'overview':'connect');
   buildShell();await refresh();
-  clearInterval(timer);timer=setInterval(refresh,demo?3000:10000);
-  if(!demo)initNotices();
+  clearInterval(timer);timer=setInterval(refresh,demo||VIEW?3000:10000);
+  if(!demo&&!VIEW)initNotices();
 }
 
 // ---------------- notices above every page: a new version, what's new, notifications
@@ -541,12 +557,15 @@ function navItems(cls){return ROUTES.filter(function(x){return !x.demo||demo}).m
 function buildShell(){
   navLinks=[];formDrawn=null;
   mainEl=h('main',{id:'main'});stopEl=h('div',{cls:'stopwrap',hidden:true,role:'alert'});noticeEl=h('div',{cls:'notices'});
-  var logout=h('button',{type:'button',text:'יציאה',onclick:async function(){try{await api('POST','/v1/auth/logout',{refreshToken:tok('rt')})}catch(e){}clearTok();showAuth('login')}});
+  var logout=h('button',{type:'button',text:VIEW?'חזרה לניהול':'יציאה',onclick:async function(){if(VIEW){location.href='/admin';return}try{await api('POST','/v1/auth/logout',{refreshToken:tok('rt')})}catch(e){}clearTok();showAuth('login')}});
   root.replaceChildren(h('div',{cls:'shell'},[
     h('aside',{cls:'side'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'PUSH']),h('nav',{cls:'nav','aria-label':'ניווט'},navItems()),
       h('div',{cls:'who'},[h('b',{text:me.tenant.name}),h('span',{text:'מסלול '+me.tenant.plan.name}),h('br'),logout])]),
     h('div',null,[h('div',{cls:'mob'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'PUSH']),
-      h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:'יציאה',style:null,onclick:function(){logout.click()}})]),stopEl,noticeEl,mainEl]),
+      h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:VIEW?'לניהול':'יציאה',style:null,onclick:function(){logout.click()}})]),
+      VIEW?h('div',{cls:'viewbar',role:'status'},[h('span',{cls:'live'},[h('i',{'aria-hidden':'true'}),'צפייה חיה']),h('b',{text:me.tenant.name}),
+        h('small',{text:'זה בדיוק מה שהלקוח רואה. מתעדכן כל 3 שניות, ושום דבר לא משתנה מכאן.'}),h('a',{href:'/admin',text:'חזרה לניהול'})]):null,
+      stopEl,noticeEl,mainEl]),
     h('nav',{cls:'tabbar','aria-label':'ניווט'},navItems())]));
   markNav();
 }
@@ -1215,7 +1234,7 @@ function simDraw(){
 }
 
 window.addEventListener('hashchange',function(){var r=location.hash.slice(1);if(r&&r!==route&&mainEl&&ROUTES.some(function(x){return x.id===r}))go(r)});
-if(tok('at'))start();else showAuth(location.hash==='#signup'?'signup':'login');
+if(VIEW||tok('at'))start();else showAuth(location.hash==='#signup'?'signup':'login');
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/app/sw.js',{scope:'/app'}).catch(function(){});
 })();
 </script>

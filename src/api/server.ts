@@ -451,6 +451,8 @@ export class ApiServer {
         const token = h.startsWith('Bearer ') ? h.slice(7) : queryToken;
         auth = verifyToken(token, this.o.tokenSecret);
         if (!auth) throw new HttpError(401, 'unauthorized', 'missing or invalid token');
+        // An admin watching a customer's app sees everything and changes nothing.
+        if (auth.view && req.method !== 'GET') throw new HttpError(403, 'view_only', 'מצב צפייה: אפשר לראות הכל, אבל אי אפשר לשנות מכאן');
         // Every authenticated route, including ones that don't open a tenant transaction
         // themselves, first confirms the tenant is active and the user still exists.
         await this.tenantTx(auth, async () => undefined);

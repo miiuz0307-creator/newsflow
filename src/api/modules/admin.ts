@@ -20,6 +20,7 @@ import { safeEqual } from '../../crypto/keyring.js';
 import type { PgPool, Sql } from '../../db/pg.js';
 import { PgError } from '../../db/pg.js';
 import { HttpError, type ApiServer } from '../server.js';
+import { signToken } from '../auth.js';
 import { WindowLimiter } from './auth.js';
 
 export interface AdminClaims {
@@ -387,6 +388,21 @@ export function adminModule(opts: AdminModuleOptions) {
       if (!r.rowCount) throw new HttpError(404, 'not_found', 'no active stop');
       await audit(a, 'kill_switch.cleared', `${scope}:${scopeId}`, r.rows[0]!.tenant_id);
       return { resumed: { scope, id: scopeId } };
+    });
+
+    // ---- Watch a customer's app exactly as they see it, live and read-only (30 minutes).
+    api.on('POST', '/admin/v1/tenants/:id/view', false, async ({ req, params }) => {
+      const a = await authOf(req, 'superadmin');
+      if (!opts.customerTokenSecret) throw new HttpError(501, 'not_configured', 'not available on this server');
+      const r = await sql.query<{ user_id: string; name: string; status: string }>(
+        `SELECT u.id AS user_id, t.name, t.status FROM tenants t JOIN users u ON u.tenant_id = t.id
+          WHERE t.id = $1 AND t.status <> 'deleted' ORDER BY (u.role = 'owner') DESC, u.created_at LIMIT 1`, [params.id]);
+      const row = r.rows[0];
+      if (!row) throw new HttpError(404, 'not_found', 'הלקוח לא נמצא');
+      if (row.status !== 'active') throw new HttpError(409, 'suspended', 'הלקוח מושעה. החזירו אותו לפעילות כדי לצפות');
+      const token = signToken({ tenantId: String(params.id), userId: row.user_id, role: 'owner', view: a.adminId }, opts.customerTokenSecret, 30 * 60);
+      await audit(a, 'tenant.viewed', String(params.id), String(params.id));
+      return { token, name: row.name, expiresIn: 30 * 60 };
     });
 
     // ---- Stop / resume one customer's Telegram (all their bots), without touching WhatsApp.
