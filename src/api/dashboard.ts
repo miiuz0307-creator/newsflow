@@ -326,7 +326,7 @@ label.f.mode{margin-top:18px}
 .viewbar .live i{width:9px;height:9px;border-radius:50%;background:#19C6B4;box-shadow:0 0 0 0 rgba(25,198,180,.6);animation:vpulse 1.6s infinite}
 @keyframes vpulse{0%{box-shadow:0 0 0 0 rgba(25,198,180,.55)}70%{box-shadow:0 0 0 9px rgba(25,198,180,0)}100%{box-shadow:0 0 0 0 rgba(25,198,180,0)}}
 .viewbar b{font-weight:600}.viewbar small{color:#93A5C0;font-size:12.5px}
-.viewbar a{margin-inline-start:auto;color:#0A1B33;background:#19C6B4;border-radius:99px;padding:6px 14px;font-weight:600;text-decoration:none;white-space:nowrap}
+.viewbar a+a{margin-inline-start:0}.viewbar a{margin-inline-start:auto;color:#0A1B33;background:#19C6B4;border-radius:99px;padding:6px 14px;font-weight:600;text-decoration:none;white-space:nowrap}
 .view-end{min-height:100vh;display:grid;place-items:center;text-align:center;padding:24px}.view-end a{display:inline-block;margin-top:14px}
 @media (max-width:860px){.viewbar{padding:9px 16px;position:relative}.viewbar small{flex-basis:100%;order:3}}
 @media (prefers-reduced-motion:reduce){.viewbar .live i{animation:none}}
@@ -568,7 +568,8 @@ function buildShell(){
     h('div',null,[h('div',{cls:'mob'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'PUSH']),
       h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:VIEW?'לניהול':'יציאה',style:null,onclick:function(){logout.click()}})]),
       VIEW?h('div',{cls:'viewbar',role:'status'},[h('span',{cls:'live'},[h('i',{'aria-hidden':'true'}),'צפייה חיה']),h('b',{text:me.tenant.name}),
-        h('small',{text:'זה בדיוק מה שהלקוח רואה. מתעדכן כל 3 שניות, ושום דבר לא משתנה מכאן.'}),h('a',{href:'/admin',text:'חזרה לניהול'})]):null,
+        h('small',{text:'זה בדיוק מה שהלקוח רואה. מתעדכן כל 3 שניות, ושום דבר לא משתנה מכאן.'}),
+        h('a',{href:'/app',text:'לחשבון שלי'}),h('a',{href:'/admin',text:'חזרה לניהול'})]):null,
       stopEl,noticeEl,mainEl]),
     h('nav',{cls:'tabbar','aria-label':'ניווט'},navItems())]));
   markNav();
