@@ -71,8 +71,15 @@ export class TelegramBotManager {
     await this.init();
     this.running = true;
     this.loop = (async () => {
+      let checked = Date.now();
       while (this.running) {
         try {
+          // Bot Management Mode may be turned on after the server started: look again every minute.
+          if (this.me?.can_manage_bots === false && Date.now() - checked > 60_000) {
+            checked = Date.now();
+            await this.init();
+            if (this.me?.can_manage_bots) this.log.info('manager bot: Bot Management Mode is on', { username: this.me.username });
+          }
           const n = await this.pollOnce();
           if (!n && (this.o.pollTimeoutSec ?? 25) < 1) await sleep(200);
         } catch (e) {
