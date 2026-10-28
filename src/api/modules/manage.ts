@@ -215,8 +215,11 @@ export function manageModule(opts: ManageModuleOptions) {
     api.on('POST', '/v1/tg/bots/:id/chats', true, async ({ auth, params, body }) => {
       api.requireRole(auth!, 'owner', 'admin');
       await api.ownAccount(auth!, params.id!, true);
-      const chatId = String(body.chatId ?? '').trim();
-      if (!/^(@[A-Za-z0-9_]{5,32}|-?\d{5,20})$/.test(chatId)) throw new HttpError(400, 'bad_chat', 'יש להזין @שם_ערוץ או מזהה מספרי');
+      // Accepts @name, name, t.me/name, https://t.me/name or a numeric id.
+      let chatId = String(body.chatId ?? '').trim().replace(/^https?:\/\//i, '').replace(/^(www\.)?(t|telegram)\.me\//i, '').replace(/[/?#].*$/, '');
+      if (/^[A-Za-z][A-Za-z0-9_]{4,31}$/.test(chatId)) chatId = `@${chatId}`;
+      if (/^\+|^joinchat/i.test(chatId)) throw new HttpError(400, 'private_link', 'זה קישור הזמנה של ערוץ פרטי. בערוץ פרטי מוסיפים את הבוט בכפתור "+ הוספה לערוץ", ואחר כך לוחצים "רענון".');
+      if (!/^(@[A-Za-z0-9_]{5,32}|-?\d{5,20})$/.test(chatId)) throw new HttpError(400, 'bad_chat', 'כתבו את כתובת הערוץ, למשל @jd_news_il או t.me/jd_news_il');
       try {
         const info = await opts.telegram.addChat(params.id!, chatId);
         return { chatId: info.ref.chatId, title: info.title, type: info.type, canSend: info.canSend, isAdmin: info.isAdmin };
