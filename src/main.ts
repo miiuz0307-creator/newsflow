@@ -39,6 +39,7 @@ import { notifyPushModule } from './api/modules/notifyPush.js';
 import { latestRelease } from './releases.js';
 import { TelegramRuntime } from './telegram/runtime.js';
 import { TelegramPromo } from './telegram/promo.js';
+import { TelegramBotManager } from './telegram/manager.js';
 import { CachedRouteSource } from './engine/routeCache.js';
 import { Worker } from './engine/worker.js';
 import { createLogger } from './logger.js';
@@ -189,6 +190,13 @@ const phoneLinker = tgApiId && process.env.TELEGRAM_API_HASH
   : undefined;
 if (!phoneLinker) log.info('telegram QR linking off (no TELEGRAM_API_ID / TELEGRAM_API_HASH)');
 
+// "Create a bot in one tap": PUSH's manager bot (Bot Management Mode on in @BotFather).
+const botManager = process.env.TELEGRAM_MANAGER_BOT_TOKEN && (cfg.allowRealTelegram || !cfg.telegramApiBase.includes('api.telegram.org'))
+  ? new TelegramBotManager({ token: process.env.TELEGRAM_MANAGER_BOT_TOKEN, apiOptions: { apiBase: cfg.telegramApiBase, allowReal: cfg.allowRealTelegram }, workerSql: workerPool, logger: log })
+  : undefined;
+if (botManager) await botManager.start().catch((e) => log.error('manager bot failed to start', { err: String(e) }));
+else log.info('telegram one-tap bot creation off (no TELEGRAM_MANAGER_BOT_TOKEN)');
+
 // The running version (the app shows "יש גרסה חדשה" when it changes).
 const APP_VERSION = (process.env.RAILWAY_GIT_COMMIT_SHA ?? '').slice(0, 12) || `boot-${Date.now()}`;
 
@@ -205,7 +213,7 @@ const api = new ApiServer({
         await adminPush?.send({ title: 'לקוח חדש נרשם ל‑PUSH', body: `${t.businessName}\n${t.email}`, url: `/admin#customer=${t.tenantId}`, tag: `signup-${t.tenantId}` });
       },
     }),
-    manageModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate(), ...(phoneLinker ? { phoneLinker } : {}) }),
+    manageModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate(), ...(phoneLinker ? { phoneLinker } : {}), ...(botManager ? { botManager } : {}) }),
     supportModule(),
     pushModule({ onRoutesChanged: () => routeSource.invalidate() }),
     fontsModule(),
@@ -276,6 +284,7 @@ for (const a of await linkedAccounts(workerPool)) {
 async function shutdown(signal: string) {
   log.info('shutting down', { signal });
   await api.close();
+  await botManager?.stop();
   await telegram.shutdown();
   await worker.shutdown();
   await Promise.all([appPool.end(), workerPool.end()]);

@@ -108,6 +108,13 @@ export class FakeTelegramServer {
     this.mustChat(chatId).rate = { max, windowMs, times: [] };
   }
 
+  private readonly managed = new Map<number, string>();
+  /** As the manager bot: a user confirmed Telegram's "create bot" screen (managed bots). */
+  createManagedBot(user: { id: number; first_name: string }, bot: { id: number; username: string; first_name: string }, token: string): void {
+    this.managed.set(bot.id, token);
+    this.push({ managed_bot: { user: { ...user, is_bot: false }, bot: { ...bot, is_bot: true } } } as unknown as Omit<TgUpdate, 'update_id'>);
+  }
+
   revokeToken() {
     this.revoked.add(this.token);
   }
@@ -163,7 +170,12 @@ export class FakeTelegramServer {
   private async dispatch(method: string, p: Record<string, unknown>, files: Record<string, Buffer>): Promise<unknown> {
     switch (method) {
       case 'getMe':
-        return { id: this.botId, is_bot: true, first_name: 'Bot', username: this.botUsername };
+        return { id: this.botId, is_bot: true, first_name: 'Bot', username: this.botUsername, can_manage_bots: true };
+      case 'getManagedBotToken': {
+        const t = this.managed.get(Number(p.user_id));
+        if (!t) throw { code: 400, description: 'Bad Request: bot not found' };
+        return t;
+      }
       case 'getUpdates': {
         const offset = Number(p.offset ?? 0);
         const wait = Math.min(Number(p.timeout ?? 0) * 1000, 50);

@@ -7,6 +7,7 @@ import type { TenantKeys } from '../../db/pgStores.js';
 import { isValidBotToken } from '../../telegram/botApi.js';
 import type { TelegramRuntime } from '../../telegram/runtime.js';
 import { PhoneLinkError, type LinkStatus, type TelegramPhoneLinker } from '../../telegram/phoneLink.js';
+import { suggestBotUsername, type TelegramBotManager } from '../../telegram/manager.js';
 import { qrRows } from '../qr.js';
 import type { TokenClaims as AuthClaims } from '../auth.js';
 import { HttpError, type ApiServer } from '../server.js';
@@ -18,6 +19,8 @@ export interface ManageModuleOptions {
   onRoutesChanged?: () => void;
   /** Connect Telegram by scanning a QR / phone login (needs the app's api_id). Without it only bot tokens. */
   phoneLinker?: TelegramPhoneLinker;
+  /** "Create a bot in one tap" through PUSH's manager bot (Telegram managed bots). */
+  botManager?: TelegramBotManager;
 }
 
 interface RouteRow {
@@ -88,6 +91,54 @@ export function manageModule(opts: ManageModuleOptions) {
       api.requireRole(auth!, 'owner', 'admin');
       await promoConsent(auth!, true);
       return { ok: true };
+    });
+
+    // ---------------- Create a bot in one tap (Telegram managed bots)
+    const mgr = opts.botManager;
+    if (mgr) {
+      // Telegram created the bot the customer asked for: connect it to their account.
+      mgr.onCreated = async (req, token) => {
+        const claims: AuthClaims = { tenantId: req.tenantId, userId: req.userId, role: 'owner', exp: Math.floor(Date.now() / 1000) + 300 };
+        const bot = await connectBot(claims, token);
+        return { id: bot.id };
+      };
+    }
+    const requestView = (row: { username: string; name: string; bot_id: string | null; error: string | null; created_at: Date } | undefined) => {
+      if (!row || !mgr) return null;
+      const link = mgr.createLink(row.username, row.name);
+      return { username: row.username, name: row.name, link, qrRows: qrRows(link), connected: !!row.bot_id, error: row.error, createdAt: row.created_at };
+    };
+    api.on('GET', '/v1/tg/create', true, async ({ auth }) => {
+      if (!mgr?.ready) return { available: false };
+      const r = await api.tenantTx(auth!, (c) => c.query<{ username: string; name: string; bot_id: string | null; error: string | null; created_at: Date }>(
+        'SELECT username, name, bot_id, error, created_at FROM tg_bot_requests'));
+      return { available: true, request: requestView(r.rows[0]) };
+    });
+    api.on('POST', '/v1/tg/create', true, async ({ auth, body }) => {
+      api.requireRole(auth!, 'owner', 'admin');
+      if (!mgr?.ready) throw new HttpError(501, 'not_configured', 'יצירת בוט בלחיצה עוד לא הופעלה בשרת. אפשר לחבר עם בוט קיים.');
+      await promoConsent(auth!, body.promoOk);
+      const t = await api.tenantTx(auth!, async (c) => {
+        const l = await c.query<{ name: string; limits: { tgBots?: number } }>('SELECT t.name, p.limits FROM tenants t JOIN plans p ON p.code = t.plan_code WHERE t.id = $1', [auth!.tenantId]);
+        const n = await c.query<{ n: number }>(`SELECT count(*)::int AS n FROM tg_bots WHERE status <> 'deleted'`);
+        return { name: l.rows[0]?.name ?? '', free: n.rows[0]!.n < (l.rows[0]?.limits.tgBots ?? 1) };
+      });
+      if (!t.free) throw new HttpError(403, 'plan_limit', 'במסלול שלכם כבר מחובר בוט טלגרם. נתקו אותו קודם, או שדרגו מסלול.');
+      const name = String(body.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 64) || t.name.slice(0, 64) || 'PUSH';
+      for (let i = 0; i < 5; i++) {
+        const username = suggestBotUsername(t.name);
+        try {
+          const r = await api.tenantTx(auth!, (c) => c.query<{ username: string; name: string; bot_id: string | null; error: string | null; created_at: Date }>(
+            `INSERT INTO tg_bot_requests (tenant_id, user_id, username, name) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (tenant_id) DO UPDATE SET user_id = EXCLUDED.user_id, username = EXCLUDED.username, name = EXCLUDED.name,
+               created_at = now(), bot_id = NULL, error = NULL
+             RETURNING username, name, bot_id, error, created_at`, [auth!.tenantId, auth!.userId, username, name]));
+          return requestView(r.rows[0]);
+        } catch (e) {
+          if ((e as { code?: string }).code !== '23505') throw e; // username taken: try another
+        }
+      }
+      throw new HttpError(500, 'internal', 'לא הצלחנו להכין שם לבוט. נסו שוב.');
     });
 
     api.on('POST', '/v1/tg/bots', true, async ({ auth, body }) => {
