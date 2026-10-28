@@ -225,6 +225,17 @@ export function manageModule(opts: ManageModuleOptions) {
       }
     });
 
+    /** Asks Telegram again about every chat of the bot (e.g. after the customer gave it the right to post). */
+    api.on('POST', '/v1/tg/bots/:id/refresh', true, async ({ auth, params }) => {
+      api.requireRole(auth!, 'owner', 'admin');
+      await api.ownAccount(auth!, params.id!, true);
+      const known = await api.tenantTx(auth!, async (c) =>
+        (await c.query<{ chat_id: string }>(`SELECT chat_id FROM chats WHERE platform = 'tg' AND account_id = $1`, [params.id])).rows.map((r) => r.chat_id));
+      for (const chatId of known.slice(0, 200)) await opts.telegram.addChat(params.id!, chatId).catch(() => {});
+      return api.tenantTx(auth!, async (c) =>
+        (await c.query(`SELECT chat_id AS "chatId", title, type, can_send AS "canSend", is_admin AS "isAdmin" FROM chats WHERE platform = 'tg' AND account_id = $1 ORDER BY title`, [params.id])).rows);
+    });
+
     api.on('DELETE', '/v1/tg/bots/:id', true, async ({ auth, params }) => {
       api.requireRole(auth!, 'owner', 'admin');
       await api.ownAccount(auth!, params.id!, true);
