@@ -81,7 +81,7 @@ export class TelegramBotManager {
         }
       }
     })();
-    this.log.info('manager bot started', { username: this.me.username, canManage: this.me.can_manage_bots ?? null });
+    this.log.info('manager bot started', { username: this.me?.username, canManage: this.me?.can_manage_bots ?? null });
   }
 
   async stop(): Promise<void> {
