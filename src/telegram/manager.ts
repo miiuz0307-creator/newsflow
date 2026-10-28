@@ -54,7 +54,12 @@ export class TelegramBotManager {
 
   /** The manager bot's @username (for links), once started. */
   get username(): string | undefined { return this.me?.username; }
-  get ready(): boolean { return !!this.me?.username && this.me.can_manage_bots !== false; }
+  /**
+   * Ready once we know the manager's @username. Telegram's getMe can keep reporting
+   * can_manage_bots=false for a while after the switch is turned on, so it is only logged;
+   * if the mode really is off, Telegram itself refuses the creation screen.
+   */
+  get ready(): boolean { return !!this.me?.username; }
 
   /** The link that opens Telegram's ready "create bot" screen for this customer. */
   createLink(username: string, name: string): string {
