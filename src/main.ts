@@ -157,6 +157,7 @@ const adminModules = adminPool && process.env.ADMIN_TOKEN_SECRET
   ? [adminModule({
       adminPool, push: adminPush, tgPromo, adminTokenSecret: process.env.ADMIN_TOKEN_SECRET, customerTokenSecret: req('TOKEN_SECRET'), masterKeyB64: req('MASTER_KEY'),
       manage: {
+        ...(process.env.ADMIN_SETUP_CODE ? { recoveryCode: process.env.ADMIN_SETUP_CODE } : {}),
         ...(process.env.ADMIN_SETUP_CODE && ownerPool ? {
           setupCode: process.env.ADMIN_SETUP_CODE,
           createFirstAdmin: async (email: string, passwordHash: string, totp: string) => {
@@ -195,6 +196,7 @@ const api = new ApiServer({
   appPool, connections: conns, queue, killSwitches, tokenSecret: req('TOKEN_SECRET'),
   onRoutesChanged: () => routeSource.invalidate(),
   trustProxyHops: Number(process.env.TRUST_PROXY_HOPS ?? 0),
+  perIpPerMinute: Number(process.env.API_PER_IP_PER_MINUTE ?? 1200),
   modules: [
     authModule({
       keys, telegram, onRoutesChanged: () => routeSource.invalidate(),

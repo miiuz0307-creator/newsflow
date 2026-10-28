@@ -5,14 +5,55 @@
  */
 import { fontFaceCss } from './fonts.js';
 
-export function siteHtml(nonce: string): string {
+/** Where the site lives (PUBLIC_ORIGIN, e.g. https://push.co.il, once a domain is connected). */
+export function publicOrigin(host?: string): string {
+  if (process.env.PUBLIC_ORIGIN && /^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(process.env.PUBLIC_ORIGIN)) return process.env.PUBLIC_ORIGIN;
+  if (process.env.RAILWAY_PUBLIC_DOMAIN && /^[a-z0-9.-]+$/i.test(process.env.RAILWAY_PUBLIC_DOMAIN)) return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+  return host && /^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `http://${host}` : 'http://localhost';
+}
+
+const TITLE = 'PUSH — הפצת הודעות לכל קבוצות הוואטסאפ והטלגרם בבת אחת';
+const DESCRIPTION = 'כותבים הודעה אחת בקבוצת שליטה, ו‑PUSH מפיצה אותה לכל קבוצות הוואטסאפ וערוצי הטלגרם שלכם, עם עריכה, מחיקה ותזמון מסונכרנים. מתחילים בחינם.';
+/** The questions on the page, also given to search engines as structured data (same text). */
+const FAQ: [string, string][] = [["איך שולחים הודעה לכמה קבוצות וואטסאפ בבת אחת?", "מחברים מספר וואטסאפ ל‑PUSH בסריקת קוד, פותחים קבוצת שליטה ובוחרים לאילו קבוצות להפיץ. מאותו רגע כל הודעה שכותבים בקבוצת השליטה, כולל תמונות, סרטונים וקבצים, יוצאת לכל הקבוצות שבחרתם."], ["אפשר לתזמן הודעה לשעה מסוימת?", "כן. כותבים בשורה הראשונה תזמון (12:20), וההודעה יוצאת בשעה הזו לפי שעון ישראל, בלי שורת התזמון."]];
+
+/** Search engines: what the page is, in their structured format. Same facts as the visible page. */
+function structuredData(origin: string): string {
+  const esc = (o: unknown) => JSON.stringify(o).replace(/</g, '\\u003c');
+  return esc({
+    '@context': 'https://schema.org',
+    '@graph': [
+      { '@type': 'SoftwareApplication', name: 'PUSH', url: `${origin}/`, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Android, iOS',
+        inLanguage: 'he', description: DESCRIPTION, offers: { '@type': 'Offer', price: '0', priceCurrency: 'ILS' } },
+      { '@type': 'FAQPage', mainEntity: FAQ.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
+    ],
+  });
+}
+
+export function siteHtml(nonce: string, origin = publicOrigin(), googleVerification = process.env.GOOGLE_SITE_VERIFICATION): string {
+  const gv = googleVerification && /^[A-Za-z0-9_-]{10,100}$/.test(googleVerification) ? googleVerification : '';
   return `<!doctype html>
 <html lang="he" dir="rtl">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PUSH — הודעה אחת. כל הקבוצות.</title>
-<meta name="description" content="PUSH מפיצה הודעה אחת מקבוצת שליטה לכל קבוצות ה‑WhatsApp וה‑Telegram שלכם, ומסנכרנת עריכה ומחיקה בכל העותקים.">
+<title>${TITLE}</title>
+<meta name="description" content="${DESCRIPTION}">
+<link rel="canonical" href="${origin}/">
+<meta name="robots" content="index, follow">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="he_IL">
+<meta property="og:site_name" content="PUSH">
+<meta property="og:title" content="${TITLE}">
+<meta property="og:description" content="${DESCRIPTION}">
+<meta property="og:url" content="${origin}/">
+<meta property="og:image" content="${origin}/app/icon-512.png">
+<meta name="twitter:card" content="summary">
+<meta name="theme-color" content="#0A1B33">
+<link rel="icon" type="image/png" href="/app/icon-192.png">
+<link rel="apple-touch-icon" href="/app/icon-180.png">
+${gv ? `<meta name="google-site-verification" content="${gv}">` : ''}
+<script type="application/ld+json" nonce="${nonce}">${structuredData(origin)}</script>
 <link rel="preload" href="/fonts/secular-one-hebrew-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="preload" href="/fonts/ibm-plex-sans-hebrew-hebrew-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <style nonce="${nonce}">
@@ -298,14 +339,14 @@ footer a{text-decoration:none;color:rgba(255,255,255,.75);margin-inline-start:18
         <h3>חינם</h3>
         <div class="price"><b>0<span class="cur">₪</span></b></div>
         <p class="tag">לרשת קטנה של קבוצות</p>
-        <ul><li>עד 10 קבוצות יעד, WhatsApp ו‑Telegram</li><li>עריכה ומחיקה מסונכרנות</li><li>חתימה קבועה מתחת לכל הודעה</li><li>דיווחים בקבוצת השליטה</li></ul>
+        <ul><li>עד 10 קבוצות יעד, WhatsApp ו‑Telegram</li><li>עריכה ומחיקה מסונכרנות</li><li>חתימה קבועה מתחת לכל הודעה</li><li>דיווחים בקבוצת השליטה</li><li>PUSH מפרסמת מדי פעם הודעות משלה בערוצי הטלגרם שחיברתם</li></ul>
         <a class="btn btn-dark" href="/app#signup">פתיחת חשבון</a>
       </div>
       <div class="plan main">
         <h3>Premium</h3>
         <div class="price"><b>300<span class="cur">₪</span></b><span>לחודש, לפני מע"מ</span></div>
         <p class="tag">לרשתות קבוצות שמפיצות כל יום</p>
-        <ul><li>עד 30 קבוצות יעד, WhatsApp ו‑Telegram</li><li>כמה נקראה כל הודעה, ובאיזו קבוצה</li><li>היסטוריה וסטטוס לכל קבוצה</li><li>תמיכה אישית</li></ul>
+        <ul><li>עד 30 קבוצות יעד, WhatsApp ו‑Telegram</li><li>כמה נקראה כל הודעה, ובאיזו קבוצה</li><li>היסטוריה וסטטוס לכל קבוצה</li><li>תמיכה אישית</li><li>בלי פרסומים של PUSH</li></ul>
         <a class="btn btn-primary" href="/app#signup">מתחילים ב‑Premium</a>
       </div>
     </div>
@@ -316,6 +357,7 @@ footer a{text-decoration:none;color:rgba(255,255,255,.75);margin-inline-start:18
   <div class="wrap">
     <div class="sec-head"><h2 id="faq-title">שאלות שחוזרות</h2></div>
     <div class="faq" id="faq">
+${FAQ.map(([q, a]) => `      <details><summary>${q}</summary><p>${a}</p></details>`).join('\n')}
       <details><summary>צריך להשאיר את הטלפון פתוח?</summary><p>לא. אחרי סריקת קוד ה‑QR, PUSH עובדת בענן גם כשהטלפון כבוי או רחוק. המספר צריך להישאר מחובר ל‑WhatsApp.</p></details>
       <details><summary>מה קורה אם אחת הקבוצות לא קיבלה את ההודעה?</summary><p>PUSH מנסה שוב רק בקבוצות שנכשלו, אחרי 30 שניות, 2 דקות ו‑5 דקות. אם לא ידוע אם ההודעה הגיעה, היא לא תישלח שוב לבד, כדי שלא תופיע פעמיים.</p></details>
       <details><summary>אפשר להפיץ גם לטלגרם?</summary><p>כן. מחברים בוט טלגרם, ו‑PUSH מפיצה גם לקבוצות ולערוצים שלכם שם. בקבוצת שליטה בטלגרם עונים "מחק" על הודעה כדי למחוק אותה מכל הקבוצות.</p></details>
