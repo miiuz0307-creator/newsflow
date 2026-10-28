@@ -14,6 +14,8 @@ export interface TokenClaims {
   role: 'owner' | 'admin' | 'editor';
   /** Expiry, seconds since epoch. */
   exp: number;
+  /** Set when a PUSH admin watches the customer's app: the admin id. Such a token may only read (GET). */
+  view?: string;
 }
 
 function b64url(b: Buffer | string): string {

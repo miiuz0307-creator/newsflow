@@ -128,6 +128,33 @@ label.f{display:block;margin-bottom:14px}label.f>span{display:block;font-size:13
 .facts .warn b{color:var(--amber)}
 @media (prefers-reduced-motion:reduce){.ch-svg .b{animation:none}}
 
+/* the gate: the first screen after signing in */
+.gate-hero{background:var(--ink);color:var(--on-ink);padding:34px max(16px,calc((100% - 1200px)/2)) 92px;position:relative;overflow:hidden}
+.gate-hero::after{content:"";position:absolute;inset-inline-end:-120px;top:-140px;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(25,198,180,.22),rgba(25,198,180,0) 70%);pointer-events:none}
+.gate-hero h1{font-size:clamp(30px,4.4vw,52px);color:#fff;margin:2px 0 8px}
+.gate-hero .facts{margin-top:22px}
+.tiles{max-width:1200px;margin:-64px auto 0;padding:0 16px 70px;display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;position:relative;z-index:1}
+.tile{all:unset;box-sizing:border-box;cursor:pointer;background:#fff;border:1px solid var(--line);border-radius:22px;padding:22px 22px 20px;display:flex;flex-direction:column;gap:10px;min-height:190px;box-shadow:0 10px 30px rgba(10,27,51,.08);transition:transform .15s ease,box-shadow .15s ease}
+.tile:hover{transform:translateY(-3px);box-shadow:0 16px 36px rgba(10,27,51,.13)}
+.tile:focus-visible{outline:3px solid var(--teal);outline-offset:3px}
+.tile .ti{width:50px;height:50px;border-radius:16px;display:grid;place-items:center;background:var(--teal-mist);color:var(--teal-ink)}
+.tile .ti svg{width:26px;height:26px}
+.tile h2{font-size:24px;color:var(--ink)}
+.tile p{margin:0;color:var(--muted);font-size:14px;line-height:1.5}
+.tile .go{margin-top:auto;font-weight:600;color:var(--teal-ink);font-size:14px}
+.tile.hot{background:var(--ink);border-color:var(--ink)}.tile.hot h2{color:#fff}.tile.hot p{color:var(--on-ink-muted)}.tile.hot .go{color:var(--teal)}
+.tile.hot .ti{background:rgba(25,198,180,.16);color:var(--teal)}
+.livedot{display:inline-flex;align-items:center;gap:7px;font-size:13px;color:var(--teal);font-weight:600}
+.livedot i{width:9px;height:9px;border-radius:50%;background:var(--teal);animation:gpulse 1.6s infinite}
+@keyframes gpulse{0%{box-shadow:0 0 0 0 rgba(25,198,180,.55)}70%{box-shadow:0 0 0 9px rgba(25,198,180,0)}100%{box-shadow:0 0 0 0 rgba(25,198,180,0)}}
+.logo.home{cursor:pointer;background:none;border:0;color:inherit;padding:0}
+.back{background:none;border:0;color:var(--teal-ink);font-weight:600;cursor:pointer;padding:0;margin-bottom:12px;font-size:14px}
+.watch-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.watch{background:#fff;border:1px solid var(--line);border-radius:18px;padding:14px 16px;display:flex;flex-direction:column;gap:10px}
+.watch .row{display:flex;gap:10px;align-items:center;justify-content:space-between;font-size:13px;color:var(--muted)}
+.watch .btn{width:100%}
+@media (prefers-reduced-motion:reduce){.livedot i{animation:none}.tile{transition:none}}
+
 /* customers */
 main{max-width:1200px;margin:0 auto;padding:26px 16px 80px}
 .head{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
@@ -228,12 +255,17 @@ function ago(d){
 function initials(name){var w=String(name||'?').trim().split(' ').filter(Boolean);return ((w[0]||'?').charAt(0)+(w[1]?w[1].charAt(0):'')).toUpperCase()}
 function hue(id){var x=0;id=String(id||'');for(var i=0;i<id.length;i++)x=(x*31+id.charCodeAt(i))>>>0;return 'c'+(x%6)}
 function avatar(t,big){return h('div',{cls:'av '+hue(t.id)+(big?' lg':''),'aria-hidden':'true',text:initials(t.name)})}
+function svgIcon(d){return s('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.8','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'},[s('path',{d:d})])}
+var IC={people:'M16 19v-1a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v1M9 10a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M22 19v-1a4 4 0 0 0-3-3.87M16 3.13a3.5 3.5 0 0 1 0 6.75',
+  eye:'M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12zm10 3a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  mega:'M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1ZM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13',
+  bell:'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0'};
 function megaIcon(){return s('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.8','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'},[s('path',{d:'M3 11v2a1 1 0 0 0 1 1h2l5 4V6L6 10H4a1 1 0 0 0-1 1ZM15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13'})])}
 function bellIcon(){return s('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.8','stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'},[s('path',{d:'M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0'})])}
 var bellBtn=null;
 function shell(content,withLogout){
   bellBtn=withLogout?h('button',{cls:'out bell',type:'button','aria-label':'התראות',onclick:notifySettings},[bellIcon(),h('span',{text:'התראות'})]):null;
-  root.replaceChildren(h('div',{cls:'top'},[h('div',{cls:'logo'},[h('i'),'PUSH',h('small',{text:'ניהול'})]),
+  root.replaceChildren(h('div',{cls:'top'},[withLogout?h('button',{cls:'logo home',type:'button','aria-label':'למסך הפתיחה',onclick:function(){showGate()}},[h('i'),'PUSH',h('small',{text:'ניהול'})]):h('div',{cls:'logo'},[h('i'),'PUSH',h('small',{text:'ניהול'})]),
     withLogout?h('div',{cls:'top-actions'},[h('button',{cls:'out bell',type:'button','aria-label':'פרסום בטלגרם',onclick:function(){openPromo()}},[megaIcon(),h('span',{cls:'col-hide',text:'פרסום בטלגרם'})]),bellBtn,h('button',{cls:'out',type:'button',text:'יציאה',onclick:function(){setTok(null);showLogin()}})]):null]),content);
   if(withLogout)refreshBell();
 }
@@ -299,7 +331,7 @@ function openFromHash(reload){
 }
 if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',function(e){if(e.data&&e.data.open&&tok()){location.hash=String(e.data.open).split('#')[1]||''}});
 var HOME_RELOAD=null;
-window.addEventListener('hashchange',function(){if(tok()&&HOME_RELOAD)openFromHash(HOME_RELOAD)});
+window.addEventListener('hashchange',function(){if(!tok()||!/^#customer=/.test(location.hash))return;if(HOME_RELOAD)openFromHash(HOME_RELOAD);else showHome()});
 
 /* A bar per period (copies delivered) with the reads drawn as a line over it. */
 function chart(rows,labelOf,tickEvery,readoutOf){
@@ -366,9 +398,62 @@ function showLogin(msg,good){
   var keep=h('input',{type:'checkbox',id:'remember'});keep.checked=true;
   var go=h('button',{cls:'btn btn-primary btn-block',type:'submit',text:'כניסה'});
   authScreen(h('form',{novalidate:true,onsubmit:async function(e){e.preventDefault();err.textContent='';err.className='err';go.disabled=true;
-      try{var r=await api('POST','/admin/v1/login',{email:email.value,password:pw.value,remember:keep.checked});setTok(r.token,keep.checked);showHome()}catch(x){err.textContent=x.message==='bad credentials'?'האימייל או הסיסמה שגויים':x.message;go.disabled=false}}},
+      try{var r=await api('POST','/admin/v1/login',{email:email.value,password:pw.value,remember:keep.checked});setTok(r.token,keep.checked);/^#customer=/.test(location.hash)?showHome():showGate()}catch(x){err.textContent=x.message==='bad credentials'?'האימייל או הסיסמה שגויים':x.message;go.disabled=false}}},
     [h('h1',{text:'כניסת מנהל'}),h('p',{cls:'sub',text:'ניהול הלקוחות של PUSH.'}),h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),
      h('label',{cls:'f'},[h('span',{text:'סיסמה'}),pw]),h('label',{cls:'remember',for:'remember'},[keep,h('span',{text:'זכור אותי במכשיר הזה'})]),go,err]));
+}
+
+// ---------------- the gate: where to go after signing in
+async function showGate(){
+  HOME_RELOAD=null;
+  var hero=h('section',{cls:'gate-hero'},[h('p',{cls:'greet',text:greeting()}),h('h1',{text:'מה עושים עכשיו?'}),h('p',{cls:'greet',text:'טוען נתונים…'})]);
+  var tile=function(ic,title,text,go,hot,onclick){return h('button',{cls:'tile'+(hot?' hot':''),type:'button',onclick:onclick},[h('span',{cls:'ti'},[svgIcon(IC[ic])]),h('h2',{text:title}),h('p',{text:text}),h('span',{cls:'go',text:go})])};
+  shell(h('div',null,[hero,h('div',{cls:'tiles'},[
+    tile('people','ניהול','הלקוחות, המסלולים, ההשעיות, והוספת לקוח חדש. כל המספרים של 24 השעות האחרונות.','לניהול ←',false,function(){showHome()}),
+    tile('eye','צפייה חיה','בוחרים לקוח ורואים בדיוק את מה שהוא רואה באפליקציה, מתעדכן בזמן אמת.','לבחירת לקוח ←',true,function(){showLive()}),
+    tile('mega','פרסום בטלגרם','הודעה של PUSH לערוצים של הלקוחות במסלול החינמי, וגם הסרה שלה.','לפרסום ←',false,function(){openPromo()}),
+    tile('bell','התראות','התראה לטלפון ברגע שלקוח חדש נרשם.','להגדרה ←',false,function(){notifySettings()})])]),true);
+  try{
+    var d=await api('GET','/admin/v1/dashboard'),T=d.tenants||{},WA=d.whatsappNumbers||{};
+    var fact=function(v,k,cls){return h('div',{cls:cls||''},[h('b',{text:v}),h('span',{text:k})])};
+    hero.replaceChildren(h('p',{cls:'greet',text:greeting()}),h('h1',{text:'מה עושים עכשיו?'}),
+      h('span',{cls:'livedot'},[h('i',{'aria-hidden':'true'}),'המערכת פעילה']),
+      h('div',{cls:'facts'},[fact(num(T.active||0),'לקוחות פעילים'),fact(num(WA.connected||0),'מספרי WhatsApp מחוברים'),fact(num(d.telegramBots||0),'בוטי טלגרם'),
+        fact(num(d.sentLast24h||0),'העתקים ב‑24 שעות'),fact(num(d.readsLast24h||0),'קריאות ב‑24 שעות')]));
+  }catch(e){hero.replaceChildren(h('p',{cls:'greet',text:greeting()}),h('h1',{text:'מה עושים עכשיו?'}),h('p',{cls:'greet',text:e.message}))}
+}
+
+// ---------------- live view: open a customer's app exactly as they see it (read-only)
+async function watchCustomer(id,btn,msg){
+  // A new tab on a computer; the same window in the installed app or on a phone.
+  var wide=!standalone()&&window.innerWidth>=860,w=wide?window.open('','_blank'):null;
+  if(btn)btn.disabled=true;
+  try{var r=await api('POST','/admin/v1/tenants/'+id+'/view');var url='/app#view='+r.token;
+    if(w){w.location.href=url}else location.href=url}
+  catch(e){if(w)w.close();if(msg){msg.className='err';msg.textContent=e.message}}
+  if(btn)btn.disabled=false;
+}
+async function showLive(){
+  HOME_RELOAD=null;
+  var q=h('input',{cls:'i',type:'search',placeholder:'חיפוש לקוח','aria-label':'חיפוש לקוח'}),grid=h('div',{cls:'watch-list'}),msg=h('p',{cls:'err',role:'alert'});
+  shell(h('div',null,[h('section',{cls:'live'},[h('p',{cls:'greet',text:'צפייה חיה'}),h('p',{cls:'headline',text:'בוחרים לקוח, ורואים בדיוק את מה שהוא רואה.'}),
+      h('p',{cls:'greet',text:'המסך שלו נפתח במצב צפייה: מתעדכן כל 3 שניות, ואי אפשר לשנות בו כלום. הצפייה נרשמת ביומן ונסגרת אחרי חצי שעה.'})]),
+    h('main',null,[h('button',{cls:'back',type:'button',text:'→ חזרה למסך הפתיחה',onclick:function(){showGate()}}),h('div',{cls:'head'},[h('h2',{text:'לקוחות'}),q]),msg,grid])]),true);
+  var all=[];
+  var draw=function(){
+    var f=q.value.trim().toLowerCase();
+    var rows=all.filter(function(t){return t.status==='active'&&(!f||t.name.toLowerCase().indexOf(f)>=0||String(t.owner_email||'').toLowerCase().indexOf(f)>=0)})
+      .sort(function(a,b){return (b.connected>0)-(a.connected>0)||(b.sent_24h||0)-(a.sent_24h||0)});
+    if(!rows.length)return grid.replaceChildren(h('p',{cls:'hint',text:all.length?'אין לקוח פעיל שמתאים לחיפוש.':'עוד אין לקוחות.'}));
+    grid.replaceChildren.apply(grid,rows.map(function(t){
+      var b=h('button',{cls:'btn btn-primary',type:'button',text:'צפייה חיה',onclick:function(){watchCustomer(t.id,b,msg)}});
+      return h('div',{cls:'watch'},[h('div',{cls:'who'},[avatar(t),h('div',null,[h('b',{text:t.name}),h('small',{cls:'ltr',text:t.owner_email||'—'})])]),
+        h('div',{cls:'row'},[h('span',{cls:'wa'},[h('span',{cls:'dot'+(t.connected?' on':t.numbers?' off':'')}),t.connected?'WhatsApp מחובר':t.numbers?'WhatsApp מנותק':'בלי מספר']),
+          h('span',{text:num(t.sent_24h)+' נשלחו היום'})]),b]);
+    }));
+  };
+  q.addEventListener('input',draw);
+  try{all=await api('GET','/admin/v1/tenants');draw()}catch(e){msg.textContent=e.message}
 }
 
 // ---------------- home: the last 24 hours, then customers
@@ -386,7 +471,7 @@ async function showHome(){
   var listBox=h('div',{cls:'list'},[h('div',{cls:'tablewrap'},[h('table',null,[h('thead',null,[h('tr',null,[
     h('th',{text:'לקוח'}),h('th',{cls:'col-hide',text:'מסלול'}),h('th',{text:'WhatsApp'}),h('th',{text:'טלגרם'}),h('th',{cls:'col-hide',text:'7 ימים'}),h('th',{text:'24 שעות'}),h('th',{cls:'col-hide',text:'כניסה אחרונה'}),h('th',{cls:'col-hide',text:'הצטרף'})])]),tbody])])]);
   var stripBox=h('div');
-  shell(h('div',null,[live,h('main',null,[stripBox,h('div',{cls:'head'},[h('h2',null,['לקוחות ',count]),q,addBtn]),chips,listBox])]),true);
+  shell(h('div',null,[live,h('main',null,[h('button',{cls:'back',type:'button',text:'→ חזרה למסך הפתיחה',onclick:function(){showGate()}}),stripBox,h('div',{cls:'head'},[h('h2',null,['לקוחות ',count]),q,addBtn]),chips,listBox])]),true);
   notifyStrip(stripBox);
 
   try{
@@ -486,6 +571,8 @@ async function openCustomer(id,reload){
       tgBox(d,function(){close();reload();openCustomer(id,reload)}),
       (d.activeStops||[]).length?h('div',{cls:'box'},[h('h3',{text:'עצירות פעילות'}),h('div',{cls:'lines'},d.activeStops.map(function(x){return h('div',null,[h('span',{text:x.reason}),h('span',{cls:'hint',text:ago(x.set_at)})])}))]):'',
       h('div',{cls:'box'},[h('h3',{text:'משתמשים'}),h('div',{cls:'lines'},(d.users||[]).map(function(u){return h('div',null,[h('span',{cls:'ltr',text:u.email}),h('span',{cls:'hint',text:(u.role==='owner'?'בעלים, ':'')+(u.last_login_at?'נכנס '+ago(u.last_login_at):'עוד לא נכנס')})])}))]),
+      active?h('div',{cls:'box'},[h('h3',{text:'צפייה חיה'}),h('p',{cls:'hint',text:'רואים את האפליקציה של הלקוח בדיוק כמו שהוא רואה אותה, מתעדכנת בזמן אמת. צפייה בלבד.'}),
+        (function(){var m2=h('p',{cls:'err',role:'alert'}),b=h('button',{cls:'btn btn-primary',type:'button',text:'צפייה חיה כמו הלקוח',onclick:function(){watchCustomer(id,b,m2)}});return h('div',{cls:'actions tg-list'},[b,m2])})()]):'',
       h('div',{cls:'box'},[h('h3',{text:'מסלול ומצב'}),h('div',{cls:'actions'},[h('label',{cls:'f'},[h('span',{text:'מסלול'}),plan]),savePlan,toggle]),msg]),
       h('div',{cls:'box danger'},[h('h3',{text:'הסרה מהמערכת'}),h('p',{cls:'hint',text:'המספרים מתנתקים, הקבוצות וההיסטוריה נמחקות, והמשתמשים לא יוכלו להיכנס. אי אפשר לבטל את זה.'}),
         h('label',{cls:'f'},[h('span',{text:'לאישור, הקלידו את שם העסק'}),confirmIn]),del,delMsg])]));
@@ -576,7 +663,7 @@ function addCustomer(){
 }
 
 (async function(){
-  if(tok()){try{await api('GET','/admin/v1/plans');return showHome()}catch(e){setTok(null)}}
+  if(tok()){try{PLANS=await api('GET','/admin/v1/plans');return /^#customer=/.test(location.hash)?showHome():showGate()}catch(e){setTok(null)}}
   try{var st=await api('GET','/admin/v1/setup');if(st.needed)return showSetup()}catch(e){}
   showLogin();
 })();
