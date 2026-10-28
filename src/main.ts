@@ -169,6 +169,14 @@ const adminModules = adminPool && process.env.ADMIN_TOKEN_SECRET
           },
         } : {}),
         createCustomer: (name: string, email: string, hash: string) => keys.provision(appPool, name, 'trial', email, hash),
+        ...(ownerPool ? {
+          resetOwnerPassword: async (tenantId: string, hash: string) => {
+            const r = await ownerPool.query<{ email: string }>(
+              `UPDATE users SET password_hash = $2 WHERE id = (
+                 SELECT id FROM users WHERE tenant_id = $1 ORDER BY (role = 'owner') DESC, created_at LIMIT 1) RETURNING email`, [tenantId, hash]);
+            return r.rows[0]?.email ?? null;
+          },
+        } : {}),
         deleteCustomer: async (tenantId: string) => {
           const owned = await withTenant(appPool, tenantId, async (c) => ({
             wa: (await c.query<{ id: string }>('SELECT id FROM wa_accounts')).rows.map((r) => r.id),
