@@ -481,7 +481,8 @@ export function adminModule(opts: AdminModuleOptions) {
     });
 
     // ---- Watch a customer's app exactly as they see it, live and read-only (30 minutes).
-    api.on('POST', '/admin/v1/tenants/:id/view', false, async ({ req, params }) => {
+    // control: true = enter the account with full control (the admin acts as the owner), 1 hour, audited.
+    api.on('POST', '/admin/v1/tenants/:id/view', false, async ({ req, params, body }) => {
       const a = await authOf(req, 'superadmin');
       if (!opts.customerTokenSecret) throw new HttpError(501, 'not_configured', 'not available on this server');
       const r = await sql.query<{ user_id: string; name: string; status: string }>(
@@ -490,9 +491,11 @@ export function adminModule(opts: AdminModuleOptions) {
       const row = r.rows[0];
       if (!row) throw new HttpError(404, 'not_found', 'הלקוח לא נמצא');
       if (row.status !== 'active') throw new HttpError(409, 'suspended', 'הלקוח מושעה. החזירו אותו לפעילות כדי לצפות');
-      const token = signToken({ tenantId: String(params.id), userId: row.user_id, role: 'owner', view: a.adminId }, opts.customerTokenSecret, 30 * 60);
-      await audit(a, 'tenant.viewed', String(params.id), String(params.id));
-      return { token, name: row.name, expiresIn: 30 * 60 };
+      const control = body.control === true;
+      const ttl = control ? 60 * 60 : 30 * 60;
+      const token = signToken({ tenantId: String(params.id), userId: row.user_id, role: 'owner', ...(control ? { admin: a.adminId } : { view: a.adminId }) }, opts.customerTokenSecret, ttl);
+      await audit(a, control ? 'tenant.entered' : 'tenant.viewed', String(params.id), String(params.id));
+      return { token, name: row.name, expiresIn: ttl, control };
     });
 
     // ---- Stop / resume one customer's Telegram (all their bots), without touching WhatsApp.

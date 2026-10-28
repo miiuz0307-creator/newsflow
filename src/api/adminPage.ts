@@ -192,7 +192,8 @@ tr.susp td{color:var(--muted)}tr.susp .av{filter:grayscale(1);opacity:.6}
 .pill.bad{background:var(--coral-mist);color:#B0302A}.pill.ok{background:var(--ok-mist);color:var(--ok)}.pill.mute{background:var(--soft);color:var(--muted);border:1px solid var(--line)}
 .empty{padding:44px 20px;text-align:center}
 .empty h3{font-size:22px;margin-bottom:6px}.empty p{color:var(--muted);margin:0 0 16px}
-@media (max-width:760px){.head .i{width:100%}.col-hide{display:none}.facts{display:grid;grid-template-columns:1fr 1fr;gap:14px 16px}.facts div{border:0;padding:0;margin:0}td,th{padding:12px 10px}}
+@media (max-width:760px){thead{display:none}table,tbody{display:block}tbody tr{display:flex;flex-wrap:wrap;align-items:center;gap:8px 18px;padding:14px;border-bottom:1px solid var(--line)}tbody tr:last-child{border-bottom:0}tbody td{border:0;padding:0!important;white-space:normal}tbody td:first-child{width:100%}tbody td.nums{margin-inline-start:auto;text-align:left}.tablewrap{overflow:visible}
+.head .i{width:100%}.col-hide{display:none}.facts{display:grid;grid-template-columns:1fr 1fr;gap:14px 16px}.facts div{border:0;padding:0;margin:0}td,th{padding:12px 10px}}
 
 /* side window */
 .drawer{position:fixed;inset:0;background:rgba(10,27,51,.5);display:flex;justify-content:flex-start;z-index:10}
@@ -441,11 +442,11 @@ async function showGate(){
 }
 
 // ---------------- live view: open a customer's app exactly as they see it (read-only)
-async function watchCustomer(id,btn,msg){
+async function watchCustomer(id,btn,msg,control){
   // A new tab on a computer; the same window in the installed app or on a phone.
   var wide=!standalone()&&window.innerWidth>=860,w=wide?window.open('','_blank'):null;
   if(btn)btn.disabled=true;
-  try{var r=await api('POST','/admin/v1/tenants/'+id+'/view');var url='/app#view='+r.token;
+  try{var r=await api('POST','/admin/v1/tenants/'+id+'/view',control?{control:true}:undefined);var url='/app#'+(control?'as':'view')+'='+r.token;
     if(w){w.location.href=url}else location.href=url}
   catch(e){if(w)w.close();if(msg){msg.className='err';msg.textContent=e.message}}
   if(btn)btn.disabled=false;
@@ -579,15 +580,6 @@ async function openCustomer(id,reload){
       h('div',{cls:'d-id'},[avatar(t,true),h('div',null,[h('h2',{text:t.name}),h('p',null,[planName(t.plan_code),', הצטרף ב‑'+fmtDate(t.created_at),active?'':h('span',{cls:'pill bad',text:'מושעה'})])])]),
       rows.length?chart(rows,function(r){return day(r.at)},4,function(r){if(!r)return rest();readout.replaceChildren(h('b',{text:day(r.at)}),h('span',{cls:'key'},[h('i'),num(r.sent)+' נשלחו']),h('span',{cls:'key r'},[h('i'),num(r.reads)+' קריאות']))}):'',readout]),
     h('div',{cls:'d-body'},[
-      h('div',{cls:'box'},[h('h3',{text:'פעילות'}),h('dl',{cls:'dl'},[
-        h('dt',{text:'נשלחו ב‑7 ימים'}),h('dd',{text:num(sent)+(failed?' ('+num(failed)+' נכשלו)':'')}),
-        h('dt',{text:'קבוצות שליטה'}),h('dd',{text:num((d.routes||[]).length)}),
-        h('dt',{text:'אישר את הסבר הסיכונים'}),h('dd',{text:t.risk_accepted_at?fmtDate(t.risk_accepted_at):'עדיין לא'})])]),
-      h('div',{cls:'box'},[h('h3',{text:'מספרי WhatsApp'}),waLines.length?h('div',{cls:'lines'},waLines.map(function(x){var on=x.status==='connected';
-        return h('div',null,[h('span',{cls:'wa ltr'},[h('span',{cls:'dot'+(on?' on':' off')}),x.phone_number?'+'+x.phone_number:'(לא חובר)']),h('span',{cls:'hint',text:on?'מחובר':'מנותק'+(x.last_connected_at?', חובר לאחרונה '+ago(x.last_connected_at):'')})])})):h('p',{cls:'hint',text:'הלקוח עוד לא חיבר מספר.'})]),
-      tgBox(d,function(){close();reload();openCustomer(id,reload)}),
-      (d.activeStops||[]).length?h('div',{cls:'box'},[h('h3',{text:'עצירות פעילות'}),h('div',{cls:'lines'},d.activeStops.map(function(x){return h('div',null,[h('span',{text:x.reason}),h('span',{cls:'hint',text:ago(x.set_at)})])}))]):'',
-      h('div',{cls:'box'},[h('h3',{text:'משתמשים'}),h('div',{cls:'lines'},(d.users||[]).map(function(u){return h('div',null,[h('span',{cls:'ltr',text:u.email}),h('span',{cls:'hint',text:(u.role==='owner'?'בעלים, ':'')+(u.last_login_at?'נכנס '+ago(u.last_login_at):'עוד לא נכנס')})])}))]),
       (function(){
         var owner=(d.users||[]).find(function(u){return u.role==='owner'})||(d.users||[])[0];if(!owner)return '';
         var out=h('div'),pm=h('p',{cls:'err',role:'alert'});
@@ -599,11 +591,23 @@ async function openCustomer(id,reload){
             out.replaceChildren(h('div',{cls:'temp'},[h('dl',{cls:'dl'},[h('dt',{text:'אימייל'}),h('dd',{cls:'ltr',text:r.email}),h('dt',{text:'סיסמה זמנית'}),h('dd',{cls:'ltr',text:r.temporaryPassword})]),
               copy,h('p',{cls:'hint',text:'הסיסמה מוצגת עכשיו בלבד.'})]));b.hidden=true}
           catch(e){pm.textContent=e.message;b.disabled=false}}});
-        return h('div',{cls:'box'},[h('h3',{text:'כניסה לחשבון'}),h('dl',{cls:'dl'},[h('dt',{text:'אימייל לכניסה'}),h('dd',{cls:'ltr',text:owner.email})]),
-          h('p',{cls:'hint',text:'הלקוח שכח סיסמה? יוצרים סיסמה זמנית ושולחים לו.'}),h('div',{cls:'actions tg-list'},[b]),pm,out]);
+        var enter=active?h('button',{cls:'btn btn-primary',type:'button',text:'כניסה לחשבון',onclick:function(){watchCustomer(id,enter,pm,true)}}):'';
+        var watch=active?h('button',{cls:'btn btn-ghost',type:'button',text:'צפייה חיה',onclick:function(){watchCustomer(id,watch,pm)}}):'';
+        return h('div',{cls:'box'},[h('h3',{text:'החשבון של הלקוח'}),
+          h('p',{cls:'hint',text:'כניסה לחשבון: פותחים את האפליקציה שלו עם שליטה מלאה (כל שינוי נשמר). צפייה חיה: רק רואים, בלי לשנות.'}),
+          h('div',{cls:'actions tg-list'},[enter,watch]),
+          h('dl',{cls:'dl tg-list'},[h('dt',{text:'אימייל לכניסה'}),h('dd',{cls:'ltr',text:owner.email})]),
+          h('div',{cls:'actions tg-list'},[b]),pm,out]);
       })(),
-      active?h('div',{cls:'box'},[h('h3',{text:'צפייה חיה'}),h('p',{cls:'hint',text:'רואים את האפליקציה של הלקוח בדיוק כמו שהוא רואה אותה, מתעדכנת בזמן אמת. צפייה בלבד.'}),
-        (function(){var m2=h('p',{cls:'err',role:'alert'}),b=h('button',{cls:'btn btn-primary',type:'button',text:'צפייה חיה כמו הלקוח',onclick:function(){watchCustomer(id,b,m2)}});return h('div',{cls:'actions tg-list'},[b,m2])})()]):'',
+      h('div',{cls:'box'},[h('h3',{text:'פעילות'}),h('dl',{cls:'dl'},[
+        h('dt',{text:'נשלחו ב‑7 ימים'}),h('dd',{text:num(sent)+(failed?' ('+num(failed)+' נכשלו)':'')}),
+        h('dt',{text:'קבוצות שליטה'}),h('dd',{text:num((d.routes||[]).length)}),
+        h('dt',{text:'אישר את הסבר הסיכונים'}),h('dd',{text:t.risk_accepted_at?fmtDate(t.risk_accepted_at):'עדיין לא'})])]),
+      h('div',{cls:'box'},[h('h3',{text:'מספרי WhatsApp'}),waLines.length?h('div',{cls:'lines'},waLines.map(function(x){var on=x.status==='connected';
+        return h('div',null,[h('span',{cls:'wa ltr'},[h('span',{cls:'dot'+(on?' on':' off')}),x.phone_number?'+'+x.phone_number:'(לא חובר)']),h('span',{cls:'hint',text:on?'מחובר':'מנותק'+(x.last_connected_at?', חובר לאחרונה '+ago(x.last_connected_at):'')})])})):h('p',{cls:'hint',text:'הלקוח עוד לא חיבר מספר.'})]),
+      tgBox(d,function(){close();reload();openCustomer(id,reload)}),
+      (d.activeStops||[]).length?h('div',{cls:'box'},[h('h3',{text:'עצירות פעילות'}),h('div',{cls:'lines'},d.activeStops.map(function(x){return h('div',null,[h('span',{text:x.reason}),h('span',{cls:'hint',text:ago(x.set_at)})])}))]):'',
+      h('div',{cls:'box'},[h('h3',{text:'משתמשים'}),h('div',{cls:'lines'},(d.users||[]).map(function(u){return h('div',null,[h('span',{cls:'ltr',text:u.email}),h('span',{cls:'hint',text:(u.role==='owner'?'בעלים, ':'')+(u.last_login_at?'נכנס '+ago(u.last_login_at):'עוד לא נכנס')})])}))]),
       h('div',{cls:'box'},[h('h3',{text:'מסלול ומצב'}),h('div',{cls:'actions'},[h('label',{cls:'f'},[h('span',{text:'מסלול'}),plan]),savePlan,toggle]),msg]),
       h('div',{cls:'box danger'},[h('h3',{text:'הסרה מהמערכת'}),h('p',{cls:'hint',text:'המספרים מתנתקים, הקבוצות וההיסטוריה נמחקות, והמשתמשים לא יוכלו להיכנס. אי אפשר לבטל את זה.'}),
         h('label',{cls:'f'},[h('span',{text:'לאישור, הקלידו את שם העסק'}),confirmIn]),del,delMsg])]));

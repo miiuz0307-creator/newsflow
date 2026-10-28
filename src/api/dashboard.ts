@@ -325,7 +325,7 @@ label.f.mode{margin-top:18px}
 .viewbar .live{display:inline-flex;align-items:center;gap:8px;font-weight:600;color:#7FE9DD}
 .viewbar .live i{width:9px;height:9px;border-radius:50%;background:#19C6B4;box-shadow:0 0 0 0 rgba(25,198,180,.6);animation:vpulse 1.6s infinite}
 @keyframes vpulse{0%{box-shadow:0 0 0 0 rgba(25,198,180,.55)}70%{box-shadow:0 0 0 9px rgba(25,198,180,0)}100%{box-shadow:0 0 0 0 rgba(25,198,180,0)}}
-.viewbar b{font-weight:600}.viewbar small{color:#93A5C0;font-size:12.5px}
+.viewbar b{font-weight:600}.viewbar.control{background:#3A2A00}.viewbar.control .live{color:#F2B33D}.viewbar.control .live i{background:#F2B33D;animation:none}.viewbar.control a{background:#F2B33D}.viewbar small{color:#93A5C0;font-size:12.5px}
 .viewbar a+a{margin-inline-start:0}.viewbar a{margin-inline-start:auto;color:#0A1B33;background:#19C6B4;border-radius:99px;padding:6px 14px;font-weight:600;text-decoration:none;white-space:nowrap}
 .view-end{min-height:100vh;display:grid;place-items:center;text-align:center;padding:24px}.view-end a{display:inline-block;margin-top:14px}
 @media (max-width:860px){.viewbar{padding:9px 16px;position:relative}.viewbar small{flex-basis:100%;order:3}}
@@ -386,7 +386,8 @@ function bin(){return remembered()?localStorage:sessionStorage}
 var store={get:function(k){try{return bin().getItem(k)}catch(e){return null}},set:function(k,v){try{bin().setItem(k,v)}catch(e){}},del:function(k){try{localStorage.removeItem(k);sessionStorage.removeItem(k)}catch(e){}}};
 // An admin watching this customer's app (opened from the panel as /app#view=<token>): read-only,
 // the token lives only in this page's memory and never replaces a sign-in stored on the device.
-var VIEW=(function(){var m=/^#view=([A-Za-z0-9_.-]+)$/.exec(location.hash||'');if(!m)return null;try{history.replaceState(null,'',location.pathname+'#overview')}catch(e){}return {token:m[1]}})();
+// #view=… is read-only; #as=… is the admin working inside the account (full control). Both stay in memory only.
+var VIEW=(function(){var m=/^#(view|as)=([A-Za-z0-9_.-]+)$/.exec(location.hash||'');if(!m)return null;try{history.replaceState(null,'',location.pathname+'#overview')}catch(e){}return {token:m[2],control:m[1]==='as'}})();
 var mem={};function tok(k){if(VIEW)return k==='at'?VIEW.token:null;return mem[k]||store.get(k)}function setTok(a,r){mem.at=a;mem.rt=r;store.set('at',a);store.set('rt',r)}function clearTok(){mem={};store.del('at');store.del('rt')}
 function h(tag,attrs,kids){var e=document.createElement(tag);if(attrs)for(var k in attrs){var v=attrs[k];if(v==null||v===false)continue;if(k==='text')e.textContent=v;else if(k==='cls')e.className=v;else if(k.slice(0,2)==='on')e.addEventListener(k.slice(2),v);else e.setAttribute(k,v===true?'':v)}
   (kids||[]).forEach(function(c){if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c)});return e}
@@ -484,7 +485,7 @@ async function start(){
   var linked=demo;if(!demo){try{linked=(await api('GET','/v1/wa/accounts')).some(function(x){return x.status==='connected'||x.phoneNumber})}catch(e){}}
   var r=(location.hash||'').slice(1);route=ROUTES.some(function(x){return x.id===r&&(!x.demo||demo)})?r:(demo?'sim':linked?'overview':'connect');
   buildShell();await refresh();
-  clearInterval(timer);timer=setInterval(refresh,demo||VIEW?3000:10000);
+  clearInterval(timer);timer=setInterval(refresh,demo||(VIEW&&!VIEW.control)?3000:10000);
   if(!demo&&!VIEW)initNotices();
 }
 
@@ -567,6 +568,8 @@ function buildShell(){
       h('div',{cls:'who'},[h('b',{text:me.tenant.name}),h('span',{text:'מסלול '+me.tenant.plan.name}),h('br'),logout])]),
     h('div',null,[h('div',{cls:'mob'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'PUSH']),
       h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:VIEW?'לניהול':'יציאה',style:null,onclick:function(){logout.click()}})]),
+      VIEW&&VIEW.control?h('div',{cls:'viewbar control',role:'status'},[h('span',{cls:'live'},[h('i',{'aria-hidden':'true'}),'בתוך החשבון']),h('b',{text:me.tenant.name}),
+        h('small',{text:'נכנסת כמנהל עם שליטה מלאה. כל שינוי כאן נשמר באמת בחשבון.'}),h('a',{href:'/admin',text:'חזרה לניהול'})]):
       VIEW?h('div',{cls:'viewbar',role:'status'},[h('span',{cls:'live'},[h('i',{'aria-hidden':'true'}),'צפייה חיה']),h('b',{text:me.tenant.name}),
         h('small',{text:'זה בדיוק מה שהלקוח רואה. מתעדכן כל 3 שניות, ושום דבר לא משתנה מכאן.'}),
         h('a',{href:'/app',text:'לחשבון שלי'}),h('a',{href:'/admin',text:'חזרה לניהול'})]):null,
