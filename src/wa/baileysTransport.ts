@@ -94,6 +94,8 @@ const STUB_REVOKE = 1;
 const STUB_CIPHERTEXT = 2;
 /** Messages received while offline are distributed if they are at most this old. */
 const OFFLINE_CATCHUP_MS = 15 * 60_000;
+/** Message types that are routine and not worth a log line when we skip them. */
+const QUIET_TYPES = new Set(['messageContextInfo', 'senderKeyDistributionMessage', 'reactionMessage', 'pollUpdateMessage', 'keepInChatMessage', 'pinInChatMessage']);
 
 /**
  * Reads one entry of Baileys' 'messages.update' event (checked against
@@ -330,6 +332,12 @@ export class BaileysTransport implements WaTransport {
         if (!parsed) {
           // A message WhatsApp couldn't decrypt yet comes back once the sender's phone re-sends it.
           if (msg.messageStubType === STUB_CIPHERTEXT && jid.endsWith('@g.us')) this.log.info('inbound not decrypted yet', { accountId: this.accountId, chatId: jid, id: msg.key.id });
+          else if (jid.endsWith('@g.us')) {
+            // Only the shape (no content): shows edits or other changes that arrive in a form we do not read yet.
+            const types = Object.keys(msg.message ?? {}).filter((k) => !QUIET_TYPES.has(k));
+            if (types.length) this.log.info('inbound not read', { accountId: this.accountId, chatId: jid, id: msg.key.id, fromSelf: !!msg.key.fromMe, types: types.join(','),
+              protocolType: msg.message?.protocolMessage?.type ?? null, secretType: msg.message?.secretEncryptedMessage?.secretEncType ?? null });
+          }
           continue;
         }
         const seenKey = `${jid}|${msg.key.id}`;
@@ -359,6 +367,8 @@ export class BaileysTransport implements WaTransport {
     sock.ev.on('messages.update', (updates: any[]) => {
       for (const u of updates ?? []) {
         const parsed = parseMessageUpdate(u);
+        if (parsed?.edit) this.log.info('edit received', { accountId: this.accountId, chatId: parsed.edit.chatId, id: parsed.edit.messageId, fromSelf: parsed.edit.fromSelf, kind: parsed.edit.content.kind });
+        else if (u?.update?.message?.editedMessage) this.log.warn('edit not read', { accountId: this.accountId, chatId: u?.key?.remoteJid, id: u?.key?.id, types: Object.keys(u.update.message.editedMessage.message ?? {}).join(',') });
         if (parsed?.edit) this.emit('message_edited', parsed.edit);
         if (parsed?.revoke) this.emit('message_revoked', parsed.revoke);
       }
