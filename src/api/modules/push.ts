@@ -16,7 +16,7 @@ import { dashboardHtml } from '../dashboard.js';
 import { appManifest, appServiceWorker, installHtml } from '../installPage.js';
 import { adminIcon } from '../adminIcon.js';
 import { fontFaceCss } from '../fonts.js';
-import { siteHtml } from '../site.js';
+import { publicOrigin, siteHtml } from '../site.js';
 
 interface DistRow {
   scheduled_at: Date | null;
@@ -354,14 +354,27 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
     });
 
     // The marketing site (home page).
-    api.on('GET', '/', false, async ({ res }) => {
+    api.on('GET', '/', false, async ({ req, res }) => {
       const nonce = randomBytes(16).toString('base64');
       res.writeHead(200, {
         'content-type': 'text/html; charset=utf-8',
         'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
         'referrer-policy': 'no-referrer',
       });
-      res.end(siteHtml(nonce));
+      res.end(siteHtml(nonce, publicOrigin(req.headers.host)));
+      return undefined;
+    });
+
+    // Search engines: only the home page is for them. The app and the panel answer "noindex"
+    // themselves (listing their paths here would only advertise them).
+    api.on('GET', '/robots.txt', false, async ({ req, res }) => {
+      res.writeHead(200, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'public, max-age=3600' });
+      res.end(`User-agent: *\nAllow: /$\nDisallow: /v1/\n\nSitemap: ${publicOrigin(req.headers.host)}/sitemap.xml\n`);
+      return undefined;
+    });
+    api.on('GET', '/sitemap.xml', false, async ({ req, res }) => {
+      res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=3600' });
+      res.end(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${publicOrigin(req.headers.host)}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url></urlset>\n`);
       return undefined;
     });
 
@@ -372,6 +385,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
         'content-type': 'text/html; charset=utf-8',
         'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; connect-src 'self'; img-src 'self' data:; media-src blob:; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
         'referrer-policy': 'no-referrer',
+        'x-robots-tag': 'noindex, nofollow',
       });
       res.end(dashboardHtml(nonce));
       return undefined;
@@ -384,6 +398,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
         'content-type': 'text/html; charset=utf-8',
         'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; img-src 'self'; manifest-src 'self'; worker-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
         'referrer-policy': 'no-referrer',
+        'x-robots-tag': 'noindex, nofollow',
       });
       res.end(installHtml(nonce, fontFaceCss()));
       return undefined;

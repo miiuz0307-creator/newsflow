@@ -392,13 +392,30 @@ function showSetup(){
 }
 
 // ---------------- sign in
+// A device that passed the second step with "זכור אותי" signs in with the password alone for 30 days.
+function deviceTok(){try{return localStorage.getItem('push-admin-device')||undefined}catch(e){return undefined}}
+function signedIn(r,keep){setTok(r.token,keep);try{if(r.device)localStorage.setItem('push-admin-device',r.device)}catch(e){}/^#customer=/.test(location.hash)?showHome():showGate()}
+function showCode(r,keep){
+  var code=h('input',{cls:'i',type:'text',inputmode:r.via==='push'?'numeric':'text',autocomplete:'one-time-code',dir:'ltr',maxlength:'100'});
+  var err=h('p',{cls:'err',role:'alert'}),go=h('button',{cls:'btn btn-primary btn-block',type:'submit',text:'כניסה'});
+  var alt=r.recovery&&r.via==='push'?h('details',{cls:'hint'},[h('summary',{text:'לא קיבלתי קוד'}),h('p',{cls:'hint',text:'אפשר להקליד במקום את קוד ההגדרה של השרת (ADMIN_SETUP_CODE ב‑Railway → push-live → Variables).'})]):'';
+  authScreen(h('form',{novalidate:true,onsubmit:async function(e){e.preventDefault();err.textContent='';go.disabled=true;
+      try{signedIn(await api('POST','/admin/v1/login/code',{ticket:r.ticket,code:code.value}),keep)}
+      catch(x){if(x.message.indexOf('פגה')>=0)return showLogin(x.message);err.textContent=x.message;go.disabled=false;code.select()}}},
+    [h('h1',{text:'אימות כניסה'}),
+     h('p',{cls:'sub',text:r.via==='push'?'שלחנו קוד בן 6 ספרות בהתראה לטלפון שמחובר לניהול. הקלידו אותו כאן (תקף ל‑5 דקות).':'אין מכשיר שמקבל התראות מהניהול. הקלידו את קוד ההגדרה של השרת (ADMIN_SETUP_CODE ב‑Railway).'}),
+     h('label',{cls:'f'},[h('span',{text:r.via==='push'?'הקוד מההתראה':'קוד ההגדרה'}),code]),go,err,alt,
+     h('p',{cls:'hint',text:'אחרי כניסה עם "זכור אותי", המכשיר הזה ייכנס בלי קוד במשך 30 יום.'})]));
+  setTimeout(function(){code.focus()},0);
+}
+
 function showLogin(msg,good){
   var email=h('input',{cls:'i',type:'email',dir:'ltr',autocomplete:'username'}),pw=h('input',{cls:'i',type:'password',dir:'ltr',autocomplete:'current-password'});
   var err=h('p',{cls:good?'err ok':'err',role:'alert',text:msg||''});
   var keep=h('input',{type:'checkbox',id:'remember'});keep.checked=true;
   var go=h('button',{cls:'btn btn-primary btn-block',type:'submit',text:'כניסה'});
   authScreen(h('form',{novalidate:true,onsubmit:async function(e){e.preventDefault();err.textContent='';err.className='err';go.disabled=true;
-      try{var r=await api('POST','/admin/v1/login',{email:email.value,password:pw.value,remember:keep.checked});setTok(r.token,keep.checked);/^#customer=/.test(location.hash)?showHome():showGate()}catch(x){err.textContent=x.message==='bad credentials'?'האימייל או הסיסמה שגויים':x.message;go.disabled=false}}},
+      try{var r=await api('POST','/admin/v1/login',{email:email.value,password:pw.value,remember:keep.checked,device:deviceTok()});if(r.step==='code')return showCode(r,keep.checked);signedIn(r,keep.checked)}catch(x){err.textContent=x.message==='bad credentials'?'האימייל או הסיסמה שגויים':x.message;go.disabled=false}}},
     [h('h1',{text:'כניסת מנהל'}),h('p',{cls:'sub',text:'ניהול הלקוחות של PUSH.'}),h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),
      h('label',{cls:'f'},[h('span',{text:'סיסמה'}),pw]),h('label',{cls:'remember',for:'remember'},[keep,h('span',{text:'זכור אותי במכשיר הזה'})]),go,err]));
 }

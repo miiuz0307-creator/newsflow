@@ -43,6 +43,11 @@ export interface ApiOptions {
    * connect directly and X-Forwarded-For is ignored (it can be forged).
    */
   trustProxyHops?: number;
+  /**
+   * Requests per minute from one address, across the whole server (unset: no limit). Above it the
+   * server answers 429 until the minute ends: slows down scanners and floods, never a person.
+   */
+  perIpPerMinute?: number;
   /** Called after routes change, e.g. to clear the worker's route cache. */
   onRoutesChanged?: () => void;
   /** Feature modules that add routes (auth, telegram, support, admin…). */
@@ -123,6 +128,9 @@ export class ApiServer {
   private readonly routes: RouteDef[] = [];
   private readonly sse = new Map<string, Set<http.ServerResponse>>();
   private readonly log: Logger;
+  /** Requests per address in the current minute. */
+  private ipWindow = { start: 0, counts: new Map<string, number>() };
+  private proxyChecked = false;
   url = '';
 
   constructor(readonly o: ApiOptions) {
@@ -437,7 +445,31 @@ export class ApiServer {
     const url = new URL(req.url ?? '/', 'http://x');
     res.setHeader('x-content-type-options', 'nosniff');
     res.setHeader('cache-control', 'no-store');
+    // Security headers on every answer: HTTPS only from now on, no framing, no sensors, no referrer.
+    res.setHeader('strict-transport-security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('x-frame-options', 'DENY');
+    res.setHeader('referrer-policy', 'no-referrer');
+    res.setHeader('permissions-policy', 'camera=(), microphone=(), geolocation=(), payment=(), usb=(), interest-cohort=()');
+    res.setHeader('cross-origin-opener-policy', 'same-origin');
+    res.setHeader('cross-origin-resource-policy', 'same-origin');
     try {
+      const limit = this.o.perIpPerMinute ?? 0;
+      const now = Date.now();
+      if (limit > 0 && now - this.ipWindow.start >= 60_000) this.ipWindow = { start: now, counts: new Map() };
+      const ipKey = this.clientIp(req);
+      if (!this.proxyChecked && req.headers['x-forwarded-for']) {
+        // Once per boot: confirms the address used for limits is the visitor's, not the proxy's.
+        this.proxyChecked = true;
+        const xff = String(req.headers['x-forwarded-for']).split(',').length;
+        this.log.info('client address check', { xffEntries: xff, hops: this.o.trustProxyHops ?? 0, fromHeader: ipKey !== (req.socket.remoteAddress ?? ''), privateAddress: /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|::1|fd|fc|::ffff:10\.|100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.)/.test(ipKey) });
+      }
+      const n = limit > 0 ? (this.ipWindow.counts.get(ipKey) ?? 0) + 1 : 0;
+      if (limit > 0) this.ipWindow.counts.set(ipKey, n);
+      if (limit > 0 && n > limit) {
+        if (n === limit + 1) this.log.warn('rate limited address', { ip: ipKey, path: url.pathname });
+        res.setHeader('retry-after', String(Math.ceil((this.ipWindow.start + 60_000 - now) / 1000)));
+        throw new HttpError(429, 'too_many', 'יותר מדי בקשות. נסו שוב בעוד דקה.');
+      }
       const route = this.routes.find((r) => r.method === req.method && r.pattern.test(url.pathname));
       if (!route) throw new HttpError(404, 'not_found', 'not found');
       const m = route.pattern.exec(url.pathname)!;

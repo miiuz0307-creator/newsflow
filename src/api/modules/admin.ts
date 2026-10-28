@@ -6,7 +6,7 @@
  * Roles: superadmin (everything) and support (read, tickets, notifications).
  * Every change is written to the audit log as admin:<id>.
  */
-import { createHmac } from 'node:crypto';
+import { createHash, createHmac, randomInt } from 'node:crypto';
 import type http from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { checkPassword, DUMMY_HASH, hashPassword, verifyPassword } from '../../auth/password.js';
@@ -46,6 +46,26 @@ export function verifyAdminToken(token: string, secret: string): AdminClaims | n
   }
 }
 
+/**
+ * "This device is trusted" for one admin: after a sign-in with the second step on a device
+ * (and "זכור אותי"), that device signs in with the password alone for 30 days.
+ * A different key and kind from the session token, so neither works as the other.
+ */
+export function signAdminDevice(adminId: string, secret: string, ttlS = 30 * 24 * 3600): string {
+  const payload = Buffer.from(JSON.stringify({ kind: 'admin-device', adminId, exp: Math.floor(Date.now() / 1000) + ttlS })).toString('base64url');
+  return `${payload}.${createHmac('sha256', `${secret}:device`).update(payload).digest('base64url')}`;
+}
+export function verifyAdminDevice(token: string, secret: string): string | null {
+  const [p, s] = String(token).split('.');
+  if (!p || !s || !safeEqual(s, createHmac('sha256', `${secret}:device`).update(p).digest('base64url'))) return null;
+  try {
+    const c = JSON.parse(Buffer.from(p, 'base64url').toString()) as { kind: string; adminId: string; exp: number };
+    return c.kind === 'admin-device' && c.exp * 1000 > Date.now() ? c.adminId : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Encrypts an admin's TOTP secret for storage (used by create-admin and tests). */
 export function encryptTotpSecret(masterKeyB64: string, adminEmail: string, secret: string): string {
   return new TenantCipher('admins', totpCipherKey(masterKeyB64)).encrypt(`totp:${adminEmail.toLowerCase()}`, secret);
@@ -71,6 +91,12 @@ export interface AdminModuleOptions {
   manage?: {
     /** One-time code (from the server's environment) that allows creating the first admin. */
     setupCode?: string;
+    /**
+     * Second sign-in step when no device of the admin receives notifications (or the code
+     * did not arrive): the same code from the server's environment. Without it and without
+     * a device, sign-in is by password only.
+     */
+    recoveryCode?: string;
     /** Inserts the first superadmin; false when an admin already exists. */
     createFirstAdmin?: (email: string, passwordHash: string, encryptedTotp: string) => Promise<boolean>;
     /** Opens a customer account (business + owner user); returns the tenant id. */
@@ -106,6 +132,22 @@ export function adminModule(opts: AdminModuleOptions) {
 
   const m = opts.manage ?? {};
   const setupLimiter = new WindowLimiter(10, 15 * 60_000);
+  const codeLimiter = new WindowLimiter(10, 15 * 60_000);
+  const sha = (x: string) => createHash('sha256').update(x).digest('hex');
+  /** Second sign-in step in progress: ticket → who, the code (hashed), until when, tries. */
+  const pendingLogins = new Map<string, { adminId: string; role: AdminClaims['role']; codeHash: string | null; exp: number; tries: number; remember: boolean }>();
+  const devicesOf = async (adminId: string) => (opts.push ? await opts.push.devices(adminId).catch(() => 0) : 0);
+  const finishLogin = async (adminId: string, role: AdminClaims['role'], remember: boolean, ip: string, how: string) => {
+    await sql.query(`UPDATE admins SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1`, [adminId]);
+    await sql.query('INSERT INTO audit_log (tenant_id, actor, action, target, detail) VALUES (NULL, $1, $2, $1, $3)', [`admin:${adminId}`, 'admin.login', { ip, how }]);
+    void opts.push?.send({ title: 'כניסה לניהול PUSH', body: `${how === 'trusted' ? 'ממכשיר מוכר' : 'ממכשיר חדש'} · ${ip}\nלא אתם? החליפו סיסמה מיד.`, tag: 'admin-login' }, adminId);
+    // "זכור אותי": 30 days on that device; otherwise 12 hours. The admin is re-checked on every request either way.
+    const ttlS = remember ? 30 * 24 * 3600 : 12 * 3600;
+    return {
+      token: signAdminToken({ adminId, role }, opts.adminTokenSecret, ttlS), role, expiresIn: ttlS,
+      ...(remember ? { device: signAdminDevice(adminId, opts.adminTokenSecret) } : {}),
+    };
+  };
 
   return (api: ApiServer) => {
     // The management panel page (all data comes from /admin/v1/* after sign-in).
@@ -205,9 +247,27 @@ export function adminModule(opts: AdminModuleOptions) {
         await verifyPassword(password.slice(0, 200), DUMMY_HASH).catch(() => false);
         throw bad;
       }
-      if (!(await verifyPassword(password, a.password_hash))) throw bad;
+      if (!(await verifyPassword(password, a.password_hash))) {
+        // Someone is guessing: tell the admin's phone (at the 3rd wrong password, and when it locks).
+        const f = await sql.query<{ failed_logins: number }>('SELECT failed_logins FROM admins WHERE id = $1', [a.id]);
+        const n = f.rows[0]?.failed_logins ?? 0;
+        if (n === 3 || n === 5) void opts.push?.send({ title: 'ניסיונות כניסה כושלים לניהול', body: n >= 5 ? `5 סיסמאות שגויות (${ip}). הכניסה ננעלה ל‑30 דקות.` : `3 סיסמאות שגויות ברצף (${ip}).`, tag: 'admin-failed' }, a.id);
+        throw bad;
+      }
+      const remember = body.remember === true;
       if (!a.totp_secret) {
-        await sql.query(`UPDATE admins SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1`, [a.id]);
+        // The password was right: the lock counts wrong passwords only (the code step has its own limits).
+        await sql.query(`UPDATE admins SET failed_logins = 0, locked_until = NULL WHERE id = $1`, [a.id]);
+        // Second step: a known device passes; otherwise a code sent to the admin's phone.
+        if (verifyAdminDevice(String(body.device ?? ''), opts.adminTokenSecret) === a.id) return finishLogin(a.id, a.role, remember, ip, 'trusted');
+        const devices = await devicesOf(a.id);
+        if (!devices && !m.recoveryCode) return finishLogin(a.id, a.role, remember, ip, 'password');
+        const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+        const ticket = randomBytes(24).toString('base64url');
+        for (const [k, v] of pendingLogins) if (v.exp < Date.now()) pendingLogins.delete(k);
+        pendingLogins.set(ticket, { adminId: a.id, role: a.role, codeHash: devices ? sha(code) : null, exp: Date.now() + 5 * 60_000, tries: 0, remember });
+        if (devices) await opts.push!.send({ title: `קוד כניסה לניהול: ${code}`, body: 'תקף ל‑5 דקות. אם לא אתם נכנסתם, החליפו סיסמה.', tag: 'admin-login-code' }, a.id);
+        return { step: 'code', ticket, via: devices ? 'push' : 'recovery', recovery: !!m.recoveryCode };
       } else {
         let secret: string;
         try {
@@ -222,9 +282,26 @@ export function adminModule(opts: AdminModuleOptions) {
           [a.id, step]);
         if (!won.rowCount) throw bad; // a concurrent login used the same code
       }
-      // "זכור אותי": 30 days on that device; otherwise 12 hours. The admin is re-checked on every request either way.
-      const ttlS = body.remember === true ? 30 * 24 * 3600 : 12 * 3600;
-      return { token: signAdminToken({ adminId: a.id, role: a.role }, opts.adminTokenSecret, ttlS), role: a.role, expiresIn: ttlS };
+      return finishLogin(a.id, a.role, remember, ip, 'totp');
+    });
+
+    // Second step: the code from the notification, or the recovery code from the server.
+    api.on('POST', '/admin/v1/login/code', false, async ({ body, ip }) => {
+      if (!codeLimiter.take(ip)) throw new HttpError(429, 'too_many', 'יותר מדי ניסיונות; נסו שוב בעוד רבע שעה');
+      const ticket = String(body.ticket ?? '');
+      const p = pendingLogins.get(ticket);
+      const expired = new HttpError(401, 'expired', 'הכניסה פגה. הקלידו שוב אימייל וסיסמה.');
+      if (!p || p.exp < Date.now()) { pendingLogins.delete(ticket); throw expired; }
+      const code = String(body.code ?? '').replace(/\s/g, '').slice(0, 100);
+      const ok = (p.codeHash !== null && /^\d{6}$/.test(code) && safeEqual(sha(code), p.codeHash)) || (!!m.recoveryCode && code.length > 0 && safeEqual(code, m.recoveryCode));
+      if (!ok) {
+        if (++p.tries >= 5) { pendingLogins.delete(ticket); throw expired; }
+        throw new HttpError(401, 'bad_code', 'הקוד שגוי');
+      }
+      pendingLogins.delete(ticket);
+      const still = await sql.query<{ role: AdminClaims['role'] }>('SELECT role FROM admins WHERE id = $1 AND active', [p.adminId]);
+      if (!still.rowCount) throw expired;
+      return finishLogin(p.adminId, still.rows[0]!.role, p.remember, ip, p.codeHash && code.length === 6 && /^\d+$/.test(code) ? 'code' : 'recovery');
     });
 
     api.on('GET', '/admin/v1/dashboard', false, async ({ req }) => {
