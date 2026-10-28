@@ -14,6 +14,7 @@
  * Using this client is against WhatsApp's terms. It identifies itself
  * honestly, does not spoof devices and does not retry after a ban.
  */
+import { createDecipheriv, hkdfSync } from 'node:crypto';
 import type { ChatInfo, MessageContent, MessageKind, SendResult } from '../core/types.js';
 import { SendError } from '../core/types.js';
 import type { Logger } from '../logger.js';
@@ -96,6 +97,49 @@ const STUB_CIPHERTEXT = 2;
 const OFFLINE_CATCHUP_MS = 15 * 60_000;
 /** Message types that are routine and not worth a log line when we skip them. */
 const QUIET_TYPES = new Set(['messageContextInfo', 'senderKeyDistributionMessage', 'reactionMessage', 'pollUpdateMessage', 'keepInChatMessage', 'pinInChatMessage']);
+
+/** "1234:7@s.whatsapp.net" → "1234@s.whatsapp.net" (the id without the device part). */
+function withoutDevice(jid: string): string {
+  const [user = '', server = ''] = jid.split('@');
+  return `${user.split(':')[0]}@${server}`;
+}
+
+/**
+ * Opens an edit that WhatsApp sent encrypted (secretEncryptedMessage, type MESSAGE_EDIT).
+ * Newer WhatsApp phones send edits this way; Baileys does not open them. The key comes from
+ * the original message's messageSecret (as in whatsmeow, msgsecret.go):
+ *   key = HKDF-SHA256(secret, no salt, origId + origSender + editSender + "Message Edit", 32)
+ *   payload = AES-256-GCM(key, encIv), no additional data.
+ * WhatsApp is moving ids from phone numbers to LIDs, so every likely sender id is tried.
+ * Returns the decrypted protobuf bytes, or null when no combination opens it.
+ */
+export function decryptMessageEdit(enc: { encPayload: Uint8Array; encIv: Uint8Array }, secret: Uint8Array, origId: string,
+  origSenders: (string | undefined)[], editSenders: (string | undefined)[]): Buffer | null {
+  const ids = (xs: (string | undefined)[]) => [...new Set(xs.filter((x): x is string => !!x && x.includes('@')).map(withoutDevice))];
+  const payload = Buffer.from(enc.encPayload);
+  if (payload.length < 17 || !enc.encIv?.length) return null;
+  const body = payload.subarray(0, -16);
+  const tag = payload.subarray(-16);
+  for (const o of ids(origSenders)) {
+    for (const m of ids(editSenders)) {
+      const key = Buffer.from(hkdfSync('sha256', Buffer.from(secret), Buffer.alloc(0), Buffer.from(origId + o + m + 'Message Edit'), 32));
+      try {
+        const d = createDecipheriv('aes-256-gcm', key, Buffer.from(enc.encIv));
+        d.setAuthTag(tag);
+        return Buffer.concat([d.update(body), d.final()]);
+      } catch { /* wrong id pair: try the next */ }
+    }
+  }
+  return null;
+}
+
+/** The edited content inside a decrypted edit, whichever wrapper WhatsApp used. */
+export function editedContentOf(decoded: any): any {
+  return decoded?.protocolMessage?.editedMessage
+    ?? decoded?.editedMessage?.message?.protocolMessage?.editedMessage
+    ?? decoded?.editedMessage?.message
+    ?? decoded;
+}
 
 /**
  * Reads one entry of Baileys' 'messages.update' event (checked against
@@ -200,6 +244,8 @@ export class BaileysTransport implements WaTransport {
   private seen = new Set<string>();
   /** The original keys of recent inbound group messages, so PUSH can react to them (bounded). */
   private inboundKeys = new Map<string, any>();
+  /** messageSecret of recent group messages: needed to open edits sent encrypted. */
+  private secrets = new Map<string, { secret: Uint8Array; senders: string[] }>();
   private listeners = new Map<string, Set<(...a: unknown[]) => void>>();
   private connected = false;
   private pairingRequested = false;
@@ -328,6 +374,16 @@ export class BaileysTransport implements WaTransport {
         if (!jid || jid === 'status@broadcast' || !msg.key?.id) continue;
         const ts = Number(msg.messageTimestamp ?? 0) * 1000;
         if (ev.type === 'append' && (!ts || Date.now() - ts > OFFLINE_CATCHUP_MS)) continue;
+        const secret = msg.message?.messageContextInfo?.messageSecret;
+        if (secret?.length && jid.endsWith('@g.us')) {
+          this.secrets.set(`${jid}|${msg.key.id}`, { secret, senders: [msg.key.participant, msg.key.participantAlt, msg.key.participantPn].filter(Boolean) });
+          if (this.secrets.size > 5000) this.secrets.delete(this.secrets.keys().next().value as string);
+        }
+        const enc = msg.message?.secretEncryptedMessage;
+        if (enc && jid.endsWith('@g.us')) {
+          this.openEncryptedEdit(B, jid, msg, enc);
+          continue;
+        }
         const parsed = extractContent(msg.message);
         if (!parsed) {
           // A message WhatsApp couldn't decrypt yet comes back once the sender's phone re-sends it.
@@ -336,7 +392,7 @@ export class BaileysTransport implements WaTransport {
             // Only the shape (no content): shows edits or other changes that arrive in a form we do not read yet.
             const types = Object.keys(msg.message ?? {}).filter((k) => !QUIET_TYPES.has(k));
             if (types.length) this.log.info('inbound not read', { accountId: this.accountId, chatId: jid, id: msg.key.id, fromSelf: !!msg.key.fromMe, types: types.join(','),
-              protocolType: msg.message?.protocolMessage?.type ?? null, secretType: msg.message?.secretEncryptedMessage?.secretEncType ?? null });
+              protocolType: msg.message?.protocolMessage?.type ?? null });
           }
           continue;
         }
@@ -463,6 +519,35 @@ export class BaileysTransport implements WaTransport {
     } catch (err: any) {
       throw mapSendError(err);
     }
+  }
+
+  /** An edit that arrived encrypted: opened with the original message's secret, then handled like any edit. */
+  private openEncryptedEdit(B: Baileys, jid: string, msg: any, enc: any) {
+    const target = enc.targetMessageKey ?? {};
+    const info = { accountId: this.accountId, chatId: jid, id: target.id, type: enc.secretEncType ?? null };
+    if (enc.secretEncType !== 2 || !target.id) { this.log.info('encrypted change skipped', info); return; } // 2 = MESSAGE_EDIT
+    const seenKey = `${jid}|${msg.key.id}`;
+    if (this.seen.has(seenKey)) return;
+    this.seen.add(seenKey);
+    const orig = this.secrets.get(`${jid}|${target.id}`);
+    if (!orig) { this.log.warn('edit not opened: original message unknown here', info); return; }
+    const user = this.sock?.user ?? {};
+    const me = [user.id, user.lid, this.sock?.authState?.creds?.me?.id, this.sock?.authState?.creds?.me?.lid];
+    const editor = [msg.key.participant, msg.key.participantAlt, msg.key.participantPn, ...(msg.key.fromMe ? me : [])];
+    const origSenders = [...orig.senders, target.participant, ...(target.fromMe || msg.key.fromMe ? me : []), ...editor];
+    const plain = decryptMessageEdit(enc, orig.secret, target.id, origSenders, editor);
+    if (!plain) { this.log.warn('edit not opened: could not decrypt', info); return; }
+    let decoded: any;
+    try { decoded = B.proto.Message.decode(plain); } catch (e) { this.log.warn('edit not opened: bad content', { ...info, err: String(e) }); return; }
+    const parsed = extractContent(editedContentOf(decoded));
+    if (!parsed) { this.log.warn('edit not opened: unknown content', { ...info, types: Object.keys(editedContentOf(decoded) ?? {}).join(',') }); return; }
+    const ts = Number(msg.messageTimestamp ?? 0);
+    const edit: RawEdit = {
+      chatId: jid, messageId: target.id, senderId: senderOf(msg.key) ?? jid, fromSelf: !!msg.key.fromMe,
+      timestamp: new Date(ts ? ts * 1000 : Date.now()), content: parsed.content,
+    };
+    this.log.info('edit received', { accountId: this.accountId, chatId: jid, id: target.id, fromSelf: edit.fromSelf, kind: edit.content.kind, encrypted: true });
+    this.emit('message_edited', edit);
   }
 
   /**
