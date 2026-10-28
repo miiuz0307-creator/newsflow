@@ -16,6 +16,8 @@ export interface TokenClaims {
   exp: number;
   /** Set when a PUSH admin watches the customer's app: the admin id. Such a token may only read (GET). */
   view?: string;
+  /** Set when a PUSH admin works inside the customer's account (full control): the admin id. */
+  admin?: string;
 }
 
 function b64url(b: Buffer | string): string {

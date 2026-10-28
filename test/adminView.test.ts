@@ -73,6 +73,18 @@ describe('admin live view of a customer\'s app', { skip: !available && 'local te
     assert.equal(audit.rowCount, 1, 'recorded');
   });
 
+  test('the admin can also enter the account with full control (audited)', async () => {
+    const v = await call(boss, 'POST', `/admin/v1/tenants/${tenant}/view`, { control: true });
+    assert.equal(v.status, 200, JSON.stringify(v.body));
+    assert.equal(v.body.control, true);
+    const claims = verifyToken(v.body.token, SECRET)!;
+    assert.equal(claims.admin, bossId);
+    assert.equal(claims.view, undefined);
+    assert.equal((await call(v.body.token, 'POST', '/v1/risk/accept', {})).status, 200, 'changes are allowed');
+    const audit = await db.admin.query(`SELECT 1 FROM audit_log WHERE action = 'tenant.entered' AND tenant_id = $1`, [tenant]);
+    assert.equal(audit.rowCount, 1);
+  });
+
   test('a customer who forgot the password gets a temporary one from the admin', async () => {
     assert.equal((await call(helper, 'POST', `/admin/v1/tenants/${tenant}/password`)).status, 403, 'superadmin only');
     const r = await call(boss, 'POST', `/admin/v1/tenants/${tenant}/password`);
