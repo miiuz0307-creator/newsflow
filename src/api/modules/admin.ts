@@ -103,6 +103,8 @@ export interface AdminModuleOptions {
     createCustomer?: (businessName: string, email: string, passwordHash: string) => Promise<string>;
     /** Disconnects the customer's numbers and bots and deletes the account's data. */
     deleteCustomer?: (tenantId: string) => Promise<void>;
+    /** Sets a new password for the customer's owner user; returns their email (null if none). */
+    resetOwnerPassword?: (tenantId: string, passwordHash: string) => Promise<string | null>;
   };
 }
 
@@ -418,6 +420,17 @@ export function adminModule(opts: AdminModuleOptions) {
       if (body.plan) await sql.query('SELECT admin_set_tenant($1, $2, NULL, $3)', [tenantId, String(body.plan), `admin:${a.adminId}`]);
       await audit(a, 'tenant.created_by_admin', tenantId, tenantId, { email });
       return { tenantId, email, temporaryPassword: temp };
+    });
+
+    // ---- A customer forgot their password: a new temporary one, shown here once.
+    api.on('POST', '/admin/v1/tenants/:id/password', false, async ({ req, params }) => {
+      const a = await authOf(req, 'superadmin');
+      if (!m.resetOwnerPassword) throw new HttpError(501, 'not_configured', 'not available on this server');
+      const temp = `Push-${randomBytes(6).toString('base64url')}-${randomBytes(2).readUInt16BE(0) % 9000 + 1000}`;
+      const email = await m.resetOwnerPassword(String(params.id), await hashPassword(temp));
+      if (!email) throw new HttpError(404, 'not_found', 'ללקוח הזה אין משתמש');
+      await audit(a, 'tenant.password_reset', String(params.id), String(params.id), { email });
+      return { email, temporaryPassword: temp };
     });
 
     // ---- Remove a customer from the system: numbers disconnected, data deleted.

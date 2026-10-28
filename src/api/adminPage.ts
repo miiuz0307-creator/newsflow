@@ -588,6 +588,20 @@ async function openCustomer(id,reload){
       tgBox(d,function(){close();reload();openCustomer(id,reload)}),
       (d.activeStops||[]).length?h('div',{cls:'box'},[h('h3',{text:'עצירות פעילות'}),h('div',{cls:'lines'},d.activeStops.map(function(x){return h('div',null,[h('span',{text:x.reason}),h('span',{cls:'hint',text:ago(x.set_at)})])}))]):'',
       h('div',{cls:'box'},[h('h3',{text:'משתמשים'}),h('div',{cls:'lines'},(d.users||[]).map(function(u){return h('div',null,[h('span',{cls:'ltr',text:u.email}),h('span',{cls:'hint',text:(u.role==='owner'?'בעלים, ':'')+(u.last_login_at?'נכנס '+ago(u.last_login_at):'עוד לא נכנס')})])}))]),
+      (function(){
+        var owner=(d.users||[]).find(function(u){return u.role==='owner'})||(d.users||[])[0];if(!owner)return '';
+        var out=h('div'),pm=h('p',{cls:'err',role:'alert'});
+        var b=h('button',{cls:'btn btn-ghost',type:'button',text:'סיסמה חדשה ללקוח',onclick:async function(){
+          if(b.getAttribute('data-sure')!=='1'){b.setAttribute('data-sure','1');b.textContent='לחצו שוב: הסיסמה הישנה תפסיק לעבוד';return}
+          b.disabled=true;try{var r=await api('POST','/admin/v1/tenants/'+id+'/password');
+            var text='כניסה ל‑PUSH\\n'+location.origin+'/app\\nאימייל: '+r.email+'\\nסיסמה זמנית: '+r.temporaryPassword;
+            var copy=h('button',{cls:'btn btn-dark btn-sm',type:'button',text:'העתקת הפרטים',onclick:async function(){try{await navigator.clipboard.writeText(text);copy.textContent='הועתק'}catch(e){copy.textContent='לא הצלחנו להעתיק, סמנו והעתיקו ידנית'}}});
+            out.replaceChildren(h('div',{cls:'temp'},[h('dl',{cls:'dl'},[h('dt',{text:'אימייל'}),h('dd',{cls:'ltr',text:r.email}),h('dt',{text:'סיסמה זמנית'}),h('dd',{cls:'ltr',text:r.temporaryPassword})]),
+              copy,h('p',{cls:'hint',text:'הסיסמה מוצגת עכשיו בלבד.'})]));b.hidden=true}
+          catch(e){pm.textContent=e.message;b.disabled=false}}});
+        return h('div',{cls:'box'},[h('h3',{text:'כניסה לחשבון'}),h('dl',{cls:'dl'},[h('dt',{text:'אימייל לכניסה'}),h('dd',{cls:'ltr',text:owner.email})]),
+          h('p',{cls:'hint',text:'הלקוח שכח סיסמה? יוצרים סיסמה זמנית ושולחים לו.'}),h('div',{cls:'actions tg-list'},[b]),pm,out]);
+      })(),
       active?h('div',{cls:'box'},[h('h3',{text:'צפייה חיה'}),h('p',{cls:'hint',text:'רואים את האפליקציה של הלקוח בדיוק כמו שהוא רואה אותה, מתעדכנת בזמן אמת. צפייה בלבד.'}),
         (function(){var m2=h('p',{cls:'err',role:'alert'}),b=h('button',{cls:'btn btn-primary',type:'button',text:'צפייה חיה כמו הלקוח',onclick:function(){watchCustomer(id,b,m2)}});return h('div',{cls:'actions tg-list'},[b,m2])})()]):'',
       h('div',{cls:'box'},[h('h3',{text:'מסלול ומצב'}),h('div',{cls:'actions'},[h('label',{cls:'f'},[h('span',{text:'מסלול'}),plan]),savePlan,toggle]),msg]),
