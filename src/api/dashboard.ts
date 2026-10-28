@@ -923,8 +923,11 @@ function connectPage(){
       // New channels show up by themselves after the bot is added in Telegram; they are selected and saved.
       var pollChats=async function(){if(route!=='connect'||!tg.bot)return;
         try{var cs=await api('GET','/v1/tg/bots/'+tg.bot.id+'/chats');var known=new Set(tg.chats.map(function(c){return c.chatId}));
-          var fresh=cs.filter(function(c){return !known.has(c.chatId)});
-          if(fresh.length||cs.length!==tg.chats.length){tg.chats=cs;var added=0;fresh.forEach(function(c){if(c.canSend&&total()<max){pickedTg.add(c.chatId);added++}});paintLists();if(added&&ctrl)save.click();return}}catch(e){}
+          // New chats, and chats where the bot just got the right to post, are selected and saved.
+          var couldSend=new Set(tg.chats.filter(function(c){return c.canSend}).map(function(c){return c.chatId}));
+          var fresh=cs.filter(function(c){return !known.has(c.chatId)||(c.canSend&&!couldSend.has(c.chatId))});
+          var sig=function(l){return l.map(function(c){return c.chatId+':'+c.canSend}).join('|')};
+          if(fresh.length||sig(cs)!==sig(tg.chats)){tg.chats=cs;var added=0;fresh.forEach(function(c){if(c.canSend&&!pickedTg.has(c.chatId)&&total()<max){pickedTg.add(c.chatId);added++}});paintLists();if(added&&ctrl)save.click();return}}catch(e){}
         tg.chatPoll=setTimeout(pollChats,5000)};
       tg.chatPoll=setTimeout(pollChats,5000);
       var addLinks=tg.bot.username?h('div',{cls:'tg-addlinks'},[
@@ -934,7 +937,7 @@ function connectPage(){
         var on=pickedTg.has(c.chatId),dis=!c.canSend||(!on&&total()>=max);
         var inp=h('input',{type:'checkbox',checked:on,disabled:dis,onchange:function(){if(inp.checked)pickedTg.add(c.chatId);else pickedTg.delete(c.chatId);paintLists()}});
         return h('label',{cls:'grow'+(on?' on':'')+(dis?' dis':'')},[inp,h('span',{cls:'gt',text:c.title||c.chatId}),
-          h('span',{cls:'gm',text:!c.canSend?'הבוט לא מנהל':c.type==='channel'?'ערוץ':'קבוצה'})]);
+          h('span',{cls:'gm',text:!c.canSend?(c.type==='channel'?'אין לבוט הרשאת פרסום':'הבוט לא יכול לכתוב'):c.type==='channel'?'ערוץ':'קבוצה'})]);
       }):[h('p',{cls:'hint glist-empty'},['עדיין אין כאן ערוצים. הוסיפו את ',h('b',{dir:'ltr',text:uname}),' כמנהל לערוץ או לקבוצה, ולחצו "רענון".'])];
       var chan=h('input',{cls:'i',dir:'ltr',placeholder:'@שם_הערוץ','aria-label':'הוספת ערוץ לפי שם'});
       var add=h('button',{cls:'btn btn-ghost',type:'button',text:'הוספה',onclick:async function(){
@@ -942,7 +945,11 @@ function connectPage(){
         try{var c=await api('POST','/v1/tg/bots/'+tg.bot.id+'/chats',{chatId:chan.value.trim()});
           tg.chats=tg.chats.filter(function(x){return x.chatId!==c.chatId}).concat([c]);if(c.canSend&&total()<max)pickedTg.add(c.chatId);paintLists()}
         catch(e){tErr.textContent=e.message;add.disabled=false}}});
-      var again=h('button',{cls:'linkish',type:'button',text:'רענון',onclick:async function(){again.disabled=true;try{tg.chats=await api('GET','/v1/tg/bots/'+tg.bot.id+'/chats')}catch(e){tErr.textContent=e.message}paintLists()}});
+      var again=h('button',{cls:'linkish',type:'button',text:'רענון',onclick:async function(){again.disabled=true;
+        try{var before=new Set(tg.chats.filter(function(c){return c.canSend}).map(function(c){return c.chatId}));tg.chats=await api('POST','/v1/tg/bots/'+tg.bot.id+'/refresh',{});
+          var added=0;tg.chats.forEach(function(c){if(c.canSend&&!before.has(c.chatId)&&total()<max){pickedTg.add(c.chatId);added++}});paintLists();if(added&&ctrl)save.click();return}
+        catch(e){tErr.textContent=e.message}paintLists()}});
+      var noRights=tg.chats.some(function(c){return !c.canSend&&c.type==='channel'});
       var off=h('button',{cls:'linkish',type:'button',text:'ניתוק הבוט',onclick:async function(){
         if(off.getAttribute('data-sure')!=='1'){off.setAttribute('data-sure','1');off.textContent='לחצו שוב לאישור הניתוק';return}
         off.disabled=true;try{await api('DELETE','/v1/tg/bots/'+tg.bot.id);tg.bot=null;tg.chats=[];pickedTg.clear();paintLists()}catch(e){tErr.textContent=e.message;off.disabled=false}}});
@@ -951,6 +958,7 @@ function connectPage(){
         tg.note?h('p',{cls:'ok-line',text:tg.note}):'',
         h('p',{cls:'hint left'},['לוחצים "הוספה לערוץ", בוחרים בטלגרם את הערוץ ומאשרים. הערוץ מופיע כאן תוך כמה שניות ונבחר להפצה. ערוץ שלא מופיע אפשר להוסיף לפי השם שלו.']),
         addLinks,
+        noRights?h('p',{cls:'promo-ok',text:'לבוט אין עדיין הרשאה לפרסם בערוץ. בטלגרם: נכנסים לערוץ ← מנהלים ← '+uname+' ← מדליקים "פרסום הודעות" (וגם עריכה ומחיקה של הודעות) ← שמירה. אחר כך לוחצים כאן "רענון".'}):'',
         h('div',{cls:'glist'},rows),
         h('div',{cls:'tg-add'},[chan,add]),
         h('div',{cls:'refresh-row'},[again,off]),
