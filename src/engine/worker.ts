@@ -192,6 +192,7 @@ export class Worker {
     if (item.kind === 'sync') {
       const out = await this.sync.handle(item.e);
       if (out.handled) await this.reporter.onSyncPlanned(item.e.tenantId, item.e.source, item.e.messageId, out);
+      else if (out.reason !== 'not_control_group') this.log.info('sync ignored', { type: item.e.type, tenantId: item.e.tenantId, messageId: item.e.messageId, reason: out.reason });
       this.o.onSync?.(item.e, out);
       return;
     }
