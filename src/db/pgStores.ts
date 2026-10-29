@@ -114,16 +114,31 @@ export class PgAuthStore implements AuthStore {
     return out;
   }
 
+  /**
+   * One send to a big group can touch hundreds of keys (a session per member device). They are
+   * written in a few statements, not one round trip each: that was seconds per message.
+   */
   async setKeys(data: Record<string, Record<string, unknown | null>>) {
+    const put: [string, string][] = [];
+    const del: string[] = [];
     for (const [type, entries] of Object.entries(data)) {
       for (const [id, value] of Object.entries(entries)) {
         const key = `key:${type}:${id}`;
-        if (value === null || value === undefined) {
-          await this.sql.query('DELETE FROM wa_auth WHERE account_id = $1 AND key = $2', [this.accountId, key]);
-        } else {
-          await this.upsert(key, value);
-        }
+        if (value === null || value === undefined) del.push(key);
+        else put.push([key, this.cipher.encrypt(this.purpose(key), serialize(value))]);
       }
+    }
+    for (let i = 0; i < put.length; i += 400) {
+      const chunk = put.slice(i, i + 400);
+      const params: string[] = [this.tenantId, this.accountId];
+      const rows = chunk.map(([k, blob], j) => { params.push(k, blob); return `($1, $2, $${3 + j * 2}, $${4 + j * 2})`; });
+      await this.sql.query(
+        `INSERT INTO wa_auth (tenant_id, account_id, key, blob) VALUES ${rows.join(', ')}
+         ON CONFLICT (account_id, key) DO UPDATE SET blob = EXCLUDED.blob, updated_at = now()`, params);
+    }
+    if (del.length) {
+      await this.sql.query('DELETE FROM wa_auth WHERE account_id = $1 AND key = ANY($2::text[])',
+        [this.accountId, `{${del.map((k) => `"${k.replace(/(["\\])/g, '\\$1')}"`).join(',')}}`]);
     }
   }
 
