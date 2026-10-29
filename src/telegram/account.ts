@@ -6,6 +6,7 @@
  * it sends to WhatsApp, and emits InboundMessage, so Telegram groups and
  * channels can be route sources too (Telegram → WhatsApp).
  */
+import { hasWhatsAppFormatting, waToTelegramHtml } from './format.js';
 import type { ChannelSender, ChatInfo, InboundMessage, MessageContent, MessageKind, SendResult, SyncEvent } from '../core/types.js';
 import { SendError } from '../core/types.js';
 import type { Logger } from '../logger.js';
@@ -58,6 +59,20 @@ export function parseTgMessage(api: Pick<TelegramBotApi, 'downloadFile'>, m: TgM
   return null;
 }
 
+/**
+ * Sends WhatsApp-style formatting (*bold* etc.) as Telegram formatting. If Telegram refuses the
+ * formatted version, the plain text goes instead: formatting never costs a message.
+ */
+async function formatted<T>(text: string, fn: (text: string, parseMode?: 'HTML') => Promise<T>): Promise<T> {
+  if (!text || !hasWhatsAppFormatting(text)) return fn(text);
+  try {
+    return await fn(waToTelegramHtml(text), 'HTML');
+  } catch (e) {
+    if (e instanceof SendError && e.kind === 'invalid' && /parse entities|unsupported start tag|can't find end tag|entity/i.test(e.message)) return fn(text);
+    throw e;
+  }
+}
+
 export class TelegramAccount implements ChannelSender {
   readonly platform = 'tg' as const;
   private readonly chats = new Map<string, ChatInfo>();
@@ -100,12 +115,13 @@ export class TelegramAccount implements ChannelSender {
     let res: TgMessage;
     if (content.kind === 'text') {
       if (!content.text?.trim()) throw new SendError('invalid', 'empty text');
-      res = await this.o.api.sendMessage(chatId, content.text);
+      const text = content.text;
+      res = await formatted(text, (t, mode) => this.o.api.sendMessage(chatId, t, mode));
     } else {
       const file = m?.data ?? m?.url;
       if (!file) throw new SendError('invalid', 'media missing');
       const kind = content.kind === 'image' ? 'photo' : content.kind === 'video' ? 'video' : content.kind === 'audio' ? 'audio' : 'document';
-      res = await this.o.api.sendMedia(kind, chatId, file, { caption: content.text, mimeType: m?.mimeType, fileName: m?.fileName });
+      res = await formatted(content.text ?? '', (caption, parseMode) => this.o.api.sendMedia(kind, chatId, file, { caption, mimeType: m?.mimeType, fileName: m?.fileName, parseMode }));
     }
     return { messageId: String(res.message_id), sentAt: new Date(res.date * 1000) };
   }
@@ -114,9 +130,9 @@ export class TelegramAccount implements ChannelSender {
     const text = content.text ?? '';
     if (content.kind === 'text') {
       if (!text.trim()) throw new SendError('invalid', 'empty text');
-      await this.o.api.editMessageText(chatId, messageId, text);
+      await formatted(text, (t, mode) => this.o.api.editMessageText(chatId, messageId, t, mode));
     } else {
-      await this.o.api.editMessageCaption(chatId, messageId, text);
+      await formatted(text, (t, mode) => this.o.api.editMessageCaption(chatId, messageId, t, mode));
     }
   }
 

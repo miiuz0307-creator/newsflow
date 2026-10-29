@@ -15,6 +15,21 @@ interface FakeChat {
   rate?: { max: number; windowMs: number; times: number[] };
 }
 
+/** Like Telegram's HTML parse mode: checks the tags and returns the text without them. */
+function parseHtml(html: string): string {
+  const stack: string[] = [];
+  const re = /<(\/?)([a-z]+)[^>]*>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(html))) {
+    const [, close, tag] = m;
+    if (!['b', 'i', 's', 'u', 'code', 'pre', 'blockquote', 'a'].includes(tag!)) throw { code: 400, description: `Bad Request: can't parse entities: Unsupported start tag "${tag}"` };
+    if (!close) stack.push(tag!);
+    else if (stack.pop() !== tag) throw { code: 400, description: `Bad Request: can't parse entities: Can't find end tag corresponding to start tag "${tag}"` };
+  }
+  if (stack.length) throw { code: 400, description: `Bad Request: can't parse entities: Can't find end tag corresponding to start tag "${stack.pop()}"` };
+  return html.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+}
+
 export class FakeTelegramServer {
   private server?: http.Server;
   private readonly chats = new Map<number, FakeChat>();
@@ -219,7 +234,9 @@ export class FakeTelegramServer {
         }
         if (method === 'sendMessage' && !String(p.text ?? '').trim()) throw { code: 400, description: 'Bad Request: message text is empty' };
         const msg: TgMessage = { message_id: this.msgSeq++, date: this.ts(), chat: c.chat, from: { id: this.botId, is_bot: true, first_name: 'Bot' } };
-        if (method === 'sendMessage') msg.text = String(p.text);
+        const html = p.parse_mode === 'HTML';
+        if (html) (msg as unknown as { html?: string }).html = String(p.text ?? p.caption);
+        if (method === 'sendMessage') msg.text = html ? parseHtml(String(p.text)) : String(p.text);
         else {
           const field = method.slice(4).toLowerCase();
           const data = files[field] ?? (typeof p[field] === 'string' ? Buffer.from(String(p[field])) : undefined);
@@ -228,7 +245,7 @@ export class FakeTelegramServer {
           this.files.set(fid, data);
           if (field === 'photo') msg.photo = [{ file_id: fid, file_unique_id: fid, width: 1, height: 1, file_size: data.length }];
           else (msg as unknown as Record<string, unknown>)[field] = { file_id: fid, file_unique_id: fid, file_size: data.length };
-          if (p.caption) msg.caption = String(p.caption);
+          if (p.caption) msg.caption = html ? parseHtml(String(p.caption)) : String(p.caption);
         }
         c.posts.push(msg);
         return msg;
@@ -241,7 +258,8 @@ export class FakeTelegramServer {
         if (msg.from?.id !== this.botId) throw { code: 400, description: "Bad Request: message can't be edited" };
         const field = method === 'editMessageText' ? 'text' : 'caption';
         if (method === 'editMessageText' && msg.text === undefined) throw { code: 400, description: 'Bad Request: there is no text in the message to edit' };
-        const value = String(p[field] ?? '');
+        const value = p.parse_mode === 'HTML' ? parseHtml(String(p[field] ?? '')) : String(p[field] ?? '');
+        if (p.parse_mode === 'HTML') (msg as unknown as { html?: string }).html = String(p[field]);
         if (msg[field] === value) throw { code: 400, description: 'Bad Request: message is not modified: specified new message content and reply markup are exactly the same' };
         msg[field] = value;
         msg.edit_date = this.ts();
