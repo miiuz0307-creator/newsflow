@@ -426,6 +426,10 @@ export class BaileysTransport implements WaTransport {
         if (parsed?.edit) this.log.info('edit received', { accountId: this.accountId, chatId: parsed.edit.chatId, id: parsed.edit.messageId, fromSelf: parsed.edit.fromSelf, kind: parsed.edit.content.kind });
         else if (u?.update?.message?.editedMessage) this.log.warn('edit not read', { accountId: this.accountId, chatId: u?.key?.remoteJid, id: u?.key?.id, types: Object.keys(u.update.message.editedMessage.message ?? {}).join(',') });
         if (parsed?.edit) this.emit('message_edited', parsed.edit);
+        // WhatsApp answered one of our own messages with an error (e.g. 479): it may not have arrived.
+        if (u?.key?.fromMe && u?.update?.status === 0 && Array.isArray(u.update.messageStubParameters)) {
+          this.log.warn('send rejected by WhatsApp', { accountId: this.accountId, chatId: u.key.remoteJid, id: u.key.id, code: String(u.update.messageStubParameters[0] ?? '') });
+        }
         if (parsed?.revoke) this.emit('message_revoked', parsed.revoke);
       }
     });
@@ -510,7 +514,10 @@ export class BaileysTransport implements WaTransport {
     if (!this.connected || !this.sock) throw new SendError('disconnected', 'not connected');
     const payload = toBaileysPayload(content);
     try {
+      const started = Date.now();
       const res = await this.sock.sendMessage(chatId, payload);
+      const ms = Date.now() - started;
+      if (ms > 1500) this.log.info('slow send', { accountId: this.accountId, chatId, ms, members: this.groupCache.get(chatId)?.participants?.length ?? null });
       if (res?.key?.id && res.message) {
         this.sentCache.set(res.key.id, res.message);
         if (this.sentCache.size > 2000) this.sentCache.delete(this.sentCache.keys().next().value as string);
