@@ -135,31 +135,32 @@ export class TelegramBotApi {
     return this.call<number>('getChatMemberCount', { chat_id: chatId });
   }
 
-  sendMessage(chatId: string | number, text: string) {
-    return this.call<TgMessage>('sendMessage', { chat_id: chatId, text, link_preview_options: { is_disabled: false } });
+  sendMessage(chatId: string | number, text: string, parseMode?: 'HTML') {
+    return this.call<TgMessage>('sendMessage', { chat_id: chatId, text, link_preview_options: { is_disabled: false }, ...(parseMode ? { parse_mode: parseMode } : {}) });
   }
 
   /** Sends photo/video/audio/document either by uploading bytes or by file_id/URL. */
-  sendMedia(kind: 'photo' | 'video' | 'audio' | 'document', chatId: string | number, file: Buffer | string, opts: { caption?: string; mimeType?: string; fileName?: string } = {}) {
+  sendMedia(kind: 'photo' | 'video' | 'audio' | 'document', chatId: string | number, file: Buffer | string, opts: { caption?: string; mimeType?: string; fileName?: string; parseMode?: 'HTML' } = {}) {
     const method = { photo: 'sendPhoto', video: 'sendVideo', audio: 'sendAudio', document: 'sendDocument' }[kind];
     if (typeof file === 'string') {
-      return this.call<TgMessage>(method, { chat_id: chatId, [kind]: file, ...(opts.caption ? { caption: opts.caption } : {}) });
+      return this.call<TgMessage>(method, { chat_id: chatId, [kind]: file, ...(opts.caption ? { caption: opts.caption, ...(opts.parseMode ? { parse_mode: opts.parseMode } : {}) } : {}) });
     }
     const form = new FormData();
     form.set('chat_id', String(chatId));
     if (opts.caption) form.set('caption', opts.caption);
+    if (opts.caption && opts.parseMode) form.set('parse_mode', opts.parseMode);
     form.set(kind, new Blob([new Uint8Array(file)], { type: opts.mimeType ?? 'application/octet-stream' }), opts.fileName ?? `${kind}.bin`);
     return this.call<TgMessage>(method, form, 120_000);
   }
 
   /** Changes the text of a text message the bot sent. "Not modified" counts as done. */
-  async editMessageText(chatId: string | number, messageId: string | number, text: string): Promise<void> {
-    await this.notModifiedIsOk(() => this.call('editMessageText', { chat_id: chatId, message_id: Number(messageId), text }));
+  async editMessageText(chatId: string | number, messageId: string | number, text: string, parseMode?: 'HTML'): Promise<void> {
+    await this.notModifiedIsOk(() => this.call('editMessageText', { chat_id: chatId, message_id: Number(messageId), text, ...(parseMode ? { parse_mode: parseMode } : {}) }));
   }
 
   /** Changes the caption of a photo / video / audio / document the bot sent. */
-  async editMessageCaption(chatId: string | number, messageId: string | number, caption: string): Promise<void> {
-    await this.notModifiedIsOk(() => this.call('editMessageCaption', { chat_id: chatId, message_id: Number(messageId), caption }));
+  async editMessageCaption(chatId: string | number, messageId: string | number, caption: string, parseMode?: 'HTML'): Promise<void> {
+    await this.notModifiedIsOk(() => this.call('editMessageCaption', { chat_id: chatId, message_id: Number(messageId), caption, ...(parseMode ? { parse_mode: parseMode } : {}) }));
   }
 
   /** Deletes a message for everyone. Telegram allows this within 48 hours (any age for admins with delete rights). */
