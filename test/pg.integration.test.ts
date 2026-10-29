@@ -125,7 +125,19 @@ describe('PostgreSQL integration', { skip: !available && 'local test Postgres no
       await s.wipe();
       assert.equal(await s.hasCreds(), false);
     });
-    test('a fresh TenantKeys instance unwraps the stored key', async () => {
+    test('many keys at once (a send to a big group) are written together, updated and removed', async () => {
+      const s = new PgAuthStore(db.worker, tA, accA, await keys.cipher(tA));
+      const many: Record<string, unknown> = {};
+      for (let i = 0; i < 900; i++) many[`${i}@lid`] = { n: i };
+      await s.setKeys({ session: many, 'sender-key-memory': { 'g@g.us': { a: true } } });
+      const ids = ['0@lid', '450@lid', '899@lid'];
+      assert.deepEqual(await s.getKeys('session', ids), { '0@lid': { n: 0 }, '450@lid': { n: 450 }, '899@lid': { n: 899 } });
+      await s.setKeys({ session: { '0@lid': null, '450@lid': { n: 'new' } } });
+      assert.deepEqual(await s.getKeys('session', ids), { '450@lid': { n: 'new' }, '899@lid': { n: 899 } });
+      assert.deepEqual(await s.getKeys('sender-key-memory', ['g@g.us']), { 'g@g.us': { a: true } });
+      await s.wipe();
+    });
+        test('a fresh TenantKeys instance unwraps the stored key', async () => {
       const fresh = new TenantKeys((keys as unknown as { master: MasterKey }).master, db.worker);
       const c1 = await keys.cipher(tA);
       const c2 = await fresh.cipher(tA);
