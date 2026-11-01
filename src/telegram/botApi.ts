@@ -67,6 +67,20 @@ export function isValidBotToken(token: string): boolean {
   return /^\d{5,15}:[A-Za-z0-9_-]{30,}$/.test(token);
 }
 
+const EXT: Record<string, string> = {
+  'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm', 'video/3gpp': '3gp', 'video/x-matroska': 'mkv',
+  'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif',
+  'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/wav': 'wav',
+  'application/pdf': 'pdf',
+};
+/** A file name Telegram will recognise: the sender's own name when it has an extension, else one from the type. */
+export function uploadName(kind: 'photo' | 'video' | 'audio' | 'document', mimeType?: string, fileName?: string): string {
+  if (fileName && /\.[a-z0-9]{2,5}$/i.test(fileName)) return fileName;
+  const base = (mimeType ?? '').split(';')[0]!.trim().toLowerCase();
+  const ext = EXT[base] ?? ({ photo: 'jpg', video: 'mp4', audio: 'ogg', document: 'bin' } as const)[kind];
+  return `${fileName || kind}.${ext}`;
+}
+
 export class TelegramBotApi {
   private readonly base: string;
   private readonly fetchImpl: typeof fetch;
@@ -149,7 +163,9 @@ export class TelegramBotApi {
     form.set('chat_id', String(chatId));
     if (opts.caption) form.set('caption', opts.caption);
     if (opts.caption && opts.parseMode) form.set('parse_mode', opts.parseMode);
-    form.set(kind, new Blob([new Uint8Array(file)], { type: opts.mimeType ?? 'application/octet-stream' }), opts.fileName ?? `${kind}.bin`);
+    if (kind === 'video') form.set('supports_streaming', 'true');
+    // Telegram goes by the file name: "video.bin" arrives as a file to download, "video.mp4" as a video that plays.
+    form.set(kind, new Blob([new Uint8Array(file)], { type: opts.mimeType ?? 'application/octet-stream' }), uploadName(kind, opts.mimeType, opts.fileName));
     return this.call<TgMessage>(method, form, 120_000);
   }
 
