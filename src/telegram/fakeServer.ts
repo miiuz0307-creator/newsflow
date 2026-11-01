@@ -170,7 +170,7 @@ export class FakeTelegramServer {
       const form = await new Request('http://x', { method: 'POST', headers: { 'content-type': ctype }, body: raw }).formData();
       for (const [k, v] of form.entries()) {
         if (typeof v === 'string') params[k] = v;
-        else files[k] = Buffer.from(await (v as Blob).arrayBuffer());
+        else { files[k] = Buffer.from(await (v as Blob).arrayBuffer()); params[`${k}__name`] = (v as File).name; }
       }
     }
     if (this.responseDelayMs) await new Promise((r) => setTimeout(r, this.responseDelayMs));
@@ -243,8 +243,11 @@ export class FakeTelegramServer {
           if (!data) throw { code: 400, description: 'Bad Request: there is no file in the request' };
           const fid = `F${randomBytes(6).toString('hex')}`;
           this.files.set(fid, data);
-          if (field === 'photo') msg.photo = [{ file_id: fid, file_unique_id: fid, width: 1, height: 1, file_size: data.length }];
-          else (msg as unknown as Record<string, unknown>)[field] = { file_id: fid, file_unique_id: fid, file_size: data.length };
+          const name = typeof p[`${field}__name`] === 'string' ? String(p[`${field}__name`]) : undefined;
+          // Like Telegram: an uploaded "video" whose name is not a video file arrives as a plain file.
+          const asField = field === 'video' && name && !/\.(mp4|mov|webm|3gp|mkv)$/i.test(name) ? 'document' : field;
+          if (asField === 'photo') msg.photo = [{ file_id: fid, file_unique_id: fid, width: 1, height: 1, file_size: data.length }];
+          else (msg as unknown as Record<string, unknown>)[asField] = { file_id: fid, file_unique_id: fid, file_size: data.length, ...(name ? { file_name: name } : {}) };
           if (p.caption) msg.caption = html ? parseHtml(String(p.caption)) : String(p.caption);
         }
         c.posts.push(msg);

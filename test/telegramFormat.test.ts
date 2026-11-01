@@ -61,6 +61,14 @@ describe('WhatsApp formatting → Telegram', () => {
       assert.equal(post.text, text);
     });
 
+        test('a video arrives as a video that plays, not as "video.bin"', async () => {
+      const r = await acc.send(String(chan), { kind: 'video', text: 'תיעוד', media: { mimeType: 'video/mp4', data: Buffer.from('vid') } });
+      const post = srv.posts(chan).find((p) => String(p.message_id) === r.messageId) as any;
+      assert.ok(post.video, 'sent as a video');
+      assert.equal(post.video.file_name, 'video.mp4');
+      assert.equal(post.document, undefined);
+    });
+
         test('a caption on a photo is formatted too', async () => {
       const r = await acc.send(String(chan), { kind: 'image', text: '*כותרת*', media: { mimeType: 'image/jpeg', data: Buffer.from('img') } });
       const post = srv.posts(chan).find((p) => String(p.message_id) === r.messageId) as any;
