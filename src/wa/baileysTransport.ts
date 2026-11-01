@@ -355,6 +355,15 @@ export class BaileysTransport implements WaTransport {
         if (this.pairingTimer) clearTimeout(this.pairingTimer);
         const me: string = sock.user?.id ?? '';
         this.emit('open', { phoneNumber: me.split(':')[0]?.split('@')[0] ?? '' });
+        // Member lists of all groups in one request, so the first send to each group after a restart
+        // does not have to look its group up first.
+        setTimeout(() => {
+          if (this.sock !== sock || !this.connected) return;
+          void Promise.resolve(sock.groupFetchAllParticipating?.()).then((groups: Record<string, any> | undefined) => {
+            for (const g of Object.values(groups ?? {})) if (g?.id) this.groupCache.set(g.id, g);
+            this.log.info('group members cached', { accountId: this.accountId, groups: Object.keys(groups ?? {}).length });
+          }).catch((err: unknown) => this.log.warn('could not cache group members', { accountId: this.accountId, err: String(err) }));
+        }, 3000).unref?.();
       }
       if (u.connection === 'close') {
         this.connected = false;
@@ -514,6 +523,10 @@ export class BaileysTransport implements WaTransport {
     if (!this.connected || !this.sock) throw new SendError('disconnected', 'not connected');
     const payload = toBaileysPayload(content);
     try {
+      if (chatId.endsWith('@g.us') && !this.groupCache.has(chatId) && this.sock.groupMetadata) {
+        // Not cached yet: look it up once and keep it (Baileys would otherwise look it up on every send).
+        try { this.groupCache.set(chatId, await this.sock.groupMetadata(chatId)); } catch { /* Baileys tries again itself */ }
+      }
       const started = Date.now();
       const res = await this.sock.sendMessage(chatId, payload);
       const ms = Date.now() - started;
