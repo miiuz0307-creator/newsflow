@@ -11,6 +11,8 @@
  *   unlinks its WhatsApp numbers.
  */
 import { TERMS_VERSION } from '../legal.js';
+import { resetCodeMail, type Mailer } from '../../notify/mailer.js';
+import { createHmac, randomInt } from 'node:crypto';
 import { createHash, randomBytes } from 'node:crypto';
 import { PgError } from '../../db/pg.js';
 import { withTenant, type TenantKeys } from '../../db/pgStores.js';
@@ -62,6 +64,9 @@ export interface AuthModuleOptions {
   signupLimiter?: WindowLimiter;
   /** Called after a customer signs up on their own (for example: notify the owner). Errors are ignored. */
   onSignup?: (t: { tenantId: string; businessName: string; email: string }) => void | Promise<void>;
+  /** Sends the "forgot password" code. Without it, password reset answers "not available". */
+  mailer?: Mailer;
+  resetLimiter?: WindowLimiter;
 }
 
 export function authModule(opts: AuthModuleOptions) {
@@ -109,6 +114,37 @@ export function authModule(opts: AuthModuleOptions) {
       }
       if (opts.onSignup) void Promise.resolve().then(() => opts.onSignup!({ tenantId, businessName, email })).catch(() => {});
       return { tenantId, userId, ...(await issueTokens({ tenantId, userId, role: 'owner' }, req.headers['user-agent'])) };
+    });
+
+    // ---- Forgot password: a 6-digit code by email, then a new password.
+    const resetLimiter = opts.resetLimiter ?? new WindowLimiter(5, 3_600_000);
+    const codeHash = (email: string, code: string) => createHmac('sha256', secret).update(`reset|${email}|${code}`).digest('hex');
+    api.on('POST', '/v1/auth/forgot', false, async ({ body, ip }) => {
+      const email = String(body.email ?? '').trim().toLowerCase().slice(0, 320);
+      if (!EMAIL_RE.test(email)) throw new HttpError(400, 'bad_email', 'כתובת האימייל אינה תקינה');
+      if (!opts.mailer) throw new HttpError(503, 'reset_unavailable', 'שחזור סיסמה במייל עדיין לא זמין. פנו אלינו ונשלח לכם סיסמה זמנית.');
+      if (!resetLimiter.take(ip) || !resetLimiter.take(`email:${email}`)) throw new HttpError(429, 'too_many', 'יותר מדי בקשות; נסו שוב בעוד שעה');
+      const code = String(randomInt(0, 1_000_000)).padStart(6, '0');
+      const r = await pool.query<{ id: string | null }>('SELECT auth_reset_request($1, $2) AS id', [email, codeHash(email, code)]);
+      // Same answer whether or not the email has an account (no way to find out who is a customer).
+      if (r.rows[0]?.id) await opts.mailer(resetCodeMail(email, code)).catch(() => { throw new HttpError(502, 'mail_failed', 'שליחת המייל נכשלה; נסו שוב בעוד דקה'); });
+      return { sent: true };
+    });
+
+    api.on('POST', '/v1/auth/reset', false, async ({ body, ip }) => {
+      const email = String(body.email ?? '').trim().toLowerCase().slice(0, 320);
+      const code = String(body.code ?? '').replace(/\D/g, '');
+      const password = String(body.password ?? '');
+      if (!resetLimiter.take(`try:${ip}`)) throw new HttpError(429, 'too_many', 'יותר מדי ניסיונות; נסו שוב בעוד שעה');
+      if (!EMAIL_RE.test(email) || code.length !== 6) throw new HttpError(400, 'bad_code', 'הקוד שגוי');
+      const problem = checkPassword(password, email);
+      if (problem) throw new HttpError(400, problem.code, problem.message);
+      const hash = await busy(() => hashPassword(password));
+      const r = await pool.query<{ result: string }>('SELECT auth_reset_finish($1, $2, $3) AS result', [email, codeHash(email, code), hash]);
+      const result = r.rows[0]?.result;
+      if (result === 'bad_code') throw new HttpError(400, 'bad_code', 'הקוד שגוי');
+      if (result !== 'ok') throw new HttpError(400, 'expired', 'הקוד פג תוקף או שנוסה יותר מדי פעמים. בקשו קוד חדש.');
+      return { reset: true };
     });
 
     api.on('POST', '/v1/auth/login', false, async ({ body, ip, req }) => {

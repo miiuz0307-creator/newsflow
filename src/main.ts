@@ -35,6 +35,7 @@ import { AdminPush } from './notify/adminPush.js';
 import { TelegramPhoneLinker } from './telegram/phoneLink.js';
 import { GramUserClient } from './telegram/gramClient.js';
 import { CustomerPush } from './notify/customerPush.js';
+import { mailerFromEnv } from './notify/mailer.js';
 import { notifyPushModule } from './api/modules/notifyPush.js';
 import { latestRelease } from './releases.js';
 import { TelegramRuntime } from './telegram/runtime.js';
@@ -236,7 +237,7 @@ const api = new ApiServer({
   perIpPerMinute: Number(process.env.API_PER_IP_PER_MINUTE ?? 1200),
   modules: [
     authModule({
-      keys, telegram, onRoutesChanged: () => routeSource.invalidate(),
+      keys, telegram, onRoutesChanged: () => routeSource.invalidate(), mailer: mailerFromEnv(),
       onSignup: async (t) => {
         log.info('new signup', { tenantId: t.tenantId });
         await adminPush?.send({ title: 'לקוח חדש נרשם ל‑Groupush', body: `${t.businessName}\n${t.email}`, url: `/admin#customer=${t.tenantId}`, tag: `signup-${t.tenantId}` });

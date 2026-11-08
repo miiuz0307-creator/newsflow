@@ -131,6 +131,8 @@ main{padding:34px 40px 80px;min-width:0}
 .account-panel{margin-top:18px;max-width:620px}
 .account-panel .i{margin:12px 0 4px;max-width:320px}
 .auth-brand small a{color:inherit}
+.forgot{align-self:flex-start;margin:-6px 0 4px;font-size:14px}
+.ok-msg{color:var(--ok);background:var(--ok-soft);border-radius:10px;padding:10px 12px;font-size:14px}
 .panel h2{font-size:21px}
 .panel .ph{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:16px}
 .panel .ph a{font-size:14px;color:var(--teal-deep);font-weight:600;text-decoration:none}
@@ -434,6 +436,50 @@ function timeOf(d){try{return new Date(d).toLocaleTimeString('he-IL',{hour:'2-di
 function whenOf(d){try{var x=new Date(d),now=new Date();var same=x.toDateString()===now.toDateString();return same?'היום, '+timeOf(d):x.toLocaleDateString('he-IL',{day:'numeric',month:'numeric'})+', '+timeOf(d)}catch(e){return ''}}
 
 // ---------------- auth screens
+function authShell(form){
+  root.replaceChildren(h('div',{cls:'auth'},[
+    h('aside',{cls:'auth-brand'},[
+      h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'Groupush']),
+      h('div',null,[h('h1',null,['הודעה אחת.',h('span',{text:'כל הקבוצות.'})]),h('p',{text:'כותבים פעם אחת בקבוצת השליטה. Groupush מפיצה לכל הקבוצות, ומסנכרנת עריכה ומחיקה בכל העותקים.'})]),
+      h('small',null,['© '+new Date().getFullYear()+' Groupush · ',h('a',{href:'/terms',target:'_blank',rel:'noopener',text:'תנאי שימוש'}),' · ',h('a',{href:'/privacy',target:'_blank',rel:'noopener',text:'מדיניות פרטיות'}),' · ',h('a',{href:'/accessibility',target:'_blank',rel:'noopener',text:'הצהרת נגישות'})])]),
+    h('div',{cls:'auth-form'},[form])]));
+}
+
+function showForgot(prefill){
+  clearInterval(timer);
+  var step=1;
+  var err=h('div',{cls:'err',role:'alert'});
+  var note=h('p',{cls:'sub',text:'נשלח לאימייל שלכם קוד בן 6 ספרות, ואיתו תבחרו סיסמה חדשה.'});
+  var email=h('input',{cls:'i',type:'email',autocomplete:'username',required:true,dir:'ltr'});if(prefill)email.value=prefill;
+  var code=h('input',{cls:'i',type:'text',inputmode:'numeric',autocomplete:'one-time-code',maxlength:'6',dir:'ltr',placeholder:'123456'});
+  var pw=h('input',{cls:'i',type:'password',autocomplete:'new-password',dir:'ltr'});
+  var codeF=h('label',{cls:'f',hidden:true},[h('span',{text:'הקוד מהמייל'}),code]);
+  var pwF=h('label',{cls:'f',hidden:true},[h('span',{text:'סיסמה חדשה (לפחות 8 תווים)'}),pw]);
+  var submit=h('button',{cls:'btn btn-primary btn-block',type:'submit',text:'שליחת קוד'});
+  var again=h('button',{cls:'linkish',type:'button',hidden:true,text:'לא הגיע? שליחת קוד חדש',onclick:function(){step=1;submit.click()}});
+  var form=h('form',{cls:'form',novalidate:true,onsubmit:async function(e){
+    e.preventDefault();err.textContent='';submit.disabled=true;
+    try{
+      if(step===1){
+        await api('POST','/v1/auth/forgot',{email:email.value});
+        step=2;codeF.hidden=false;pwF.hidden=false;again.hidden=false;email.readOnly=true;submit.textContent='שמירת הסיסמה החדשה';
+        note.textContent='אם יש חשבון עם האימייל הזה, שלחנו אליו קוד. בדקו גם בתיקיית הספאם.';setTimeout(function(){code.focus()},0);
+      }else{
+        await api('POST','/v1/auth/reset',{email:email.value,code:code.value,password:pw.value});
+        showAuth('login','',email.value);
+        var ok=document.querySelector('.auth-form .err');if(ok){ok.className='ok-msg';ok.textContent='הסיסמה עודכנה. אפשר להיכנס עם הסיסמה החדשה.'}
+        return;
+      }
+    }catch(x){err.textContent=x.message}
+    submit.disabled=false;
+  }},[
+    h('h2',{text:'שחזור סיסמה'}),note,
+    h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),codeF,pwF,submit,err,again,
+    h('p',{cls:'hint'},[h('button',{cls:'linkish',type:'button',text:'חזרה לכניסה',onclick:function(){showAuth('login','',email.value)}})])
+  ]);
+  authShell(form);
+  setTimeout(function(){email.focus()},0);
+}
 function showAuth(mode,msg,prefill){
   clearInterval(timer);
   var err=h('div',{cls:'err',role:'alert',text:msg||''});
@@ -466,17 +512,13 @@ function showAuth(mode,msg,prefill){
     mode==='signup'?h('label',{cls:'f'},[h('span',{text:'שם העסק או רשת הקבוצות'}),biz]):null,
     h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),
     h('label',{cls:'f'},[h('span',{text:'סיסמה'}),pw]),
+    mode==='login'?h('button',{cls:'linkish forgot',type:'button',text:'שכחתי סיסמה',onclick:function(){showForgot(email.value)}}):null,
     mode==='signup'?h('label',{cls:'check',for:'terms'},[terms,h('span',null,['קראתי ואני מסכים ל',h('a',{href:'/terms',target:'_blank',rel:'noopener',text:'תנאי השימוש'}),' ול',h('a',{href:'/privacy',target:'_blank',rel:'noopener',text:'מדיניות הפרטיות'}),', ומבין שהחיבור ל‑WhatsApp אינו רשמי וכרוך בסיכון לחסימת המספר.'])]):null,
     h('label',{cls:'check',for:'remember'},[rememberIn,h('span',{text:'זכור אותי במכשיר הזה'})]),
     submit,err,
     h('p',{cls:'hint',text:mode==='login'?'אין לכם חשבון? עברו ל"הרשמה" למעלה.':'יש לכם כבר חשבון? עברו ל"כניסה" למעלה.'})
   ]);
-  root.replaceChildren(h('div',{cls:'auth'},[
-    h('aside',{cls:'auth-brand'},[
-      h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'Groupush']),
-      h('div',null,[h('h1',null,['הודעה אחת.',h('span',{text:'כל הקבוצות.'})]),h('p',{text:'כותבים פעם אחת בקבוצת השליטה. Groupush מפיצה לכל הקבוצות, ומסנכרנת עריכה ומחיקה בכל העותקים.'})]),
-      h('small',null,['© '+new Date().getFullYear()+' Groupush · ',h('a',{href:'/terms',target:'_blank',rel:'noopener',text:'תנאי שימוש'}),' · ',h('a',{href:'/privacy',target:'_blank',rel:'noopener',text:'מדיניות פרטיות'}),' · ',h('a',{href:'/accessibility',target:'_blank',rel:'noopener',text:'הצהרת נגישות'})])]),
-    h('div',{cls:'auth-form'},[form])]));
+  authShell(form);
   setTimeout(function(){(mode==='signup'?biz:email).focus()},0);
 }
 
