@@ -5,6 +5,7 @@
  */
 import { fontFaceCss } from './fonts.js';
 import { installPromptCss, installPromptHtml, installPromptJs } from './installPrompt.js';
+import { LANDING_PAGES } from './landing.js';
 
 /** Where the site lives (PUBLIC_ORIGIN, e.g. https://push.co.il, once a domain is connected). */
 export function publicOrigin(host?: string): string {
@@ -13,7 +14,7 @@ export function publicOrigin(host?: string): string {
   return host && /^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `http://${host}` : 'http://localhost';
 }
 
-const TITLE = 'Groupush (גרופוש) — הפצת הודעות לכל קבוצות הוואטסאפ והטלגרם בבת אחת';
+const TITLE = 'Groupush (גרופוש) — מערכת שליחה אוטומטית לכל קבוצות הוואטסאפ והטלגרם';
 const DESCRIPTION = 'כותבים הודעה אחת בקבוצת שליטה, ו‑Groupush מפיצה אותה לכל קבוצות הוואטסאפ וערוצי הטלגרם שלכם, עם עריכה, מחיקה ותזמון מסונכרנים. מתחילים בחינם.';
 /** The questions on the page, also given to search engines as structured data (same text). */
 const FAQ: [string, string][] = [["איך שולחים הודעה לכמה קבוצות וואטסאפ בבת אחת?", "מחברים מספר וואטסאפ ל‑Groupush בסריקת קוד, פותחים קבוצת שליטה ובוחרים לאילו קבוצות להפיץ. מאותו רגע כל הודעה שכותבים בקבוצת השליטה, כולל תמונות, סרטונים וקבצים, יוצאת לכל הקבוצות שבחרתם."], ["אפשר לתזמן הודעה לשעה מסוימת?", "כן. כותבים בשורה הראשונה תזמון (12:20), וההודעה יוצאת בשעה הזו לפי שעון ישראל, בלי שורת התזמון."]];
@@ -250,6 +251,14 @@ section{padding:110px 0}
 .faq summary::after{content:"+";font-family:var(--display);font-size:26px;line-height:1;color:var(--teal-deep);transition:transform .2s}
 .faq details[open] summary::after{transform:rotate(45deg)}
 .faq details p{margin-top:12px;color:var(--muted);max-width:68ch}
+
+/* topics */
+.topics{padding:0 0 90px}
+.topics h2{font-size:clamp(24px,3vw,32px);margin-bottom:18px}
+.topics ul{list-style:none;padding:0;margin:0;display:grid;gap:12px;grid-template-columns:repeat(auto-fill,minmax(260px,1fr))}
+.topics a{display:flex;align-items:center;justify-content:space-between;gap:10px;border:1px solid var(--line);border-radius:16px;padding:16px 18px;text-decoration:none;font-weight:600;transition:border-color .2s,transform .2s,box-shadow .2s}
+.topics a::after{content:"←";color:var(--teal-deep);font-family:var(--display)}
+.topics a:hover{border-color:var(--teal);transform:translateY(-2px);box-shadow:0 14px 30px -20px rgba(10,27,51,.4)}
 
 /* final */
 .final{background:var(--teal);padding:90px 0}
@@ -523,6 +532,13 @@ ${FAQ.map(([q, a]) => `      <details><summary>${q}</summary><p>${a}</p></detail
     </div>
   </div>
 </section>
+
+<nav class="topics" aria-label="מדריכים">
+  <div class="wrap">
+    <h2>מה אפשר לעשות עם Groupush</h2>
+    <ul>${LANDING_PAGES.map((p) => `<li><a href="/${p.slug}">${p.h1}</a></li>`).join('')}</ul>
+  </div>
+</nav>
 
 <section class="final">
   <div class="wrap">
