@@ -42,7 +42,7 @@ describe('admin live view of a customer\'s app', { skip: !available && 'local te
       appPool: db.app, connections: conns, queue: new PgJobQueue(db.worker, db.app), killSwitches: new PgKillSwitchStore(db.worker), tokenSecret: SECRET,
       modules: [authModule({ keys }), adminModule({ adminPool: db.admin, adminTokenSecret: ADMIN_SECRET, customerTokenSecret: SECRET, masterKeyB64: MasterKey.generateB64(),
         manage: { resetOwnerPassword: async (t, hash) => (await db.owner.query<{ email: string }>(
-          `UPDATE users SET password_hash = $2 WHERE id = (SELECT id FROM users WHERE tenant_id = $1 ORDER BY (role = 'owner') DESC, created_at LIMIT 1) RETURNING email`, [t, hash])).rows[0]?.email ?? null } })],
+          `UPDATE users SET password_hash = $2, failed_logins = 0, locked_until = NULL WHERE id = (SELECT id FROM users WHERE tenant_id = $1 ORDER BY (role = 'owner') DESC, created_at LIMIT 1) RETURNING email`, [t, hash])).rows[0]?.email ?? null } })],
     });
     await api.listen();
   });
@@ -87,6 +87,8 @@ describe('admin live view of a customer\'s app', { skip: !available && 'local te
 
   test('a customer who forgot the password gets a temporary one from the admin', async () => {
     assert.equal((await call(helper, 'POST', `/admin/v1/tenants/${tenant}/password`)).status, 403, 'superadmin only');
+    // The customer locked the account by guessing: the new password must still let them in.
+    await db.owner.query(`UPDATE users SET failed_logins = 7, locked_until = now() + interval '1 hour' WHERE email = 'north@x.com'`);
     const r = await call(boss, 'POST', `/admin/v1/tenants/${tenant}/password`);
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.email, 'north@x.com');
