@@ -17,6 +17,7 @@ import { appManifest, appServiceWorker, installHtml } from '../installPage.js';
 import { adminIcon } from '../adminIcon.js';
 import { fontFaceCss } from '../fonts.js';
 import { publicOrigin, siteHtml } from '../site.js';
+import { LANDING_PAGES, landingHtml } from '../landing.js';
 
 interface DistRow {
   scheduled_at: Date | null;
@@ -365,6 +366,21 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
       return undefined;
     });
 
+    // Topic pages for search engines ("מערכת שליחה אוטומטית", "תזמון הודעות בוואטסאפ"...).
+    for (const page of LANDING_PAGES) {
+      api.on('GET', `/${page.slug}`, false, async ({ req, res }) => {
+        const nonce = randomBytes(16).toString('base64');
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'content-security-policy': `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; font-src 'self'; img-src 'self' data:; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+          'referrer-policy': 'no-referrer',
+          'cache-control': 'public, max-age=600',
+        });
+        res.end(landingHtml(page, nonce, publicOrigin(req.headers.host)));
+        return undefined;
+      });
+    }
+
     // Search engines: only the home page is for them. The app and the panel answer "noindex"
     // themselves (listing their paths here would only advertise them).
     api.on('GET', '/robots.txt', false, async ({ req, res }) => {
@@ -374,7 +390,9 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
     });
     api.on('GET', '/sitemap.xml', false, async ({ req, res }) => {
       res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=3600' });
-      res.end(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${publicOrigin(req.headers.host)}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url></urlset>\n`);
+      const o = publicOrigin(req.headers.host);
+      const pages = LANDING_PAGES.map((p) => `<url><loc>${o}/${p.slug}</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`).join('');
+      res.end(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${o}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>${pages}</urlset>\n`);
       return undefined;
     });
 
