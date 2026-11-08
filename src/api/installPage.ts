@@ -93,6 +93,7 @@ ol{margin:0;padding-inline-start:22px;display:grid;gap:12px;font-size:17px}
 .k{display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,.1);border-radius:8px;padding:1px 8px;font-weight:600;white-space:nowrap}
 .k svg{width:18px;height:18px}
 .note{font-size:15px;color:var(--muted);margin:12px 0 0}
+.legal{text-align:center;margin-top:22px}.legal a{color:var(--muted)}
 .tabs{display:flex;gap:8px;margin:26px 0 0;flex-wrap:wrap}
 .tab{border:1px solid var(--line);background:transparent;color:#fff;border-radius:99px;padding:8px 16px;font:inherit;font-size:15px;cursor:pointer}
 .tab[aria-pressed=true]{background:#fff;color:var(--ink);border-color:#fff}
@@ -153,6 +154,7 @@ ol{margin:0;padding-inline-start:22px;display:grid;gap:12px;font-size:17px}
   </section>
 
   <a class="btn btn-ghost" href="/app">כניסה בלי להתקין</a>
+  <p class="note legal"><a href="/terms">תנאי שימוש</a> · <a href="/privacy">מדיניות פרטיות</a> · <a href="/accessibility">הצהרת נגישות</a></p>
 </main>
 <script nonce="${nonce}">
 (function(){

@@ -164,6 +164,49 @@ describe('admin sign-in, second step', { skip: !available && 'local test Postgre
   });
 });
 
+describe('terms, privacy and accessibility pages', () => {
+  test('served with the operator details from the environment, linked from every public page, in the sitemap', async () => {
+    const { legalHtml, operator, LEGAL_SLUGS } = await import('../src/api/legal.js');
+    const env = { BUSINESS_NAME: 'עסק לדוגמה <script>', BUSINESS_ID: 'עוסק מורשה 123456789', CONTACT_EMAIL: 'hello@example.com', CONTACT_PHONE: '050-0000000' };
+    const o = operator(env as NodeJS.ProcessEnv);
+    assert.equal(o.name, 'עסק לדוגמה script', 'angle brackets are removed');
+    for (const slug of LEGAL_SLUGS) {
+      const html = legalHtml(slug, 'n', 'https://x.test', env as NodeJS.ProcessEnv)!;
+      assert.ok(html.includes('hello@example.com') && html.includes('עוסק מורשה 123456789'), slug);
+      assert.ok(!html.includes('<script'), 'no scripts on legal pages');
+    }
+    assert.match(legalHtml('terms', 'n', 'https://x.test', env as NodeJS.ProcessEnv)!, /354 ₪ לחודש, כולל מע"מ/);
+    assert.equal(legalHtml('nope', 'n', 'https://x.test'), null);
+    const fallback = operator({} as NodeJS.ProcessEnv);
+    assert.equal(fallback.email, '');
+
+    const { factory } = memoryStores();
+    const conns = new ConnectionManager({ transportFactory: fakeTransportFactory(new FakeWaNetwork()), storeFactory: async (t, a) => factory(t, a) });
+    const api = new ApiServer({ appPool: undefined as never, connections: conns, queue: undefined as never, killSwitches: undefined as never, tokenSecret: SECRET, modules: [pushModule()] });
+    await api.listen();
+    try {
+      const map = await (await fetch(api.url + '/sitemap.xml')).text();
+      for (const slug of LEGAL_SLUGS) {
+        const r = await fetch(`${api.url}/${slug}`);
+        assert.equal(r.status, 200, slug);
+        assert.match(r.headers.get('content-security-policy') ?? '', /default-src 'none'/);
+        assert.ok(map.includes(`/${slug}</loc>`));
+      }
+      const { LANDING_PAGES } = await import('../src/api/landing.js');
+      for (const path of ['/', '/app/install', ...LANDING_PAGES.map((p) => `/${p.slug}`)]) {
+        const html = await (await fetch(api.url + path)).text();
+        for (const slug of LEGAL_SLUGS) assert.ok(html.includes(`href="/${slug}"`), `${path} links to /${slug}`);
+      }
+      const home = await (await fetch(api.url + '/')).text();
+      assert.match(home, /אינו קשור ל‑WhatsApp/);
+      assert.match(home, /354<span class="cur">₪<\/span><\/b><span>לחודש, כולל מע"מ/);
+    } finally {
+      await api.close();
+      await conns.shutdown();
+    }
+  });
+});
+
 describe('per-address limit', () => {
   test('too many requests from one address get 429 until the minute ends', async () => {
     const { factory } = memoryStores();
