@@ -1,5 +1,5 @@
 /**
- * Free plan on Telegram: PUSH publishes its own posts in the customer's channels.
+ * Free plan on Telegram: Groupush publishes its own posts in the customer's channels.
  *  - connecting Telegram on the free plan needs the customer's OK (recorded once)
  *  - the posts reach only free customers who agreed, through their own bot, never a
  *    suspended customer or a stopped bot; they can be removed from every channel again
@@ -132,7 +132,7 @@ describe('Telegram promos for the free plan', { skip: !available && 'local test 
     assert.equal(g.body.audience.awaitingConsent, 1);
     assert.deepEqual(g.body.audience.list.map((x: { name: string }) => x.name).sort(), ['חדשות חינם', 'חינם שני'].sort());
 
-    const s = await call(adminTok, 'POST', '/admin/v1/tg-promo', { body: '*PUSH* — הפצה לכל הקבוצות שלכם' });
+    const s = await call(adminTok, 'POST', '/admin/v1/tg-promo', { body: '*Groupush* — הפצה לכל הקבוצות שלכם' });
     assert.equal(s.status, 200, JSON.stringify(s.body));
     assert.equal(s.body.targets, 2);
     await until(async () => (await call(adminTok, 'GET', '/admin/v1/tg-promo')).body.history[0].status === 'done');
@@ -142,12 +142,12 @@ describe('Telegram promos for the free plan', { skip: !available && 'local test 
     assert.equal(fakeBots.get(other.bot)!.sent.length, 1);
     for (const b of [paid, noOk, susp]) assert.equal(fakeBots.get(b.bot)!.sent.length, 0, 'premium, no agreement, suspended: nothing');
     const ch = (await db.worker.query<{ chat_id: string }>(`SELECT chat_id FROM chats WHERE tenant_id = $1 AND platform = 'tg'`, [freeT])).rows[0]!.chat_id;
-    assert.equal(tg.posts(Number(ch)).filter((p) => p.from?.username === 'push_free_bot' || p.text?.includes('PUSH')).length, 1, 'posted through the customer\'s own bot');
+    assert.equal(tg.posts(Number(ch)).filter((p) => p.from?.username === 'push_free_bot' || p.text?.includes('Groupush')).length, 1, 'posted through the customer\'s own bot');
 
     const rm = await call(adminTok, 'POST', `/admin/v1/tg-promo/${h.id}/remove`);
     assert.equal(rm.status, 200, JSON.stringify(rm.body));
     assert.equal(rm.body.removed, 2);
-    assert.equal(tg.posts(Number(ch)).filter((p) => p.text?.includes('PUSH')).length, 0, 'gone from the channel');
+    assert.equal(tg.posts(Number(ch)).filter((p) => p.text?.includes('Groupush')).length, 0, 'gone from the channel');
     assert.equal(fakeBots.get(other.bot)!.removed.length, 1);
     assert.equal((await call(adminTok, 'GET', '/admin/v1/tg-promo')).body.history[0].status, 'retracted');
     assert.equal((await call(adminTok, 'POST', `/admin/v1/tg-promo/${h.id}/remove`)).status, 404, 'already removed');

@@ -1,10 +1,10 @@
 /**
- * Status messages in the control group ("✅ PUSH · נשלחה ל-48 מתוך 50 קבוצות").
+ * Status messages in the control group ("✅ Groupush · נשלחה ל-48 מתוך 50 קבוצות").
  *
  * Reports are ordinary queue jobs (action 'report') addressed to the control
  * group itself, so they obey kill switches and rate limits, and the loop
  * guard recognises them: their message id is recorded like any copy, and
- * their text starts with the PUSH tag (see isOwnReport), so even a report
+ * their text starts with the Groupush tag (see isOwnReport), so even a report
  * that arrives back before its id is stored is never distributed.
  *
  * When does a report go out? Once every job of a wave (the sends of one

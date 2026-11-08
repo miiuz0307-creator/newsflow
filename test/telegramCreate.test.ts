@@ -1,6 +1,6 @@
 /**
  * "Create a Telegram bot in one tap" (Telegram managed bots): the app gives the customer a
- * link with a ready bot (name = their business); they confirm in Telegram; PUSH's manager bot
+ * link with a ready bot (name = their business); they confirm in Telegram; Groupush's manager bot
  * gets the token and the bot is connected to the right customer, like a bot added by token.
  */
 import { after, before, describe, test } from 'node:test';
@@ -73,7 +73,7 @@ describe('create a Telegram bot in one tap', { skip: !available && 'local test P
     const r = await call('POST', '/v1/tg/create', { name: '  עדכונים   בזמן אמת ', promoOk: true });
     assert.equal(r.status, 200, JSON.stringify(r.body));
     assert.equal(r.body.name, 'עדכונים בזמן אמת');
-    assert.match(r.body.username, /^push_[a-z0-9]+_bot$/);
+    assert.match(r.body.username, /^groupush_[a-z0-9]+_bot$/);
     assert.equal(r.body.link, `https://t.me/newbot/push_manager_bot/${r.body.username}?name=${encodeURIComponent('עדכונים בזמן אמת')}`);
     assert.ok(r.body.qrRows.length > 20, 'a QR for computers');
     assert.equal(r.body.connected, false);

@@ -1,5 +1,5 @@
 /**
- * PUSH Sync, end to end: a control group, simulated WhatsApp, the local
+ * Groupush Sync, end to end: a control group, simulated WhatsApp, the local
  * Telegram fake, and the full worker (pipeline → queue → dispatcher → reports).
  *
  * Every scenario runs twice: on the in-memory stores, and on the real
@@ -30,7 +30,7 @@ import { adminSetTenant, createTestDb, pgAvailable, type TestDb } from './pgHelp
 
 const pgUp = await pgAvailable();
 
-const LINKED = '972500000301'; // the dedicated number connected to PUSH
+const LINKED = '972500000301'; // the dedicated number connected to Groupush
 const CUSTOMER = '972500000302'; // the customer's personal phone
 const STRANGER = '972500000303';
 
@@ -84,7 +84,7 @@ async function buildWorld(kind: 'memory' | 'pg', net: FakeWaNetwork, tg: FakeTel
     db = await createTestDb();
     cleanup.push(() => db!.drop());
     const keys = new TenantKeys(new MasterKey('mk-sync', MasterKey.generateB64()), db.worker);
-    tenantId = await keys.provision(db.app, 'PUSH test', 'trial', `push-${randomUUID()}@example.com`);
+    tenantId = await keys.provision(db.app, 'Groupush test', 'trial', `push-${randomUUID()}@example.com`);
     await adminSetTenant(db, tenantId, 'premium');
     acc = (await withTenant(db.app, tenantId, (c) => c.query<{ id: string }>(`INSERT INTO wa_accounts (tenant_id, label) VALUES ($1, 'push') RETURNING id`, [tenantId]))).rows[0]!.id;
     const blob = (await keys.cipher(tenantId)).encrypt('tg-token', tg.token);
@@ -128,13 +128,13 @@ async function buildWorld(kind: 'memory' | 'pg', net: FakeWaNetwork, tg: FakeTel
   });
   cleanup.push(() => worker.shutdown());
 
-  const ctrl = net.createGroup('שליטה — PUSH', { members: [LINKED, CUSTOMER, STRANGER] });
+  const ctrl = net.createGroup('שליטה — Groupush', { members: [LINKED, CUSTOMER, STRANGER] });
   const waTargets = [
     net.createGroup('חדשות צפון', { members: [LINKED, '972511110001'] }),
     net.createGroup('חדשות דרום', { members: [LINKED, '972511110002'] }),
     net.createGroup('מבזקים (רק מנהלים)', { members: [LINKED], admins: [LINKED], adminsOnly: true }),
   ];
-  const tgChannel = tg.createChat('ערוץ PUSH', 'channel');
+  const tgChannel = tg.createChat('ערוץ Groupush', 'channel');
   tg.addBot(tgChannel, 'administrator', { can_post_messages: true });
   const tgCtrl = tg.createChat('שליטה בטלגרם');
   tg.addBot(tgCtrl, 'member');
@@ -157,15 +157,15 @@ async function buildWorld(kind: 'memory' | 'pg', net: FakeWaNetwork, tg: FakeTel
   const routeWa = randomUUID();
   const routeTg = randomUUID();
   await saveR({
-    id: routeWa, name: 'PUSH WhatsApp', enabled: true, filters: {}, requireApproval: false, control,
+    id: routeWa, name: 'Groupush WhatsApp', enabled: true, filters: {}, requireApproval: false, control,
     sources: [{ platform: 'wa', accountId: acc, chatId: ctrl }],
     targets: [
       ...waTargets.map((chatId, i) => ({ platform: 'wa' as const, accountId: acc, chatId, title: ['חדשות צפון', 'חדשות דרום', 'מבזקים'][i] })),
-      { platform: 'tg' as const, accountId: botId, chatId: String(tgChannel), title: 'ערוץ PUSH' },
+      { platform: 'tg' as const, accountId: botId, chatId: String(tgChannel), title: 'ערוץ Groupush' },
     ],
   });
   await saveR({
-    id: routeTg, name: 'PUSH Telegram', enabled: true, filters: {}, requireApproval: false, control,
+    id: routeTg, name: 'Groupush Telegram', enabled: true, filters: {}, requireApproval: false, control,
     sources: [{ platform: 'tg', accountId: botId, chatId: String(tgCtrl) }],
     targets: waTargets.slice(0, 2).map((chatId) => ({ platform: 'wa' as const, accountId: acc, chatId })),
   });
@@ -194,7 +194,7 @@ const reports = (w: World) => w.net.groupLog(w.ctrl).filter((e) => e.from === LI
 const tgTexts = (w: World, chat: number) => w.tg.posts(chat).filter((p) => p.from?.is_bot).map((p) => p.text ?? p.caption);
 
 for (const kind of ['memory', 'pg'] as const) {
-  describe(`PUSH Sync (${kind})`, { skip: kind === 'pg' && !pgUp && 'local test Postgres not running' }, () => {
+  describe(`Groupush Sync (${kind})`, { skip: kind === 'pg' && !pgUp && 'local test Postgres not running' }, () => {
     let w: World;
     before(async () => {
       w = await makeWorld(kind);
@@ -210,7 +210,7 @@ for (const kind of ['memory', 'pg'] as const) {
       assert.deepEqual(tgTexts(w, w.tgChannel), ['מבזק: כביש 6 נחסם']);
       const r = reports(w);
       assert.equal(r.length, 1, 'one summary');
-      assert.match(r[0]!, /✅ PUSH · ההודעה נשלחה בהצלחה ל-4 מתוך 4 קבוצות/);
+      assert.match(r[0]!, /✅ Groupush · ההודעה נשלחה בהצלחה ל-4 מתוך 4 קבוצות/);
       // The summary itself was never distributed.
       for (const g of w.waTargets) assert.ok(!text(w.net, g).some((t) => t?.includes(REPORT_TAG)));
     });
@@ -228,7 +228,7 @@ for (const kind of ['memory', 'pg'] as const) {
       }
       assert.equal(tgTexts(w, w.tgChannel).at(-1), 'ירושלים: תאונה ברחוב יפו, הכביש נפתח');
       assert.equal((await w.sources.state({ platform: 'wa', accountId: w.acc, chatId: w.ctrl }, id))?.version, 2);
-      assert.match(reports(w).at(-1)!, /✏️ PUSH · ההודעה עודכנה ב-4 קבוצות/);
+      assert.match(reports(w).at(-1)!, /✏️ Groupush · ההודעה עודכנה ב-4 קבוצות/);
     });
 
     test('read receipts count once per reader on the copy that was read', async () => {
@@ -248,7 +248,7 @@ for (const kind of ['memory', 'pg'] as const) {
       assert.equal([...byChat.values()].reduce((a, b) => a + b, 0), 2, 'the control-group read and the repeat are not counted');
     });
 
-    test('the customer writing from the linked number itself distributes; PUSH\'s own report is not redistributed', async () => {
+    test('the customer writing from the linked number itself distributes; Groupush\'s own report is not redistributed', async () => {
       const before = w.waTargets.map((g) => text(w.net, g).length);
       const id = w.net.humanPost(LINKED, w.ctrl, { kind: 'text', text: 'נכתב מהמספר המחובר' });
       await w.drain();
@@ -374,11 +374,11 @@ for (const kind of ['memory', 'pg'] as const) {
       }
       assert.ok(!tgTexts(w, w.tgChannel).includes('הודעה שגויה'));
       assert.ok(tgTexts(w, w.tgChannel).includes('הודעה שנשארת'));
-      assert.match(reports(w).at(-1)!, /🗑️ PUSH · ההודעה נמחקה ב-4 קבוצות/);
+      assert.match(reports(w).at(-1)!, /🗑️ Groupush · ההודעה נמחקה ב-4 קבוצות/);
     });
 
     test('with a sending delay, an edit changes the queued copies and a delete cancels them before they go out', async () => {
-      const route = { id: w.routeWa, name: 'PUSH WhatsApp (delayed)', enabled: true, filters: {}, requireApproval: false, delaySeconds: 3600,
+      const route = { id: w.routeWa, name: 'Groupush WhatsApp (delayed)', enabled: true, filters: {}, requireApproval: false, delaySeconds: 3600,
         control: { reportMode: 'summary' as const },
         sources: [{ platform: 'wa' as const, accountId: w.acc, chatId: w.ctrl }],
         targets: w.waTargets.map((chatId) => ({ platform: 'wa' as const, accountId: w.acc, chatId })) };
@@ -433,7 +433,7 @@ for (const kind of ['memory', 'pg'] as const) {
       w.net.clock = () => realClock() + WA_EDIT_WINDOW_MS + 60_000;
       try {
         // The customer's own edit is also past 15 minutes on a real phone; the fake lets the
-        // control group edit through so we can test what PUSH does with the copies.
+        // control group edit through so we can test what Groupush does with the copies.
         const g = w.net.groupLog(w.ctrl).find((e) => e.id === id)!;
         g.at = new Date(w.net.clock());
         w.net.humanEdit(CUSTOMER, w.ctrl, id, { kind: 'text', text: 'ישן (עודכן)' });
@@ -458,7 +458,7 @@ for (const kind of ['memory', 'pg'] as const) {
 
     test('only allowed senders distribute from a control group', async () => {
       await w.saveRoute({
-        id: w.routeWa, name: 'PUSH WhatsApp', enabled: true, filters: {}, requireApproval: false,
+        id: w.routeWa, name: 'Groupush WhatsApp', enabled: true, filters: {}, requireApproval: false,
         control: { reportMode: 'off', allowedSenders: ['+972-50-000-0302'] },
         sources: [{ platform: 'wa', accountId: w.acc, chatId: w.ctrl }],
         targets: w.waTargets.map((chatId) => ({ platform: 'wa' as const, accountId: w.acc, chatId })),
@@ -486,12 +486,12 @@ for (const kind of ['memory', 'pg'] as const) {
         assert.ok(!text(w.net, g).includes('מחק'), 'the command itself is never distributed');
       }
       const tgReports = w.tg.posts(w.tgCtrl).filter((p) => p.from?.is_bot).map((p) => p.text ?? '');
-      assert.match(tgReports.join('\n'), /🗑️ PUSH · ההודעה נמחקה ב-2 קבוצות/);
+      assert.match(tgReports.join('\n'), /🗑️ Groupush · ההודעה נמחקה ב-2 קבוצות/);
     });
   });
 }
 
-describe('PUSH Sync — units', () => {
+describe('Groupush Sync — units', () => {
   test('delete commands', () => {
     for (const t of ['/delete', '/מחק', 'מחק', ' מחק לכולם ', '/delete@my_bot']) assert.ok(isDeleteCommand(t), t);
     for (const t of ['מחקתי', 'delete this', '', undefined]) assert.ok(!isDeleteCommand(t), String(t));
@@ -500,11 +500,11 @@ describe('PUSH Sync — units', () => {
   test('report wording', () => {
     const s = { total: 50, sent: 48, failed: 2, skipped: 0, cancelled: 0, unknown: 0, pending: 0, reasons: { forbidden: 2 }, cancelledReasons: {}, failedTargets: ['א', 'ב'] };
     const t = finalReportText('send', s);
-    assert.match(t, /^⚠️ PUSH · ההודעה נשלחה ל-48 מתוך 50 קבוצות\./);
+    assert.match(t, /^⚠️ Groupush · ההודעה נשלחה ל-48 מתוך 50 קבוצות\./);
     assert.match(t, /2 לא הצליחו: א, ב/);
     assert.match(t, /אין הרשאה לשלוח בקבוצה \(2\)/);
     const ok = finalReportText('send', { ...s, sent: 50, failed: 0, reasons: {}, failedTargets: [] });
-    assert.equal(ok, '✅ PUSH · ההודעה נשלחה בהצלחה ל-50 מתוך 50 קבוצות.');
+    assert.equal(ok, '✅ Groupush · ההודעה נשלחה בהצלחה ל-50 מתוך 50 קבוצות.');
   });
 
   test('an older edit job never overwrites a newer version (dispatcher version guard)', async () => {

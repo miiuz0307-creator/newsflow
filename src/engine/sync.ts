@@ -1,5 +1,5 @@
 /**
- * PUSH Sync: an edit or a "delete for everyone" in a control group follows
+ * Groupush Sync: an edit or a "delete for everyone" in a control group follows
  * every copy of the message.
  *
  * Per copy, by its state when the change arrives:

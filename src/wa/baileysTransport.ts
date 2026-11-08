@@ -242,7 +242,7 @@ export class BaileysTransport implements WaTransport {
   private groupCache = new Map<string, any>();
   /** Message ids already handed on, so a message delivered twice (online, then offline catch-up) is processed once. */
   private seen = new Set<string>();
-  /** The original keys of recent inbound group messages, so PUSH can react to them (bounded). */
+  /** The original keys of recent inbound group messages, so Groupush can react to them (bounded). */
   private inboundKeys = new Map<string, any>();
   /** messageSecret of recent group messages: needed to open edits sent encrypted. */
   private secrets = new Map<string, { secret: Uint8Array; senders: string[] }>();

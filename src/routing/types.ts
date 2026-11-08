@@ -32,7 +32,7 @@ export interface QuietHours {
 export type ReportMode = 'all' | 'failures' | 'summary' | 'off';
 
 /**
- * Settings that make a route's source a PUSH control group: the customer
+ * Settings that make a route's source a Groupush control group: the customer
  * posts there, and edits and deletes there follow every copy.
  */
 export interface ControlSettings {
@@ -70,7 +70,7 @@ export interface Route {
   /** Fixed delay before sending, in seconds (e.g. to let the editor fix typos). */
   delaySeconds?: number;
   quietHours?: QuietHours;
-  /** Present when the source is a PUSH control group. */
+  /** Present when the source is a Groupush control group. */
   control?: ControlSettings;
 }
 

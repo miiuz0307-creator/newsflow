@@ -82,7 +82,7 @@ export interface AdminModuleOptions {
   loginLimiter?: WindowLimiter;
   /** Notifications to the admins' devices (new signups etc.). Without it the panel hides the option. */
   push?: AdminPush;
-  /** PUSH's own posts in free customers' Telegram channels (runs on the worker, which holds the bots). */
+  /** Groupush's own posts in free customers' Telegram channels (runs on the worker, which holds the bots). */
   tgPromo?: Pick<TelegramPromo, 'audience' | 'list' | 'send' | 'retract'>;
   /**
    * Operations the admin role may not do on its own (it cannot write tenants or admins);
@@ -142,7 +142,7 @@ export function adminModule(opts: AdminModuleOptions) {
   const finishLogin = async (adminId: string, role: AdminClaims['role'], remember: boolean, ip: string, how: string) => {
     await sql.query(`UPDATE admins SET failed_logins = 0, locked_until = NULL, last_login_at = now() WHERE id = $1`, [adminId]);
     await sql.query('INSERT INTO audit_log (tenant_id, actor, action, target, detail) VALUES (NULL, $1, $2, $1, $3)', [`admin:${adminId}`, 'admin.login', { ip, how }]);
-    void opts.push?.send({ title: 'כניסה לניהול PUSH', body: `${how === 'trusted' ? 'ממכשיר מוכר' : 'ממכשיר חדש'} · ${ip}\nלא אתם? החליפו סיסמה מיד.`, tag: 'admin-login' }, adminId);
+    void opts.push?.send({ title: 'כניסה לניהול Groupush', body: `${how === 'trusted' ? 'ממכשיר מוכר' : 'ממכשיר חדש'} · ${ip}\nלא אתם? החליפו סיסמה מיד.`, tag: 'admin-login' }, adminId);
     // "זכור אותי": 30 days on that device; otherwise 12 hours. The admin is re-checked on every request either way.
     const ttlS = remember ? 30 * 24 * 3600 : 12 * 3600;
     return {
@@ -174,7 +174,7 @@ export function adminModule(opts: AdminModuleOptions) {
     api.on('GET', '/admin/manifest.webmanifest', false, async ({ res }) => {
       res.writeHead(200, { 'content-type': 'application/manifest+json; charset=utf-8', 'cache-control': 'public, max-age=3600' });
       res.end(JSON.stringify({
-        name: 'PUSH ניהול', short_name: 'PUSH ניהול', lang: 'he', dir: 'rtl', start_url: '/admin', scope: '/admin', display: 'standalone',
+        name: 'Groupush ניהול', short_name: 'Groupush ניהול', lang: 'he', dir: 'rtl', start_url: '/admin', scope: '/admin', display: 'standalone',
         background_color: '#0A1B33', theme_color: '#0A1B33',
         icons: [{ src: '/admin/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' }, { src: '/admin/icon-512.png', sizes: '512x512', type: 'image/png', purpose: 'any maskable' }],
       }));
@@ -211,7 +211,7 @@ export function adminModule(opts: AdminModuleOptions) {
     api.on('POST', '/admin/v1/push/test', false, async ({ req }) => {
       const a = await authOf(req);
       if (!push) throw new HttpError(501, 'not_configured', 'התראות לא זמינות בשרת הזה');
-      const r = await push.send({ title: 'התראת בדיקה מ‑PUSH', body: 'ההתראות עובדות. כך תקבלו הודעה כשלקוח חדש נרשם.', url: '/admin', tag: 'test' }, a.adminId);
+      const r = await push.send({ title: 'התראת בדיקה מ‑Groupush', body: 'ההתראות עובדות. כך תקבלו הודעה כשלקוח חדש נרשם.', url: '/admin', tag: 'test' }, a.adminId);
       if (!r.sent) throw new HttpError(502, 'push_failed', r.failed ? 'שירות ההתראות של הדפדפן לא קיבל את ההודעה. נסו לכבות ולהפעיל התראות מחדש.' : 'אין מכשיר רשום להתראות');
       return r;
     });
@@ -518,7 +518,7 @@ export function adminModule(opts: AdminModuleOptions) {
       return { stopped: stop, bots: bots.rowCount };
     });
 
-    // ---- PUSH posts in the Telegram channels of free-plan customers.
+    // ---- Groupush posts in the Telegram channels of free-plan customers.
     const promo = () => {
       if (!opts.tgPromo) throw new HttpError(501, 'not_configured', 'not available on this server');
       return opts.tgPromo;

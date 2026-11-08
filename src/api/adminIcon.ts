@@ -1,6 +1,6 @@
 /**
  * The management panel's app icon (home screen / notifications), drawn in code as
- * a PNG: the PUSH dot (teal, with its halo) on navy. No image files to ship.
+ * a PNG: the Groupush dot (teal, with its halo) on navy. No image files to ship.
  */
 import { crc32, deflateSync } from 'node:zlib';
 

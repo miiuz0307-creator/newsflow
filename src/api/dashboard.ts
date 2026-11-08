@@ -1,5 +1,5 @@
 /**
- * The PUSH customer app (served at /app): sign in / sign up, overview,
+ * The Groupush customer app (served at /app): sign in / sign up, overview,
  * distribution history with the status of every copy, the simulation (demo
  * servers only) and platform capabilities. One static page, Hebrew RTL,
  * same design system as the marketing site.
@@ -17,7 +17,7 @@ export function dashboardHtml(nonce: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PUSH — המערכת</title>
+<title>Groupush — המערכת</title>
 ${APP_INSTALL_HEAD}
 <link rel="preload" href="/fonts/ibm-plex-sans-hebrew-hebrew-400-normal.woff2" as="font" type="font/woff2" crossorigin>
 <style nonce="${nonce}">
@@ -470,9 +470,9 @@ function showAuth(mode,msg,prefill){
   ]);
   root.replaceChildren(h('div',{cls:'auth'},[
     h('aside',{cls:'auth-brand'},[
-      h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'PUSH']),
-      h('div',null,[h('h1',null,['הודעה אחת.',h('span',{text:'כל הקבוצות.'})]),h('p',{text:'כותבים פעם אחת בקבוצת השליטה. PUSH מפיצה לכל הקבוצות, ומסנכרנת עריכה ומחיקה בכל העותקים.'})]),
-      h('small',{text:'© '+new Date().getFullYear()+' PUSH'})]),
+      h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'Groupush']),
+      h('div',null,[h('h1',null,['הודעה אחת.',h('span',{text:'כל הקבוצות.'})]),h('p',{text:'כותבים פעם אחת בקבוצת השליטה. Groupush מפיצה לכל הקבוצות, ומסנכרנת עריכה ומחיקה בכל העותקים.'})]),
+      h('small',{text:'© '+new Date().getFullYear()+' Groupush'})]),
     h('div',{cls:'auth-form'},[form])]));
   setTimeout(function(){(mode==='signup'?biz:email).focus()},0);
 }
@@ -513,13 +513,13 @@ async function initNotices(){
     try{var info=await api('GET','/v1/notify/push');if(!info.available)return}catch(e){return}
     var later=h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:'לא עכשיו',onclick:function(){lsSet('push-notify-later','1');pushBox.replaceChildren()}});
     pushBox.replaceChildren(h('section',{cls:'notice-card'},[h('div',{cls:'nc-h'},[h('b',{text:'התראות לטלפון'}),later]),
-      h('p',{text:'קבלו הודעה מיד כשהמספר מתנתק, כשמשהו עוצר את השליחה, וכשיש עדכון ל‑PUSH.'}),notifyPanel()]));
+      h('p',{text:'קבלו הודעה מיד כשהמספר מתנתק, כשמשהו עוצר את השליחה, וכשיש עדכון ל‑Groupush.'}),notifyPanel()]));
   }
 }
 async function checkVersion(){
   if(!verBox)return;
   try{var v=(await api('GET','/v1/version')).version}catch(e){return}
-  if(verNow&&v&&v!==verNow)verBox.replaceChildren(h('section',{cls:'notice-card update'},[h('div',{cls:'nc-h'},[h('b',{text:'יש גרסה חדשה של PUSH'}),
+  if(verNow&&v&&v!==verNow)verBox.replaceChildren(h('section',{cls:'notice-card update'},[h('div',{cls:'nc-h'},[h('b',{text:'יש גרסה חדשה של Groupush'}),
     h('button',{cls:'btn btn-sm btn-primary',type:'button',text:'רענון',onclick:function(){location.reload()}})]),h('p',{text:'לחצו "רענון" כדי לקבל את העדכון.'})]));
 }
 function pushSupported(){return 'serviceWorker' in navigator&&'PushManager' in window&&'Notification' in window}
@@ -543,7 +543,7 @@ function notifyPanel(){
   var draw2=async function(){
     msg.textContent='';
     if(!pushSupported()){
-      if(isIOS()&&!standalone())return box.replaceChildren(h('p',{cls:'hint',text:'באייפון: פותחים את PUSH ממסך הבית (שיתוף ← הוספה למסך הבית), ואז מפעילים כאן התראות.'}),h('a',{cls:'linkish',href:'/app/install',text:'איך מוסיפים למסך הבית'}));
+      if(isIOS()&&!standalone())return box.replaceChildren(h('p',{cls:'hint',text:'באייפון: פותחים את Groupush ממסך הבית (שיתוף ← הוספה למסך הבית), ואז מפעילים כאן התראות.'}),h('a',{cls:'linkish',href:'/app/install',text:'איך מוסיפים למסך הבית'}));
       return box.replaceChildren(h('p',{cls:'hint',text:'הדפדפן הזה לא תומך בהתראות.'}));
     }
     var sub=await currentSub();
@@ -567,9 +567,9 @@ function buildShell(){
   mainEl=h('main',{id:'main'});stopEl=h('div',{cls:'stopwrap',hidden:true,role:'alert'});noticeEl=h('div',{cls:'notices'});
   var logout=h('button',{type:'button',text:VIEW?'חזרה לניהול':'יציאה',onclick:async function(){if(VIEW){location.href='/admin';return}try{await api('POST','/v1/auth/logout',{refreshToken:tok('rt')})}catch(e){}clearTok();showAuth('login')}});
   root.replaceChildren(h('div',{cls:'shell'},[
-    h('aside',{cls:'side'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'PUSH']),h('nav',{cls:'nav','aria-label':'ניווט'},navItems()),
+    h('aside',{cls:'side'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'Groupush']),h('nav',{cls:'nav','aria-label':'ניווט'},navItems()),
       h('div',{cls:'who'},[h('b',{text:me.tenant.name}),h('span',{text:'מסלול '+me.tenant.plan.name}),h('br'),logout])]),
-    h('div',null,[h('div',{cls:'mob'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'PUSH']),
+    h('div',null,[h('div',{cls:'mob'},[h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'Groupush']),
       h('button',{cls:'btn btn-sm btn-ghost',type:'button',text:VIEW?'לניהול':'יציאה',style:null,onclick:function(){logout.click()}})]),
       VIEW&&VIEW.control?h('div',{cls:'viewbar control',role:'status'},[h('span',{cls:'live'},[h('i',{'aria-hidden':'true'}),'בתוך החשבון']),h('b',{text:me.tenant.name}),
         h('small',{text:'נכנסת כמנהל עם שליטה מלאה. כל שינוי כאן נשמר באמת בחשבון.'}),h('a',{href:'/admin',text:'חזרה לניהול'})]):
@@ -691,9 +691,9 @@ function connectPage(){
     var li=function(t,b){return h('li',null,[h('b',{text:t}),h('span',{text:b})])};
     return h('section',{cls:'panel risk'},[h('h2',{text:'לפני שמחברים מספר'}),
       h('ul',{cls:'risk-list'},[
-        li('חיבור כמו WhatsApp Web.','PUSH מתחבר למספר כ"מכשיר מקושר", כמו WhatsApp במחשב. זה לא ממשק רשמי של WhatsApp.'),
+        li('חיבור כמו WhatsApp Web.','Groupush מתחבר למספר כ"מכשיר מקושר", כמו WhatsApp במחשב. זה לא ממשק רשמי של WhatsApp.'),
         li('עדיף מספר ייעודי.','WhatsApp עלול להגביל או לחסום מספר ששולח הרבה הודעות. מומלץ לחבר מספר של העסק, לא את המספר האישי.'),
-        li('קצב מבוקר.','PUSH שולח בהפרשים, עוצר לבד כשיש סימנים לחסימה, ומודיע לכם.'),
+        li('קצב מבוקר.','Groupush שולח בהפרשים, עוצר לבד כשיש סימנים לחסימה, ומודיע לכם.'),
         li('ניתוק בכל רגע.','מכאן, או בטלפון: הגדרות ← מכשירים מקושרים.')]),
       h('label',{cls:'check',for:'risk-ok'},[ok,'קראתי והבנתי']),h('div',{cls:'save-row'},[go2]),err]);
   }
@@ -734,7 +734,7 @@ function connectPage(){
     async function start(method){
       err.textContent='';startBtn.disabled=pairBtn.disabled=true;
       try{
-        if(!cn.acc)cn.acc=Object.assign({id:(await api('POST','/v1/wa/accounts',{label:'PUSH'})).id});
+        if(!cn.acc)cn.acc=Object.assign({id:(await api('POST','/v1/wa/accounts',{label:'Groupush'})).id});
         var b={method:method};if(method==='pairing_code')b.phoneNumber=intlPhone(phone.value);
         cn.acc=Object.assign(cn.acc,await api('POST','/v1/wa/accounts/'+cn.acc.id+'/connect',b));
         drawCode();poll(1500);
@@ -782,7 +782,7 @@ function connectPage(){
       if(!total()){err.textContent='בחרו לפחות קבוצת יעד אחת';return}
       save.disabled=true;
       var cg=groups.find(function(g){return g.chatId===ctrl});
-      var payload={name:'PUSH — '+(cg?cg.title:'קבוצת שליטה'),control:(existing&&existing.control)||{reportMode:'summary'},
+      var payload={name:'Groupush — '+(cg?cg.title:'קבוצת שליטה'),control:(existing&&existing.control)||{reportMode:'summary'},
         sources:[{platform:'wa',accountId:a.id,chatId:ctrl}],
         targets:groups.filter(function(g){return picked.has(g.chatId)}).map(function(g){return {platform:'wa',accountId:a.id,chatId:g.chatId,title:g.title}})
           .concat(tg.bot?tg.chats.filter(function(c){return pickedTg.has(c.chatId)}).map(function(c){return {platform:'tg',accountId:tg.bot.id,chatId:c.chatId,title:c.title}}):[])};
@@ -818,9 +818,9 @@ function connectPage(){
       if(demo){tgBox.hidden=true;return}
       var tErr=h('p',{cls:'err',role:'alert'});
       var head=h('div',{cls:'ph'},[h('h2',null,[h('span',{cls:'tg-mark','aria-hidden':'true'}),'טלגרם']),tg.bot?h('span',{cls:'gcount',text:pickedTg.size+' נבחרו'}):'']);
-      // Free plan: PUSH also posts in the connected channels; connecting needs the customer's OK.
+      // Free plan: Groupush also posts in the connected channels; connecting needs the customer's OK.
       var pr=me.tenant.tgPromo||{},needOk=!!(pr.applies&&!pr.accepted);
-      var PROMO_TEXT='במסלול החינמי PUSH מפרסמת מדי פעם הודעות משלה בערוצים ובקבוצות שתחברו כאן. במסלול פרימיום אין פרסומים.';
+      var PROMO_TEXT='במסלול החינמי Groupush מפרסמת מדי פעם הודעות משלה בערוצים ובקבוצות שתחברו כאן. במסלול פרימיום אין פרסומים.';
       var okBox=function(){if(!needOk)return '';var cb=h('input',{type:'checkbox',checked:!!tg.promoOk,onchange:function(){tg.promoOk=cb.checked;if(cb.checked)tErr.textContent=''}});
         return h('label',{cls:'promo-ok'},[cb,h('span',null,[PROMO_TEXT,' ',h('b',{text:'אני מאשר/ת.'})])])};
       var withOk=function(b){b=b||{};if(needOk)b.promoOk=!!tg.promoOk;return b};
@@ -1197,7 +1197,7 @@ function settingsPage(){
         h('label',{cls:'check'},[react,'סימון על ההודעה בקבוצת השליטה: ⏳ בזמן ההפצה, ✅ כשהסתיימה (⚠️ אם משהו לא הגיע)']),
         h('div',{cls:'save-row'},[save,msg])]),
       h('section',{cls:'panel'},[h('h2',{text:'כך זה ייראה בקבוצות'}),h('div',{cls:'preview'},[h('div',{cls:'b copy pv'},[prevText,prevSig,h('div',{cls:'t',text:'12:00'})])])]),
-      demo?null:h('section',{cls:'panel'},[h('h2',{text:'התראות לטלפון'}),h('p',{cls:'hint left',text:'הודעה כשהמספר מתנתק, כשמשהו עוצר את השליחה, וכשיש עדכון ל‑PUSH. כל מכשיר מפעילים בנפרד.'}),notifyPanel()])]));
+      demo?null:h('section',{cls:'panel'},[h('h2',{text:'התראות לטלפון'}),h('p',{cls:'hint left',text:'הודעה כשהמספר מתנתק, כשמשהו עוצר את השליחה, וכשיש עדכון ל‑Groupush. כל מכשיר מפעילים בנפרד.'}),notifyPanel()])]));
   })();
   return wrap;
 }
@@ -1259,16 +1259,16 @@ function simPage(){
   var ta=h('textarea',{cls:'i',placeholder:'כתבו הודעה, כמו בקבוצת השליטה ב‑WhatsApp…','aria-label':'הודעה לקבוצת השליטה'});
   var sendBtn=h('button',{cls:'btn btn-primary',type:'button',text:'שליחה',onclick:async function(){
     if(!ta.value.trim())return say('כתבו טקסט לפני השליחה',true);
-    await act('/v1/demo/post',{text:ta.value},'נשלח לקבוצת השליטה. PUSH מפיצה עכשיו…');ta.value=''}});
+    await act('/v1/demo/post',{text:ta.value},'נשלח לקבוצת השליטה. Groupush מפיצה עכשיו…');ta.value=''}});
   ta.addEventListener('keydown',function(e){if(e.key==='Enter'&&(e.ctrlKey||e.metaKey))sendBtn.click()});
   composer=h('div',{cls:'compose'},[ta,h('div',{cls:'row'},[h('span',{cls:'kbd-hint',text:'Ctrl+Enter לשליחה'}),sendBtn])]);
   simMsg=h('div',{cls:'status',role:'status'});
   chatBox=h('div',{cls:'chat','aria-live':'polite'});groupsBox=h('div',{cls:'tgrid'});
   simEl=h('div',null,[
-    h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'סימולציה'}),h('p',{text:'נסו את PUSH בלי מספר אמיתי: כתבו, ערכו ומחקו בקבוצת השליטה, וראו מה קורה בכל קבוצה.'})])]),
+    h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'סימולציה'}),h('p',{text:'נסו את Groupush בלי מספר אמיתי: כתבו, ערכו ומחקו בקבוצת השליטה, וראו מה קורה בכל קבוצה.'})])]),
     h('div',{cls:'banner',text:'זו סימולציה של WhatsApp. שום הודעה לא נשלחת ל‑WhatsApp אמיתי. הקריאות מדומות לפי מספר החברים בכל קבוצה ומגיעות בדקה הראשונה.'}),
     h('div',{cls:'sim'},[
-      h('div',{cls:'phone'},[h('div',{cls:'bar'},[h('span',{cls:'av',text:'P'}),h('div',null,[h('b',{text:'קבוצת שליטה'}),h('small',{text:'אתם ו‑PUSH'})])]),chatBox,simMsg,composer]),
+      h('div',{cls:'phone'},[h('div',{cls:'bar'},[h('span',{cls:'av',text:'P'}),h('div',null,[h('b',{text:'קבוצת שליטה'}),h('small',{text:'אתם ו‑Groupush'})])]),chatBox,simMsg,composer]),
       h('div',null,[groupsBox])])]);
   simDraw();return simEl;
 }
@@ -1276,19 +1276,19 @@ function bubble(m,own){
   if(m.deleted)return h('div',{cls:'b del'+(m.fromPush?' push':own?' me':' copy'),text:'🚫 ההודעה נמחקה'});
   var cls='b '+(m.fromPush&&own?'push':own?'me':'copy');
   var kids=[];
-  if(m.fromPush&&own)kids.push(h('div',{cls:'who',text:'PUSH'}));
+  if(m.fromPush&&own)kids.push(h('div',{cls:'who',text:'Groupush'}));
   if(own&&!m.fromPush&&editing&&editing.id===m.id){
     var inp=h('textarea',{cls:'i','aria-label':'עריכת ההודעה'});inp.value=editing.text;inp.addEventListener('input',function(){editing.text=inp.value});
-    kids.push(inp,h('div',{cls:'acts'},[h('button',{type:'button',text:'שמירה',onclick:function(){var t=inp.value,id=m.id;editing=null;act('/v1/demo/edit',{id:id,text:t},'נערך. PUSH מעדכנת את כל העותקים…')}}),
+    kids.push(inp,h('div',{cls:'acts'},[h('button',{type:'button',text:'שמירה',onclick:function(){var t=inp.value,id=m.id;editing=null;act('/v1/demo/edit',{id:id,text:t},'נערך. Groupush מעדכנת את כל העותקים…')}}),
       h('button',{type:'button',text:'ביטול',onclick:function(){editing=null;simDraw()}})]));
     setTimeout(function(){inp.focus()},0);
     return h('div',{cls:cls},kids);
   }
-  // The bubble header already says PUSH, so the report's own tag is dropped here.
-  var shown=m.fromPush&&own?m.text.replace(/^(\S+)\s*PUSH ·\s*/,'$1 '):m.text;
+  // The bubble header already says Groupush, so the report's own tag is dropped here.
+  var shown=m.fromPush&&own?m.text.replace(/^(\S+)\s*Groupush ·\s*/,'$1 '):m.text;
   kids.push(h('div',{text:shown}),h('div',{cls:'t',text:timeOf(m.at)+(m.edited?' · נערכה':'')}));
   if(own&&!m.fromPush)kids.push(h('div',{cls:'acts'},[h('button',{type:'button',text:'עריכה',onclick:function(){editing={id:m.id,text:m.text};simDraw()}}),
-    h('button',{type:'button',text:'מחיקה לכולם',onclick:function(){act('/v1/demo/delete',{id:m.id},'נמחק. PUSH מוחקת מכל הקבוצות…')}})]));
+    h('button',{type:'button',text:'מחיקה לכולם',onclick:function(){act('/v1/demo/delete',{id:m.id},'נמחק. Groupush מוחקת מכל הקבוצות…')}})]));
   return h('div',{cls:cls},kids);
 }
 function simDraw(){

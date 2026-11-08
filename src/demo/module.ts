@@ -10,7 +10,7 @@ import { HttpError, type ApiServer } from '../api/server.js';
 import { normalizePhone } from '../wa/transport.js';
 
 export const DEMO = {
-  linked: '972500009001', // the simulated number connected to PUSH
+  linked: '972500009001', // the simulated number connected to Groupush
   customer: '972500009002', // the simulated customer's phone
   controlJid: '120300000000000001@g.us',
   // Simulated group sizes; simulated members read new messages over the following minute.
@@ -102,7 +102,7 @@ export function demoModule(o: { net: FakeWaNetwork; tenantId: string; connection
         deleted: !!e.deleted,
       }));
       return {
-        control: { title: 'קבוצת שליטה — PUSH', messages: view(DEMO.controlJid) },
+        control: { title: 'קבוצת שליטה — Groupush', messages: view(DEMO.controlJid) },
         groups: DEMO.targets.map((g) => ({ title: g.title, messages: view(g.jid) })),
       };
     });
