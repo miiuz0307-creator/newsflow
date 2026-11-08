@@ -255,6 +255,7 @@ export function parseControlSettings(input: unknown): ControlSettings | undefine
   }
   if (i.signature !== undefined && typeof i.signature !== 'string') throw new Error('החתימה חייבת להיות טקסט');
   if (typeof i.signature === 'string' && i.signature.trim().length > 1000) throw new Error('החתימה ארוכה מדי (עד 1,000 תווים)');
+  const milestones = parseReadMilestones(i.readMilestones);
   return {
     syncEdits: i.syncEdits !== false,
     syncDeletes: i.syncDeletes !== false,
@@ -262,7 +263,19 @@ export function parseControlSettings(input: unknown): ControlSettings | undefine
     ...(allowed?.length ? { allowedSenders: allowed } : {}),
     ...(typeof i.signature === 'string' && i.signature.trim() ? { signature: i.signature.trim() } : {}),
     ...(i.reactions === false ? { reactions: false } : {}),
+    ...(milestones.length ? { readMilestones: milestones } : {}),
   };
+}
+
+/** "100, 500, 1000" or [100, 500, 1000] → [100, 500, 1000]; up to 6 whole numbers between 1 and 10,000,000. */
+export function parseReadMilestones(input: unknown): number[] {
+  if (input === undefined || input === null || input === '') return [];
+  const parts = Array.isArray(input) ? input : String(input).split(/[\s,;]+/);
+  const nums = parts.map((x) => String(x).replace(/[^\d]/g, '')).filter(Boolean).map(Number);
+  if (nums.some((n) => !Number.isInteger(n) || n < 1 || n > 10_000_000)) throw new Error('מספר הקריאות צריך להיות בין 1 ל‑10,000,000');
+  const out = [...new Set(nums)].sort((a, b) => a - b);
+  if (out.length > 6) throw new Error('אפשר עד 6 יעדי קריאות');
+  return out;
 }
 
 export interface RouteProblem {

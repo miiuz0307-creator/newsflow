@@ -92,6 +92,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
           signature: (first.signature as string | undefined) ?? '',
           reportMode: (first.reportMode as string | undefined) ?? 'summary',
           reactions: first.reactions !== false,
+          readMilestones: Array.isArray(first.readMilestones) ? first.readMilestones : [],
         };
       }));
 
@@ -108,6 +109,7 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
               ...(body.signature !== undefined ? { signature: String(body.signature ?? '') } : {}),
               ...(body.reportMode !== undefined ? { reportMode: body.reportMode } : {}),
               ...(body.reactions !== undefined ? { reactions: body.reactions !== false } : {}),
+              ...(body.readMilestones !== undefined ? { readMilestones: body.readMilestones } : {}),
             });
           } catch (e) {
             throw new HttpError(400, 'bad_settings', (e as Error).message);
