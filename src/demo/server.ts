@@ -19,7 +19,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { authModule } from '../api/modules/auth.js';
 import { pushModule } from '../api/modules/push.js';
-import { fontsModule } from '../api/fonts.js';
+import { clientLogosModule, fontsModule } from '../api/fonts.js';
 import { ApiServer } from '../api/server.js';
 import { hashPassword } from '../auth/password.js';
 import { MasterKey } from '../crypto/keyring.js';
@@ -191,7 +191,7 @@ const api = new ApiServer({
   killSwitches: new PgKillSwitchStore(pools.worker),
   tokenSecret: derive('token-secret', 43),
   trustProxyHops: 1,
-  modules: [authModule({ keys }), pushModule(), fontsModule(), demoModule({ net, tenantId: demo.tenantId, connections: conns })],
+  modules: [authModule({ keys }), pushModule(), fontsModule(), clientLogosModule(), demoModule({ net, tenantId: demo.tenantId, connections: conns })],
   logger: log,
 });
 

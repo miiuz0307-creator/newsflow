@@ -29,7 +29,7 @@ import { authModule } from './api/modules/auth.js';
 import { manageModule } from './api/modules/manage.js';
 import { supportModule } from './api/modules/support.js';
 import { pushModule } from './api/modules/push.js';
-import { fontsModule } from './api/fonts.js';
+import { clientLogosModule, fontsModule } from './api/fonts.js';
 import { NotificationService, noticeForSafety, noticeForStatus } from './notify/notifications.js';
 import { AdminPush } from './notify/adminPush.js';
 import { TelegramPhoneLinker } from './telegram/phoneLink.js';
@@ -225,6 +225,7 @@ const api = new ApiServer({
     supportModule(),
     pushModule({ onRoutesChanged: () => routeSource.invalidate() }),
     fontsModule(),
+    clientLogosModule(),
     notifyPushModule({ push: customerPush, version: APP_VERSION }),
     ...adminModules,
   ],

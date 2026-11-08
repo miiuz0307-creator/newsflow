@@ -53,3 +53,33 @@ export function fontsModule(root = process.env.APP_ROOT ?? process.cwd()) {
     });
   };
 }
+
+const IMG = /^[a-z0-9-]{1,40}\.png$/;
+const imgCache = new Map<string, Buffer>();
+
+/** GET /img/clients/<name>.png — customer logos shown on the home page (public/clients), cached a day. */
+export function clientLogosModule(root = process.env.APP_ROOT ?? process.cwd()) {
+  const dir = path.join(root, 'public', 'clients');
+  return (api: ApiServer) => {
+    api.on('GET', '/img/clients/:file', false, async ({ params, res }) => {
+      const file = params.file ?? '';
+      if (!IMG.test(file)) {
+        res.writeHead(404).end();
+        return undefined;
+      }
+      let data = imgCache.get(file);
+      if (!data) {
+        try {
+          data = await readFile(path.join(dir, file));
+        } catch {
+          res.writeHead(404).end();
+          return undefined;
+        }
+        imgCache.set(file, data);
+      }
+      res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'public, max-age=86400', 'x-content-type-options': 'nosniff' });
+      res.end(data);
+      return undefined;
+    });
+  };
+}
