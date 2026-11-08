@@ -132,6 +132,16 @@ describe('Groupush API', { skip: !available && 'local test Postgres not running'
     assert.deepEqual(r.body.totals, { today: 10, days7: 10, days30: 10, all: 10 });
     assert.equal(r.body.messages.today, 1);
     assert.deepEqual(r.body.groups.map((g: any) => [g.title, g.reads, g.copies]), [['יעד 1', 7, 1], ['יעד 2', 3, 1]]);
+    // A group status ("!סטטוס") is counted on its own.
+    await db.worker.query(`UPDATE outbound_jobs SET is_status = true, read_count = 5 WHERE action = 'send' AND status = 'sent' AND target_chat_id = $1`, [g2]);
+    const st = (await call('GET', '/v1/reads/summary', undefined, tokA)).body;
+    assert.deepEqual(st.totals, { today: 7, days7: 7, days30: 7, all: 7 });
+    assert.deepEqual(st.status.totals, { today: 5, days7: 5, days30: 5, all: 5 });
+    assert.equal(st.status.messages.today, 1);
+    assert.equal(st.status.recent.length, 1);
+    assert.equal(st.status.recent[0].reads, 5);
+    assert.deepEqual(st.groups.map((g: any) => [g.title, g.reads, g.statusReads]), [['יעד 1', 7, 0], ['יעד 2', 0, 5]]);
+    await db.worker.query(`UPDATE outbound_jobs SET is_status = false, read_count = 3 WHERE action = 'send' AND status = 'sent' AND target_chat_id = $1`, [g2]);
     const b = await call('GET', '/v1/reads/summary', undefined, tokB);
     assert.deepEqual(b.body.totals, { today: 0, days7: 0, days30: 0, all: 0 });
     assert.deepEqual(b.body.groups, []);

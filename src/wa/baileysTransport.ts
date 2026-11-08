@@ -274,6 +274,8 @@ export class BaileysTransport implements WaTransport {
   private sock: any = null;
   /** Recently sent messages by id, for re-sends WhatsApp asks for (bounded). */
   private sentCache = new Map<string, unknown>();
+  /** Group statuses this number sent (id → views seen), to confirm status views arrive. */
+  private statusIds = new Map<string, number>();
   /** Group metadata by group id, filled by listChats and cleared on group changes. */
   private groupCache = new Map<string, any>();
   /** Message ids already handed on, so a message delivered twice (online, then offline catch-up) is processed once. */
@@ -484,6 +486,12 @@ export class BaileysTransport implements WaTransport {
     sock.ev.on('message-receipt.update', (updates: any[]) => {
       for (const u of updates ?? []) {
         const r = parseReceipt(u);
+        if (r && this.statusIds.has(r.messageId)) {
+          // Group status views: logged (a few per status) to confirm WhatsApp reports them.
+          const n = (this.statusIds.get(r.messageId) ?? 0) + 1;
+          this.statusIds.set(r.messageId, n);
+          if (n <= 3) this.log.info('status viewed', { accountId: this.accountId, chatId: r.chatId, id: r.messageId, n });
+        }
         if (r) this.emit('receipt', r);
       }
     });
@@ -602,6 +610,8 @@ export class BaileysTransport implements WaTransport {
     const wrapped = wrapGroupStatus(message);
     await sock.relayMessage(chatId, message, { messageId: full.key.id, additionalNodes: [GROUP_STATUS_META] });
     sock.messageRetryManager?.addRecentMessage?.(chatId, full.key.id, wrapped);
+    this.statusIds.set(full.key.id, 0);
+    if (this.statusIds.size > 500) this.statusIds.delete(this.statusIds.keys().next().value as string);
     this.log.info('group status sent', { accountId: this.accountId, chatId, id: full.key.id, kind: Object.keys(marked).find((k) => k !== 'messageContextInfo') });
     return { key: full.key, message: wrapped };
   }
