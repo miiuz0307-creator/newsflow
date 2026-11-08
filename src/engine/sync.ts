@@ -170,6 +170,9 @@ export class SyncPlanner {
         continue;
       } else if (copy.status !== 'sending' && copy.status !== 'sent') {
         continue; // skipped / cancelled
+      } else if (copy.content.asStatus) {
+        out.notSupported++; // WhatsApp has no editing of a status that is already up
+        continue;
       }
 
       const caps = CAPABILITIES[copy.target.platform];

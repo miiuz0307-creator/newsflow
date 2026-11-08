@@ -38,6 +38,11 @@ export interface MessageContent {
   /** Body text for text messages, caption for media. */
   text?: string;
   media?: MediaRef;
+  /**
+   * WhatsApp only: post the copy as the group's status ("!סטטוס" in the control group) instead of a
+   * chat message.
+   */
+  asStatus?: boolean;
 }
 
 /** A message received in a chat the account can see. */
