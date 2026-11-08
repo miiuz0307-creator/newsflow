@@ -134,7 +134,20 @@ const worker = new Worker({
     await notifications.notify(noticeForSafety(e));
   },
   onStatus: async (e) => {
+    // A deploy: the new server took this number over and the old one steps aside. The number never
+    // went offline, so the old server must not mark it disconnected (it would overwrite "connected").
+    if (e.state.status === 'stopped' && e.state.lastDisconnect?.reason === 'replaced') return;
     await recordConnectionEvent(workerPool, e.state.tenantId, e.state.accountId, e.state.status, e.state.lastDisconnect?.reason, e.state.phoneNumber);
+    if (e.state.status === 'connected') {
+      // An older server stopping a moment later may still write over it: say it again shortly.
+      const id = e.state.accountId;
+      setTimeout(() => {
+        if (conns.getState(id)?.status !== 'connected') return;
+        void workerPool.query(`UPDATE wa_accounts SET status = 'connected' WHERE id = $1 AND status <> 'connected' AND status <> 'deleted'`, [id])
+          .then((r) => { if (r.rowCount) log.info('status restored: connected', { accountId: id }); })
+          .catch(() => {});
+      }, 15_000).unref?.();
+    }
     if (e.state.status === 'connected') {
       // The number is linked and working again: lift the stops that its disconnection set by itself
       // (logged out, gave up reconnecting). Stops set by a person, and "blocked", stay.
