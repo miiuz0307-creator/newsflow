@@ -252,6 +252,9 @@ main{padding:34px 40px 80px;min-width:0}
 .alert span{text-decoration:underline;text-underline-offset:3px}
 .hb-body.one{grid-template-columns:1fr}.hstats.four{grid-template-columns:repeat(4,1fr)}.views-note{margin:4px 4px 24px;line-height:1.6}.views-groups{margin-top:18px}
 @media (max-width:620px){.hstats.four{grid-template-columns:1fr 1fr}.hstats.four .hstat{display:block;border-top:0;border-inline-start:0}}
+.views-status{margin-top:18px}.sstats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin:6px 0 14px}.sstat{background:var(--teal-mist);border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}.sstat b{font-family:var(--display);font-size:28px;line-height:1.1;color:var(--text)}.sstat span{font-weight:600;font-size:14px}.sstat small{color:var(--muted);font-size:12px}
+.slist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column}.slist li{padding:10px 0;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:3px;min-width:0}.slist li:first-child{border-top:0}.st-t{display:flex;justify-content:space-between;gap:10px;align-items:center;min-width:0}
+@media (max-width:620px){.sstats{grid-template-columns:1fr 1fr}}
 .board{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px;counter-reset:b}
 .board li{counter-increment:b;position:relative;padding-inline-start:34px}
 .board li::before{content:counter(b);position:absolute;inset-inline-start:0;top:0;width:24px;height:24px;border-radius:8px;background:var(--teal-mist);color:var(--teal-deep);font-family:var(--display);display:grid;place-items:center;font-size:14px}
@@ -703,21 +706,31 @@ function viewsPage(){
   var wrap=h('div');
   var paint=function(d){
     var stat=function(v,k,sub){return h('div',{cls:'hstat'},[h('div',{cls:'hv',text:fmt(v)}),h('div',{cls:'hk',text:k}),sub?h('div',{cls:'hs',text:sub}):null])};
+    var sstat=function(v,k,sub){return h('div',{cls:'sstat'},[h('b',{text:fmt(v)}),h('span',{text:k}),h('small',{text:sub})])};
     var T=d.totals,M=d.messages;
     var msgs=function(n){return n===1?'הודעה אחת':fmt(n)+' הודעות'};
     var hero=h('section',{cls:'hero-band'},[
-      h('div',{cls:'hb-head'},[h('div',null,[h('h1',{text:'צפיות'}),h('p',{text:'כמה אנשים קראו את ההודעות, בכל הקבוצות יחד'})])]),
+      h('div',{cls:'hb-head'},[h('div',null,[h('h1',{text:'צפיות'}),h('p',{text:'כמה אנשים קראו את ההודעות, בכל הקבוצות יחד (בלי סטטוסים, שמופיעים למטה)'})])]),
       h('div',{cls:'hb-body one'},[h('div',{cls:'hstats four'},[
         stat(T.today,'היום',msgs(M.today)),stat(T.days7,'7 ימים',msgs(M.days7)),stat(T.days30,'30 ימים',msgs(M.days30)),
         stat(T.all,'סך הכול',d.since?'מאז '+new Date(d.since).toLocaleDateString('he-IL'):msgs(M.all))])])]);
+    var S=d.status||{totals:{},messages:{},recent:[]},ST=S.totals,SM=S.messages;
+    var sts=function(n){return n===1?'סטטוס אחד':fmt(n)+' סטטוסים'};
+    var KIND_HE={image:'📷 תמונה',video:'🎬 סרטון',audio:'🎙️ הקלטה'};
+    var statusBand=h('section',{cls:'panel views-status'},[h('div',{cls:'ph'},[h('h2',{text:'צפיות בסטטוס'}),h('span',{cls:'hint',text:'סטטוסים שהועלו מקבוצת השליטה'})]),
+      h('div',{cls:'sstats'},[sstat(ST.today,'היום',sts(SM.today||0)),sstat(ST.days7,'7 ימים',sts(SM.days7||0)),sstat(ST.days30,'30 ימים',sts(SM.days30||0)),sstat(ST.all,'סך הכול',sts(SM.all||0))]),
+      (S.recent||[]).length?h('ol',{cls:'slist'},S.recent.map(function(x){
+        return h('li',null,[h('div',{cls:'st-t'},[h('span',{cls:'btx',text:x.preview||KIND_HE[x.kind]||'סטטוס'}),h('b',{cls:'reads'},[icon('eye'),fmt(x.reads)])]),
+          h('span',{cls:'bm',text:whenOf(x.createdAt)+' · '+x.groups+' קבוצות'})])}))
+      :h('p',{cls:'hint',text:'עוד לא עלה סטטוס. כותבים בקבוצת השליטה "!סטטוס" ואחריו ההודעה, והיא עולה כסטטוס בכל קבוצות היעד.'})]);
     var gs=d.groups||[],maxR=gs.length&&gs[0].reads?gs[0].reads:1;
     var groups=h('section',{cls:'panel views-groups'},[h('div',{cls:'ph'},[h('h2',{text:'לפי קבוצה'}),h('span',{cls:'hint',text:'30 הימים האחרונים'})]),
-      gs.some(function(g){return g.reads})?h('ol',{cls:'board'},gs.filter(function(g){return g.reads}).slice(0,30).map(function(g){var bar=h('span',{cls:'bfill'});bar.style.width=(100*g.reads/maxR)+'%';
+      gs.some(function(g){return g.reads||g.statusReads})?h('ol',{cls:'board'},gs.filter(function(g){return g.reads||g.statusReads}).slice(0,30).map(function(g){var bar=h('span',{cls:'bfill'});bar.style.width=(100*g.reads/maxR)+'%';
         return h('li',null,[h('div',{cls:'bt'},[h('span',{cls:'btx',text:g.title}),h('b',{text:fmt(g.reads)})]),h('span',{cls:'btrack','aria-hidden':'true'},[bar]),
-          h('span',{cls:'bm',text:(g.platform==='tg'?'Telegram · ':'')+fmt(g.copies)+' הודעות'})])}))
+          h('span',{cls:'bm',text:(g.platform==='tg'?'Telegram · ':'')+fmt(g.copies)+' הודעות'+(g.statuses?' · סטטוס: '+fmt(g.statusReads)+' צפיות ב‑'+fmt(g.statuses)+' סטטוסים':'')})])}))
       :h('p',{cls:'hint',text:'כשאנשים יקראו את ההודעות, הקבוצות יופיעו כאן לפי מספר הקוראים.'})]);
-    var note=h('p',{cls:'hint views-note',text:'נספרים אנשים שקראו ב‑WhatsApp, לפי אישורי הקריאה (וי כחול). מי שכיבה אישורי קריאה לא נספר, ובטלגרם WhatsApp לא שולח אישורים כאלה. הקריאות נספרות ליום שבו ההודעה נשלחה, ומתעדכנות כל הזמן.'});
-    wrap.replaceChildren(hero,groups,note);
+    var note=h('p',{cls:'hint views-note',text:'נספרים אנשים שקראו ב‑WhatsApp, לפי אישורי הקריאה (וי כחול), וכך גם צפיות בסטטוס. מי שכיבה אישורי קריאה לא נספר, ובטלגרם אין אישורים כאלה. הקריאות נספרות ליום שבו ההודעה נשלחה, ומתעדכנות כל הזמן.'});
+    wrap.replaceChildren(hero,statusBand,groups,note);
   };
   if(viewsData)paint(viewsData);else wrap.replaceChildren(h('p',{cls:'hint',text:'טוען…'}));
   if(Date.now()-viewsAt>8000){viewsAt=Date.now();api('GET','/v1/reads/summary').then(function(d){viewsData=d;if(document.body.contains(wrap))paint(d)}).catch(function(e){if(!viewsData)wrap.replaceChildren(h('p',{cls:'err',text:e.message}))})}
