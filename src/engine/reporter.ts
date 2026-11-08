@@ -100,6 +100,12 @@ export function finalReportText(action: Exclude<JobAction, 'report'>, s: ActionS
   return lines.join('\n');
 }
 
+/** The note for a read milestone. Exported for tests. */
+export function readMilestoneText(threshold: number, snippet: string): string {
+  const n = threshold.toLocaleString('en-US');
+  return `${tag('🎉')}יפהההה! ${n} אנשים קראו את ההודעה${snippet ? `:\n„${snippet}“` : '.'}`;
+}
+
 /** Idempotency stage of a wave's final report: one per send, one per edit version, one per delete. */
 const finalStage = (action: Exclude<JobAction, 'report'>, version: number) => (action === 'edit' ? `edit|v${version}|final` : `${action}|final`);
 
@@ -257,6 +263,11 @@ export class Reporter {
     if (mode === 'failures' && bad === 0) return;
     if (job.action === 'edit' && s.sent === 0 && bad === 0 && !extra.changedBeforeSend) return; // nothing visible happened
     await this.post(route, job.source, job.sourceMessageId, finalStage(job.action, job.version), finalReportText(job.action, s, extra), job.version);
+  }
+
+  /** "🎉 100 people read this message" (once per milestone per message; see ReadMilestones). */
+  async onReadMilestone(route: Route, source: ChatRef, messageId: string, threshold: number, snippet: string): Promise<void> {
+    await this.post(route, source, messageId, `reads|${threshold}`, readMilestoneText(threshold, snippet), 1);
   }
 
   private async post(route: Route, source: ChatRef, messageId: string, stage: string, text: string, version: number): Promise<void> {

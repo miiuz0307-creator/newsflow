@@ -1203,13 +1203,16 @@ function settingsPage(){
     var upd=function(){prevText.textContent=sample;prevSig.textContent=sig.value.trim();prevSig.hidden=!sig.value.trim()};sig.addEventListener('input',upd);upd();
     var mode=h('select',{cls:'i'},[['summary','סיכום בסוף כל הפצה'],['all','כל שלב: התקבלה, נשלחה, נערכה'],['failures','רק כשמשהו לא הצליח'],['off','בלי דיווחים']].map(function(o){return h('option',{value:o[0],text:o[1]})}));mode.value=settings.reportMode;
     var react=h('input',{type:'checkbox',checked:settings.reactions!==false});
+    var miles=h('input',{cls:'i',type:'text',inputmode:'numeric',placeholder:'לדוגמה: 100, 500, 1000','aria-describedby':'miles-hint'});miles.value=(settings.readMilestones||[]).join(', ');
     var msg=h('p',{cls:'hint save-msg',role:'status'});
     var save=h('button',{cls:'btn btn-primary',type:'button',text:'שמירה',onclick:async function(){save.disabled=true;msg.textContent='';
-      try{await api('PUT','/v1/push/settings',{signature:sig.value,reportMode:mode.value,reactions:react.checked});msg.textContent='נשמר. ההודעות הבאות יישלחו עם החתימה.'}catch(e){msg.textContent=e.message}save.disabled=false}});
+      try{await api('PUT','/v1/push/settings',{signature:sig.value,reportMode:mode.value,reactions:react.checked,readMilestones:miles.value});msg.textContent='נשמר. ההודעות הבאות יישלחו עם החתימה.'}catch(e){msg.textContent=e.message}save.disabled=false}});
     wrap.lastChild.replaceWith(h('div',{cls:'grid-2 settings'},[
       h('section',{cls:'panel'},[h('h2',{text:'חתימה קבועה'}),h('p',{cls:'hint left',text:'טקסט או קישור שיופיעו מתחת לכל הודעה, בכל הקבוצות. אפשר להשתמש גם ב-{תאריך} וב-{שעה}.'}),
         sig,h('label',{cls:'f mode'},[h('span',{text:'דיווח בקבוצת השליטה'}),mode]),
         h('label',{cls:'check'},[react,'סימון על ההודעה בקבוצת השליטה: ⏳ בזמן ההפצה, ✅ כשהסתיימה (⚠️ אם משהו לא הגיע)']),
+        h('label',{cls:'f mode'},[h('span',{text:'🎉 הודעה כשהודעה מגיעה למספר קריאות'}),miles]),
+        h('p',{cls:'hint left',id:'miles-hint',text:'כשההודעה מגיעה למספר הזה (בכל הקבוצות יחד), Groupush כותבת בקבוצת השליטה למשל "יפהההה! 100 אנשים קראו את ההודעה", ושולחת התראה לטלפון. אפשר כמה מספרים, מופרדים בפסיק. נספרים מי שאישורי הקריאה שלהם בוואטסאפ פעילים.'}),
         h('div',{cls:'save-row'},[save,msg])]),
       h('section',{cls:'panel'},[h('h2',{text:'כך זה ייראה בקבוצות'}),h('div',{cls:'preview'},[h('div',{cls:'b copy pv'},[prevText,prevSig,h('div',{cls:'t',text:'12:00'})])])]),
       demo?null:h('section',{cls:'panel'},[h('h2',{text:'התראות לטלפון'}),h('p',{cls:'hint left',text:'הודעה כשהמספר מתנתק, כשמשהו עוצר את השליחה, וכשיש עדכון ל‑Groupush. כל מכשיר מפעילים בנפרד.'}),notifyPanel()])]));

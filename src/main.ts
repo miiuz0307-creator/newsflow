@@ -100,6 +100,14 @@ const routeSource = new CachedRouteSource(new PgRouteSource(workerPool));
 
 const worker = new Worker({
   workerId: process.env.WORKER_ID ?? `${os.hostname()}-${process.pid}`,
+  // "🎉 100 people read this message" also reaches the customer's phone.
+  onReadMilestone: async (n) => {
+    await customerPush?.sendToTenant(n.tenantId, {
+      title: `🎉 ${n.threshold.toLocaleString('en-US')} אנשים קראו את ההודעה`,
+      body: n.snippet || 'ההודעה הגיעה ליעד הקריאות שקבעתם',
+      url: '/app#dists', tag: `reads-${n.job.sourceMessageId}-${n.threshold}`,
+    });
+  },
   connections: conns,
   queue,
   routes: routeSource,

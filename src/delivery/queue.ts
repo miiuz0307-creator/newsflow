@@ -95,6 +95,10 @@ export interface JobQueue {
   requeue(tenantId: string, id: string): Promise<boolean>;
   /** Counts one reader of a copy this system sent. False if unknown or already counted. */
   recordRead(platform: string, chatId: string, messageId: string, reader: string): Promise<boolean>;
+  /** The send job behind a copy, and the reads of all copies of its source message together. */
+  readTotal?(platform: string, chatId: string, messageId: string): Promise<{ job: StoredJob; total: number } | null>;
+  /** Records that a read milestone was announced; false if it already was (announce once). */
+  claimMilestone?(tenantId: string, source: ChatRef, messageId: string, threshold: number): Promise<boolean>;
 }
 
 export function emptySummary(): ActionSummary {
@@ -234,6 +238,24 @@ export class MemoryJobQueue implements JobQueue {
       if ((j.action === 'send' || j.action === 'report') && j.sentMessageId === messageId && j.target.chatId === chatId && j.target.platform === platform) return true;
     }
     return false;
+  }
+
+  async readTotal(platform: string, chatId: string, messageId: string) {
+    const job = [...this.jobs.values()].find((j) => j.action === 'send' && j.sentMessageId === messageId && j.target.chatId === chatId && j.target.platform === platform);
+    if (!job) return null;
+    let total = 0;
+    for (const j of this.jobs.values()) {
+      if (j.action === 'send' && j.tenantId === job.tenantId && j.sourceMessageId === job.sourceMessageId && chatKey(j.source) === chatKey(job.source)) total += j.readCount ?? 0;
+    }
+    return { job, total };
+  }
+
+  private readonly milestones = new Set<string>();
+  async claimMilestone(tenantId: string, source: ChatRef, messageId: string, threshold: number) {
+    const k = `${tenantId}|${chatKey(source)}|${messageId}|${threshold}`;
+    if (this.milestones.has(k)) return false;
+    this.milestones.add(k);
+    return true;
   }
 
   private readonly readers = new Map<string, Set<string>>();

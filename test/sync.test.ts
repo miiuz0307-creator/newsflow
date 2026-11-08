@@ -248,7 +248,40 @@ for (const kind of ['memory', 'pg'] as const) {
       assert.equal([...byChat.values()].reduce((a, b) => a + b, 0), 2, 'the control-group read and the repeat are not counted');
     });
 
-    test('the customer writing from the linked number itself distributes; Groupush\'s own report is not redistributed', async () => {
+    test('🎉 read milestone: the control group hears once when the copies together reach the number', async () => {
+      const original = {
+        id: w.routeWa, name: 'Groupush WhatsApp', enabled: true, filters: {}, requireApproval: false,
+        sources: [{ platform: 'wa' as const, accountId: w.acc, chatId: w.ctrl }],
+        targets: [
+          ...w.waTargets.map((chatId, i) => ({ platform: 'wa' as const, accountId: w.acc, chatId, title: ['חדשות צפון', 'חדשות דרום', 'מבזקים'][i] })),
+          { platform: 'tg' as const, accountId: w.botId, chatId: String(w.tgChannel), title: 'ערוץ Groupush' },
+        ],
+      };
+      await w.saveRoute({ ...original, control: { syncEdits: true, syncDeletes: true, reportMode: 'summary', readMilestones: [2] } });
+      try {
+        const id = w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'כמה יקראו אותי?' });
+        await w.drain();
+        const [g1, g2] = w.waTargets as [string, string];
+        const c1 = w.net.groupLog(g1).at(-1)!.id, c2 = w.net.groupLog(g2).at(-1)!.id;
+        w.net.read(g1, c1, '972540000021');
+        await w.drain();
+        assert.ok(!reports(w).some((t) => t.includes('🎉')), 'not yet at 1 read');
+        w.net.read(g2, c2, '972540000022');
+        w.net.read(g2, c2, '972540000023');
+        await w.drain();
+        await w.drain();
+        const party = reports(w).filter((t) => t.includes('🎉'));
+        assert.equal(party.length, 1, 'once');
+        assert.match(party[0]!, /^🎉 Groupush · יפהההה! 2 אנשים קראו את ההודעה:\n„כמה יקראו אותי\?“/);
+        const m = await w.queue.readTotal!('wa', g1, c1);
+        assert.equal(m!.total, 3);
+        assert.equal(m!.job.sourceMessageId, id);
+      } finally {
+        await w.saveRoute({ ...original, control: { syncEdits: true, syncDeletes: true, reportMode: 'summary' } });
+      }
+    });
+
+        test('the customer writing from the linked number itself distributes; Groupush\'s own report is not redistributed', async () => {
       const before = w.waTargets.map((g) => text(w.net, g).length);
       const id = w.net.humanPost(LINKED, w.ctrl, { kind: 'text', text: 'נכתב מהמספר המחובר' });
       await w.drain();

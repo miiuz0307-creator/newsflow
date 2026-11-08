@@ -54,6 +54,11 @@ export interface ControlSettings {
   signature?: string;
   /** Mark the message in the control group ⏳ while distributing and ✅ when done. Default on. */
   reactions?: boolean;
+  /**
+   * "🎉 100 people read this message": when a message's copies together reach one of these
+   * read counts, a short note goes to the control group (and the customer's phone). Ascending.
+   */
+  readMilestones?: number[];
 }
 
 export interface Route {

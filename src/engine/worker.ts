@@ -8,6 +8,7 @@
  * All dependencies are injected, so the same class runs with in-memory
  * stores (tests, simulator) or PostgreSQL (staging, production).
  */
+import { ReadMilestones, type MilestoneNotice } from './readMilestones.js';
 import type { ChannelSender, InboundMessage, SyncEvent } from '../core/types.js';
 import { chatKey } from '../core/types.js';
 import { Dispatcher } from '../delivery/dispatcher.js';
@@ -45,6 +46,8 @@ export interface WorkerOptions {
   rulesOverride?: Partial<Record<'wa' | 'tg', Partial<Omit<RateRules, 'dailyCap'>>>>;
   onSafetyEvent?: (e: SafetyEvent) => void | Promise<void>;
   onStatus?: (e: StatusEvent) => void | Promise<void>;
+  /** A message reached a read milestone the customer set (e.g. to tell their phone). */
+  onReadMilestone?: (n: MilestoneNotice) => void | Promise<void>;
   logger?: Logger;
   now?: () => number;
   dispatcherOverrides?: { retryDelaysMs?: number[]; retryJitter?: number; maxJobAgeMs?: number; killedRecheckMs?: number; batchSize?: number };
@@ -59,6 +62,7 @@ export class Worker {
   readonly dispatcher: Dispatcher;
   readonly sync: SyncPlanner;
   readonly reporter: Reporter;
+  readonly milestones: ReadMilestones;
   readonly sources: SourceMessageStore;
   readonly safety: SafetyMonitor;
   readonly limiter: RateLimiter;
@@ -87,6 +91,7 @@ export class Worker {
         if (src.platform === 'wa') await o.connections.react(src.accountId, src.chatId, messageId, emoji);
       },
     });
+    this.milestones = new ReadMilestones({ queue: o.queue, routes: o.routes, reporter: this.reporter, logger: o.logger, ...(o.onReadMilestone ? { notify: o.onReadMilestone } : {}) });
     this.sync = new SyncPlanner({ routes: o.routes, sources: this.sources, queue: o.queue, logger: o.logger, now: () => new Date(now()) });
     this.pipeline = new InboundPipeline({
       routes: o.routes, router, queue: o.queue, media: o.media, sources: this.sources, logger: o.logger, ...(o.brand ? { brand: o.brand } : {}),
@@ -122,7 +127,11 @@ export class Worker {
     // Reads are counters only: no ordering needed, they go straight to the queue.
     // Reads are counted per copy. A one-line summary each minute shows they arrive (no names or numbers).
     const reads = { counted: 0, repeat: 0 };
-    o.connections.onReceipt((r) => this.track(o.queue.recordRead(r.platform, r.chatId, r.messageId, r.readerId).then((n) => { if (n) reads.counted++; else reads.repeat++; })));
+    o.connections.onReceipt((r) => this.track(o.queue.recordRead(r.platform, r.chatId, r.messageId, r.readerId).then(async (n) => {
+      if (!n) { reads.repeat++; return; }
+      reads.counted++;
+      await this.milestones.onRead(r.platform, r.chatId, r.messageId).catch((e) => this.log.warn('read milestone failed', { err: String(e).slice(0, 200) }));
+    })));
     setInterval(() => {
       if (!reads.counted && !reads.repeat) return;
       this.log.info('read receipts', { ...reads });
