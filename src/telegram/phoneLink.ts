@@ -216,12 +216,12 @@ export class TelegramPhoneLinker {
   }
 }
 
-/** A bot @username nobody has: push_<8 random letters/digits>_bot. */
+/** A bot @username nobody has: groupush_<8 random letters/digits>_bot. */
 export function randomBotUsername(): string {
   const a = 'abcdefghijklmnopqrstuvwxyz0123456789';
   let s = '';
   for (const b of randomBytes(8)) s += a[b % a.length];
-  return `push_${s}_bot`;
+  return `groupush_${s}_bot`;
 }
 
 /** The token in a @BotFather reply. */

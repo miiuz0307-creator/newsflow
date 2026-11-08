@@ -1,5 +1,5 @@
 /**
- * The management panel (/admin) for the PUSH owner: first-time setup, sign-in
+ * The management panel (/admin) for the Groupush owner: first-time setup, sign-in
  * with email + password, a live view of the last 24 hours, and customers (list,
  * details, plan, suspend, remove, add). Talks only to /admin/v1/*. Same CSP
  * rules as the app: no inline styles or handlers, no innerHTML.
@@ -13,7 +13,7 @@ self.addEventListener('install',function(){self.skipWaiting()});
 self.addEventListener('activate',function(e){e.waitUntil(self.clients.claim())});
 self.addEventListener('push',function(e){
   var d={};try{d=e.data?e.data.json():{}}catch(x){d={body:e.data?e.data.text():''}}
-  e.waitUntil(self.registration.showNotification(d.title||'PUSH',{body:d.body||'',icon:'/admin/icon-192.png',badge:'/admin/icon-192.png',lang:'he',dir:'rtl',tag:d.tag||undefined,data:{url:d.url||'/admin'}}));
+  e.waitUntil(self.registration.showNotification(d.title||'Groupush',{body:d.body||'',icon:'/admin/icon-192.png',badge:'/admin/icon-192.png',lang:'he',dir:'rtl',tag:d.tag||undefined,data:{url:d.url||'/admin'}}));
 });
 self.addEventListener('notificationclick',function(e){
   e.notification.close();
@@ -38,9 +38,9 @@ export function adminHtml(nonce: string): string {
 <link rel="apple-touch-icon" href="/admin/icon-180.png">
 <link rel="icon" type="image/png" href="/admin/icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="PUSH ניהול">
+<meta name="apple-mobile-web-app-title" content="Groupush ניהול">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>PUSH — ניהול</title>
+<title>Groupush — ניהול</title>
 <style nonce="${nonce}">
 ${fontFaceCss()}
 :root{
@@ -266,7 +266,7 @@ function bellIcon(){return s('svg',{viewBox:'0 0 24 24',fill:'none',stroke:'curr
 var bellBtn=null;
 function shell(content,withLogout){
   bellBtn=withLogout?h('button',{cls:'out bell',type:'button','aria-label':'התראות',onclick:notifySettings},[bellIcon(),h('span',{text:'התראות'})]):null;
-  root.replaceChildren(h('div',{cls:'top'},[withLogout?h('button',{cls:'logo home',type:'button','aria-label':'למסך הפתיחה',onclick:function(){showGate()}},[h('i'),'PUSH',h('small',{text:'ניהול'})]):h('div',{cls:'logo'},[h('i'),'PUSH',h('small',{text:'ניהול'})]),
+  root.replaceChildren(h('div',{cls:'top'},[withLogout?h('button',{cls:'logo home',type:'button','aria-label':'למסך הפתיחה',onclick:function(){showGate()}},[h('i'),'Groupush',h('small',{text:'ניהול'})]):h('div',{cls:'logo'},[h('i'),'Groupush',h('small',{text:'ניהול'})]),
     withLogout?h('div',{cls:'top-actions'},[h('button',{cls:'out bell',type:'button','aria-label':'פרסום בטלגרם',onclick:function(){openPromo()}},[megaIcon(),h('span',{cls:'col-hide',text:'פרסום בטלגרם'})]),bellBtn,h('button',{cls:'out',type:'button',text:'יציאה',onclick:function(){setTok(null);showLogin()}})]):null]),content);
   if(withLogout)refreshBell();
 }
@@ -296,7 +296,7 @@ async function notifySettings(){
     if(!pushSupported()){
       if(isIOS()&&!standalone())return body.replaceChildren(h('h3',{text:'באייפון: מוסיפים את הניהול למסך הבית'}),h('ol',{cls:'steps'},[
         h('li',{text:'פותחים את הדף הזה בספארי.'}),h('li',{text:'לוחצים על כפתור השיתוף (ריבוע עם חץ למעלה).'}),h('li',{text:'בוחרים "הוספה למסך הבית" ולוחצים "הוספה".'}),
-        h('li',{text:'פותחים את "PUSH ניהול" ממסך הבית, נכנסים, ולוחצים כאן "הפעלת התראות".'})]),h('p',{cls:'hint',text:'אפל מאפשרת התראות מאתרים רק אחרי הוספה למסך הבית (iOS 16.4 ומעלה).'}));
+        h('li',{text:'פותחים את "Groupush ניהול" ממסך הבית, נכנסים, ולוחצים כאן "הפעלת התראות".'})]),h('p',{cls:'hint',text:'אפל מאפשרת התראות מאתרים רק אחרי הוספה למסך הבית (iOS 16.4 ומעלה).'}));
       return body.replaceChildren(h('p',{text:'הדפדפן הזה לא תומך בהתראות. אפשר להשתמש ב‑Chrome, Edge, Firefox או Safari מעודכן.'}));
     }
     var info;try{info=await api('GET','/admin/v1/push')}catch(e){return body.replaceChildren(h('p',{cls:'err',text:e.message}))}
@@ -375,7 +375,7 @@ function fanArt(){
     dot.appendChild(s('animate',{attributeName:'opacity',values:'0;1;1;0',keyTimes:'0;0.1;0.85;1',dur:'2.6s',begin:begin,repeatCount:'indefinite'}));
     svg.appendChild(dot);
   });
-  return h('div',{cls:'auth-art'},[svg,h('h2',{text:'הודעה אחת. כל הקבוצות. בזמן אמת.'}),h('p',{text:'מכאן מנהלים את הלקוחות של PUSH: מי מחובר, כמה נשלח, ומי קרא.'})]);
+  return h('div',{cls:'auth-art'},[svg,h('h2',{text:'הודעה אחת. כל הקבוצות. בזמן אמת.'}),h('p',{text:'מכאן מנהלים את הלקוחות של Groupush: מי מחובר, כמה נשלח, ומי קרא.'})]);
 }
 function authScreen(form){shell(h('div',{cls:'auth'},[h('div',{cls:'auth-form'},[form]),fanArt()]),false)}
 
@@ -417,7 +417,7 @@ function showLogin(msg,good){
   var go=h('button',{cls:'btn btn-primary btn-block',type:'submit',text:'כניסה'});
   authScreen(h('form',{novalidate:true,onsubmit:async function(e){e.preventDefault();err.textContent='';err.className='err';go.disabled=true;
       try{var r=await api('POST','/admin/v1/login',{email:email.value,password:pw.value,remember:keep.checked,device:deviceTok()});if(r.step==='code')return showCode(r,keep.checked);signedIn(r,keep.checked)}catch(x){err.textContent=x.message==='bad credentials'?'האימייל או הסיסמה שגויים':x.message;go.disabled=false}}},
-    [h('h1',{text:'כניסת מנהל'}),h('p',{cls:'sub',text:'ניהול הלקוחות של PUSH.'}),h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),
+    [h('h1',{text:'כניסת מנהל'}),h('p',{cls:'sub',text:'ניהול הלקוחות של Groupush.'}),h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),
      h('label',{cls:'f'},[h('span',{text:'סיסמה'}),pw]),h('label',{cls:'remember',for:'remember'},[keep,h('span',{text:'זכור אותי במכשיר הזה'})]),go,err]));
 }
 
@@ -429,7 +429,7 @@ async function showGate(){
   shell(h('div',null,[hero,h('div',{cls:'tiles'},[
     tile('people','ניהול','הלקוחות, המסלולים, ההשעיות, והוספת לקוח חדש. כל המספרים של 24 השעות האחרונות.','לניהול ←',false,function(){showHome()}),
     tile('eye','צפייה חיה','בוחרים לקוח ורואים בדיוק את מה שהוא רואה באפליקציה, מתעדכן בזמן אמת.','לבחירת לקוח ←',true,function(){showLive()}),
-    tile('mega','פרסום בטלגרם','הודעה של PUSH לערוצים של הלקוחות במסלול החינמי, וגם הסרה שלה.','לפרסום ←',false,function(){openPromo()}),
+    tile('mega','פרסום בטלגרם','הודעה של Groupush לערוצים של הלקוחות במסלול החינמי, וגם הסרה שלה.','לפרסום ←',false,function(){openPromo()}),
     tile('bell','התראות','התראה לטלפון ברגע שלקוח חדש נרשם.','להגדרה ←',false,function(){notifySettings()})])]),true);
   try{
     var d=await api('GET','/admin/v1/dashboard'),T=d.tenants||{},WA=d.whatsappNumbers||{};
@@ -586,7 +586,7 @@ async function openCustomer(id,reload){
         var b=h('button',{cls:'btn btn-ghost',type:'button',text:'סיסמה חדשה ללקוח',onclick:async function(){
           if(b.getAttribute('data-sure')!=='1'){b.setAttribute('data-sure','1');b.textContent='לחצו שוב: הסיסמה הישנה תפסיק לעבוד';return}
           b.disabled=true;try{var r=await api('POST','/admin/v1/tenants/'+id+'/password');
-            var text='כניסה ל‑PUSH\\n'+location.origin+'/app\\nאימייל: '+r.email+'\\nסיסמה זמנית: '+r.temporaryPassword;
+            var text='כניסה ל‑Groupush\\n'+location.origin+'/app\\nאימייל: '+r.email+'\\nסיסמה זמנית: '+r.temporaryPassword;
             var copy=h('button',{cls:'btn btn-dark btn-sm',type:'button',text:'העתקת הפרטים',onclick:async function(){try{await navigator.clipboard.writeText(text);copy.textContent='הועתק'}catch(e){copy.textContent='לא הצלחנו להעתיק, סמנו והעתיקו ידנית'}}});
             out.replaceChildren(h('div',{cls:'temp'},[h('dl',{cls:'dl'},[h('dt',{text:'אימייל'}),h('dd',{cls:'ltr',text:r.email}),h('dt',{text:'סיסמה זמנית'}),h('dd',{cls:'ltr',text:r.temporaryPassword})]),
               copy,h('p',{cls:'hint',text:'הסיסמה מוצגת עכשיו בלבד.'})]));b.hidden=true}
@@ -618,8 +618,8 @@ function tgBox(d,redraw){
   var ids=bots.map(function(b){return b.id});
   var stopped=bots.length>0&&(d.activeStops||[]).some(function(x){return x.scope==='account'&&ids.indexOf(x.scope_id)>=0});
   var t=d.tenant,msg=h('p',{cls:'err',role:'status'});
-  var promoLine=t.plan_code==='free'?(t.tg_promo_ok_at?'מסלול חינמי: אישר פרסומים של PUSH בערוצים שלו ('+fmtDate(t.tg_promo_ok_at)+')':'מסלול חינמי: עוד לא אישר פרסומים, ולכן לא מקבל אותם')
-    :'מסלול בתשלום: לא מקבל פרסומים של PUSH';
+  var promoLine=t.plan_code==='free'?(t.tg_promo_ok_at?'מסלול חינמי: אישר פרסומים של Groupush בערוצים שלו ('+fmtDate(t.tg_promo_ok_at)+')':'מסלול חינמי: עוד לא אישר פרסומים, ולכן לא מקבל אותם')
+    :'מסלול בתשלום: לא מקבל פרסומים של Groupush';
   var tgBtn=bots.length?h('button',{cls:'btn '+(stopped?'btn-primary':'btn-ghost'),type:'button',text:stopped?'חידוש ההפצה לטלגרם':'עצירת ההפצה לטלגרם',onclick:async function(){
     tgBtn.disabled=true;try{await api('POST','/admin/v1/tenants/'+t.id+'/telegram',{stopped:!stopped});redraw()}catch(e){msg.textContent=e.message;tgBtn.disabled=false}}}):null;
   var chans=(d.targets||[]).filter(function(x){return x.platform==='tg'}),waT=(d.targets||[]).filter(function(x){return x.platform==='wa'}).length;
@@ -635,7 +635,7 @@ function tgBox(d,redraw){
     tgBtn?h('div',{cls:'actions tg-list'},[tgBtn]):'',msg]);
 }
 
-// ---------------- PUSH posts in free customers' Telegram channels
+// ---------------- Groupush posts in free customers' Telegram channels
 async function openPromo(){
   var w=sideWindow(),box=w.box,close0=w.close,timer=null;
   var close=function(){clearTimeout(timer);close0()};
@@ -653,7 +653,7 @@ async function openPromo(){
     go.disabled=false;go.removeAttribute('data-sure');go.textContent='פרסום ב‑'+num(channels)+' ערוצים'}});
   ta.addEventListener('input',function(){counter.textContent=num(ta.value.length)+' / 4,000';go.removeAttribute('data-sure');go.textContent='פרסום ב‑'+num(channels)+' ערוצים'});
   box.replaceChildren(h('div',{cls:'d-head'},[h('button',{cls:'close',type:'button',text:'סגירה',onclick:close}),h('div',{cls:'d-id'},[h('div',null,[h('h2',{text:'פרסום בטלגרם'}),
-      h('p',{text:'הודעה של PUSH לערוצים ולקבוצות של הלקוחות במסלול החינמי, דרך הבוט של כל לקוח. לקוחות בתשלום לא מקבלים פרסומים.'})])])]),
+      h('p',{text:'הודעה של Groupush לערוצים ולקבוצות של הלקוחות במסלול החינמי, דרך הבוט של כל לקוח. לקוחות בתשלום לא מקבלים פרסומים.'})])])]),
     h('div',{cls:'d-body'},[aud,h('div',{cls:'box'},[h('h3',{text:'הודעה חדשה'}),ta,counter,h('div',{cls:'actions'},[go]),msg]),hist]));
   var statusText=function(p){return p.status==='sending'?'יוצא… '+num(p.sent)+' מתוך '+num(p.targets):p.status==='retracted'?'הוסר מהערוצים':'נשלח ל‑'+num(p.sent)+' מתוך '+num(p.targets)+(p.failed?' · '+num(p.failed)+' לא נשלחו':'')};
   var load=async function(){
@@ -685,7 +685,7 @@ function addCustomer(){
   var err=h('p',{cls:'err',role:'alert'}),out=h('div');
   var go=h('button',{cls:'btn btn-primary btn-block',type:'button',text:'יצירת הלקוח',onclick:async function(){err.textContent='';go.disabled=true;
     try{var r=await api('POST','/admin/v1/tenants',{businessName:name.value,email:email.value,plan:plan.value});
-      var link=location.origin+'/app',text='כניסה ל‑PUSH\\n'+link+'\\nאימייל: '+r.email+'\\nסיסמה זמנית: '+r.temporaryPassword;
+      var link=location.origin+'/app',text='כניסה ל‑Groupush\\n'+link+'\\nאימייל: '+r.email+'\\nסיסמה זמנית: '+r.temporaryPassword;
       var copy=h('button',{cls:'btn btn-dark btn-sm',type:'button',text:'העתקת הפרטים',onclick:async function(){try{await navigator.clipboard.writeText(text);copy.textContent='הועתק'}catch(e){copy.textContent='לא הצלחנו להעתיק, סמנו והעתיקו ידנית'}}});
       out.replaceChildren(h('div',{cls:'temp'},[h('p',{cls:'ok',text:'הלקוח נוצר. שלחו לו את הפרטים:'}),h('dl',{cls:'dl'},[
         h('dt',{text:'כתובת'}),h('dd',{cls:'ltr',text:link}),h('dt',{text:'אימייל'}),h('dd',{cls:'ltr',text:r.email}),h('dt',{text:'סיסמה זמנית'}),h('dd',{cls:'ltr',text:r.temporaryPassword})]),

@@ -1,11 +1,11 @@
 /**
- * PUSH demo server: the real engine, database and dashboard, with SIMULATED
+ * Groupush demo server: the real engine, database and dashboard, with SIMULATED
  * WhatsApp. Nothing here connects to WhatsApp or Telegram.
  *
  * On first boot it prepares its own database (roles, schema, migrations), a
  * demo customer, a simulated control group and five target groups. The demo
  * customer can then post, edit and delete messages in the control group from
- * the dashboard and watch PUSH distribute, sync and report.
+ * the dashboard and watch Groupush distribute, sync and report.
  *
  * Environment:
  *   DATABASE_URL   superuser URL of a dedicated Postgres (e.g. Railway's)
@@ -89,7 +89,7 @@ const keys = new TenantKeys(new MasterKey('mk-demo', Buffer.from(derive('master-
 
 // ------------------------------------------------------------ simulated WhatsApp world
 const net = new FakeWaNetwork({ connectDelayMs: 1 });
-net.createGroup('קבוצת שליטה — PUSH', { members: [DEMO.linked, DEMO.customer], jid: DEMO.controlJid });
+net.createGroup('קבוצת שליטה — Groupush', { members: [DEMO.linked, DEMO.customer], jid: DEMO.controlJid });
 for (const g of DEMO.targets) {
   net.createGroup(g.title, { members: [DEMO.linked], jid: g.jid });
   net.addMembers(g.jid, g.members - 1);
@@ -138,13 +138,13 @@ async function seed(): Promise<{ tenantId: string; accountId: string }> {
   const acc = await withTenant(pools.app, t, async (c) => {
     const a = await c.query<{ id: string }>(`SELECT id FROM wa_accounts ORDER BY created_at LIMIT 1`);
     if (a.rows[0]) return a.rows[0].id;
-    const id = (await c.query<{ id: string }>(`INSERT INTO wa_accounts (tenant_id, label) VALUES ($1, 'מספר PUSH (מדומה)') RETURNING id`, [t])).rows[0]!.id;
-    const chats: [string, string][] = [[DEMO.controlJid, 'קבוצת שליטה — PUSH'], ...DEMO.targets.map((g) => [g.jid, g.title] as [string, string])];
+    const id = (await c.query<{ id: string }>(`INSERT INTO wa_accounts (tenant_id, label) VALUES ($1, 'מספר Groupush (מדומה)') RETURNING id`, [t])).rows[0]!.id;
+    const chats: [string, string][] = [[DEMO.controlJid, 'קבוצת שליטה — Groupush'], ...DEMO.targets.map((g) => [g.jid, g.title] as [string, string])];
     for (const [jid, title] of chats) {
       await c.query('INSERT INTO chats (tenant_id, platform, account_id, chat_id, title, can_send) VALUES ($1, $2, $3, $4, $5, true)', [t, 'wa', id, jid, title]);
     }
     await saveRoute(c, t, {
-      name: 'PUSH — קבוצת שליטה', enabled: true, filters: {}, requireApproval: false,
+      name: 'Groupush — קבוצת שליטה', enabled: true, filters: {}, requireApproval: false,
       control: { syncEdits: true, syncDeletes: true, reportMode: 'summary' },
       sources: [{ platform: 'wa', accountId: id, chatId: DEMO.controlJid }],
       targets: DEMO.targets.map((g) => ({ platform: 'wa' as const, accountId: id, chatId: g.jid, title: g.title })),
@@ -198,7 +198,7 @@ const api = new ApiServer({
 await api.listen(Number(process.env.PORT ?? 8787), '0.0.0.0');
 worker.dispatcher.start();
 setInterval(() => void pools.worker.query('SELECT * FROM purge_expired(7)').catch(() => {}), 3_600_000).unref();
-log.info('PUSH demo started', { url: api.url });
+log.info('Groupush demo started', { url: api.url });
 
 // A few sample messages so the dashboard is not empty after a deploy. They go
 // through the control group like anything the visitor posts.

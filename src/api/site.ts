@@ -1,5 +1,5 @@
 /**
- * The PUSH marketing site (home page). One static page, Hebrew RTL, served
+ * The Groupush marketing site (home page). One static page, Hebrew RTL, served
  * by the API with a strict CSP. Its hero is a live animation of the product
  * itself: one message in the control group spreading to every group.
  */
@@ -13,10 +13,10 @@ export function publicOrigin(host?: string): string {
   return host && /^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `http://${host}` : 'http://localhost';
 }
 
-const TITLE = 'PUSH — הפצת הודעות לכל קבוצות הוואטסאפ והטלגרם בבת אחת';
-const DESCRIPTION = 'כותבים הודעה אחת בקבוצת שליטה, ו‑PUSH מפיצה אותה לכל קבוצות הוואטסאפ וערוצי הטלגרם שלכם, עם עריכה, מחיקה ותזמון מסונכרנים. מתחילים בחינם.';
+const TITLE = 'Groupush (גרופוש) — הפצת הודעות לכל קבוצות הוואטסאפ והטלגרם בבת אחת';
+const DESCRIPTION = 'כותבים הודעה אחת בקבוצת שליטה, ו‑Groupush מפיצה אותה לכל קבוצות הוואטסאפ וערוצי הטלגרם שלכם, עם עריכה, מחיקה ותזמון מסונכרנים. מתחילים בחינם.';
 /** The questions on the page, also given to search engines as structured data (same text). */
-const FAQ: [string, string][] = [["איך שולחים הודעה לכמה קבוצות וואטסאפ בבת אחת?", "מחברים מספר וואטסאפ ל‑PUSH בסריקת קוד, פותחים קבוצת שליטה ובוחרים לאילו קבוצות להפיץ. מאותו רגע כל הודעה שכותבים בקבוצת השליטה, כולל תמונות, סרטונים וקבצים, יוצאת לכל הקבוצות שבחרתם."], ["אפשר לתזמן הודעה לשעה מסוימת?", "כן. כותבים בשורה הראשונה תזמון (12:20), וההודעה יוצאת בשעה הזו לפי שעון ישראל, בלי שורת התזמון."]];
+const FAQ: [string, string][] = [["איך שולחים הודעה לכמה קבוצות וואטסאפ בבת אחת?", "מחברים מספר וואטסאפ ל‑Groupush בסריקת קוד, פותחים קבוצת שליטה ובוחרים לאילו קבוצות להפיץ. מאותו רגע כל הודעה שכותבים בקבוצת השליטה, כולל תמונות, סרטונים וקבצים, יוצאת לכל הקבוצות שבחרתם."], ["אפשר לתזמן הודעה לשעה מסוימת?", "כן. כותבים בשורה הראשונה תזמון (12:20), וההודעה יוצאת בשעה הזו לפי שעון ישראל, בלי שורת התזמון."]];
 
 /** Search engines: what the page is, in their structured format. Same facts as the visible page. */
 function structuredData(origin: string): string {
@@ -24,7 +24,7 @@ function structuredData(origin: string): string {
   return esc({
     '@context': 'https://schema.org',
     '@graph': [
-      { '@type': 'SoftwareApplication', name: 'PUSH', url: `${origin}/`, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Android, iOS',
+      { '@type': 'SoftwareApplication', name: 'Groupush', alternateName: 'גרופוש', url: `${origin}/`, applicationCategory: 'BusinessApplication', operatingSystem: 'Web, Android, iOS',
         inLanguage: 'he', description: DESCRIPTION, offers: { '@type': 'Offer', price: '0', priceCurrency: 'ILS' } },
       { '@type': 'FAQPage', mainEntity: FAQ.map(([q, a]) => ({ '@type': 'Question', name: q, acceptedAnswer: { '@type': 'Answer', text: a } })) },
     ],
@@ -44,7 +44,7 @@ export function siteHtml(nonce: string, origin = publicOrigin(), googleVerificat
 <meta name="robots" content="index, follow">
 <meta property="og:type" content="website">
 <meta property="og:locale" content="he_IL">
-<meta property="og:site_name" content="PUSH">
+<meta property="og:site_name" content="Groupush">
 <meta property="og:title" content="${TITLE}">
 <meta property="og:description" content="${DESCRIPTION}">
 <meta property="og:url" content="${origin}/">
@@ -56,7 +56,7 @@ export function siteHtml(nonce: string, origin = publicOrigin(), googleVerificat
 <link rel="manifest" href="/app/manifest.webmanifest">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="PUSH">
+<meta name="apple-mobile-web-app-title" content="Groupush">
 ${gv ? `<meta name="google-site-verification" content="${gv}">` : ''}
 <script type="application/ld+json" nonce="${nonce}">${structuredData(origin)}</script>
 <link rel="preload" href="/fonts/secular-one-hebrew-400-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -347,7 +347,7 @@ ${installPromptCss()}
 
 <header class="top" id="top">
   <div class="wrap">
-    <a class="brand" href="/" aria-label="PUSH, דף הבית"><i aria-hidden="true"></i><span class="bt">PUSH</span></a>
+    <a class="brand" href="/" aria-label="Groupush, דף הבית"><i aria-hidden="true"></i><span class="bt">Groupush</span></a>
     <nav class="nav" aria-label="ניווט ראשי">
       <a href="#how">איך זה עובד</a><a href="#sync">עריכה ומחיקה</a><a href="#pricing">מחירים</a><a href="#faq">שאלות</a>
     </nav>
@@ -364,7 +364,7 @@ ${installPromptCss()}
     <div>
       <div class="chips"><span class="chip"><i class="live" aria-hidden="true"></i>עובד בענן, גם כשהטלפון כבוי</span><span class="chip">WhatsApp + Telegram</span></div>
       <h1 id="hero-title">הודעה אחת.<span class="l2">כל הקבוצות.</span></h1>
-      <p class="lead">כותבים פעם אחת בקבוצת שליטה ב‑WhatsApp, ו‑PUSH מפיצה לכל קבוצות ה‑WhatsApp וה‑Telegram שלכם. טעות כתיב? עורכים פעם אחת, וכל העותקים מתעדכנים.</p>
+      <p class="lead">כותבים פעם אחת בקבוצת שליטה ב‑WhatsApp, ו‑Groupush מפיצה לכל קבוצות ה‑WhatsApp וה‑Telegram שלכם. טעות כתיב? עורכים פעם אחת, וכל העותקים מתעדכנים.</p>
       <div class="ctas">
         <a class="btn btn-primary" href="/app#signup">התחילו עכשיו</a>
         <a class="btn btn-quiet" href="#how">איך זה עובד</a>
@@ -375,7 +375,7 @@ ${installPromptCss()}
     <div class="fan" id="fan" aria-label="הדגמה: הודעה מקבוצת השליטה מופצת לשש קבוצות">
       <svg class="wires" id="wires" aria-hidden="true"></svg>
       <div class="ctrl" id="ctrl">
-        <div class="ttl"><span class="dot" aria-hidden="true">P</span><span><b>קבוצת שליטה</b><br>אתם ו‑PUSH</span></div>
+        <div class="ttl"><span class="dot" aria-hidden="true">P</span><span><b>קבוצת שליטה</b><br>אתם ו‑Groupush</span></div>
         <div class="bubble"><span class="t" id="typed"></span><span class="caret" id="caret" aria-hidden="true"></span><div class="meta" id="sent-at"></div></div>
         <div class="report" id="report" role="status"></div>
       </div>
@@ -395,7 +395,7 @@ ${installPromptCss()}
       <p class="lead">ההקמה לוקחת כמה דקות. אחריה לא צריך לפתוח שום מערכת: כל מה שתכתבו בקבוצת השליטה יגיע לכל הקבוצות.</p>
     </div>
     <div class="steps">
-      <div class="step"><h3>מחברים מספר WhatsApp</h3><p>סורקים קוד QR, כמו ב‑WhatsApp Web. מומלץ מספר נפרד ל‑PUSH, לא המספר האישי.</p></div>
+      <div class="step"><h3>מחברים מספר WhatsApp</h3><p>סורקים קוד QR, כמו ב‑WhatsApp Web. מומלץ מספר נפרד ל‑Groupush, לא המספר האישי.</p></div>
       <div class="step"><h3>פותחים קבוצת שליטה</h3><p>קבוצה קטנה שבה אתם והמספר המחובר. בוחרים לאילו קבוצות יעד היא מפיצה, ומי רשאי לפרסם ממנה.</p></div>
       <div class="step"><h3>כותבים, וזהו</h3><p>כל הודעה בקבוצת השליטה יוצאת לכל הקבוצות. בסוף מגיע דיווח: לכמה קבוצות הגיעה, ואם משהו נכשל ולמה.</p></div>
     </div>
@@ -406,7 +406,7 @@ ${installPromptCss()}
   <div class="wrap grid">
     <div>
       <h2 id="sync-title">טעות בהודעה? מתקנים אותה פעם אחת.</h2>
-      <p class="lead gap">PUSH זוכרת כל עותק בכל קבוצה, ומחילה עליו את מה שעשיתם בקבוצת השליטה.</p>
+      <p class="lead gap">Groupush זוכרת כל עותק בכל קבוצה, ומחילה עליו את מה שעשיתם בקבוצת השליטה.</p>
       <ul>
         <li><span aria-hidden="true">✓</span><div>עורכים את ההודעה בקבוצת השליטה, וכל העותקים נערכים במקום, בלי הודעה חדשה.</div></li>
         <li><span aria-hidden="true">✓</span><div>"מחק לכולם" מוחק אותה מכל הקבוצות. "מחק אצלי" לא נוגע בכלום.</div></li>
@@ -444,9 +444,9 @@ ${installPromptCss()}
   <div class="wrap grid">
     <div class="phone-wrap" aria-hidden="true">
       <div class="phone" id="phone">
-        <div class="ph-toast" id="ph-toast"><img src="/app/icon-192.png" alt="" width="28" height="28"><span><b>PUSH</b><br>ההודעה הגיעה ל‑12 מתוך 12 קבוצות</span></div>
+        <div class="ph-toast" id="ph-toast"><img src="/app/icon-192.png" alt="" width="28" height="28"><span><b>Groupush</b><br>ההודעה הגיעה ל‑12 מתוך 12 קבוצות</span></div>
         <div class="screen">
-          <div class="ph-top"><b>PUSH</b><span class="ph-live"><i></i>WhatsApp מחובר</span></div>
+          <div class="ph-top"><b>Groupush</b><span class="ph-live"><i></i>WhatsApp מחובר</span></div>
           <div class="ph-list" id="ph-list">
             <div class="ph-card"><p>🔴 מבזק: עומסים כבדים בכניסה לירושלים</p><div class="ph-bar"><i data-w="100"></i></div><div class="ph-meta"><span>12/12 קבוצות</span><span class="ph-eye">👁 <b data-to="1840">0</b></span></div></div>
             <div class="ph-card"><p>⚡ עדכון: הכביש נפתח מחדש לתנועה</p><div class="ph-bar"><i data-w="100"></i></div><div class="ph-meta"><span>12/12 קבוצות</span><span class="ph-eye">👁 <b data-to="960">0</b></span></div></div>
@@ -458,7 +458,7 @@ ${installPromptCss()}
       <span class="ph-tag">הדגמה</span>
     </div>
     <div>
-      <h2 id="app-title">PUSH גם בכיס שלכם</h2>
+      <h2 id="app-title">Groupush גם בכיס שלכם</h2>
       <p class="lead gap">מתקינים את האפליקציה ישר ממסך הבית: בלי חנות אפליקציות, בלי הורדה כבדה, ונפתחת בלחיצה אחת.</p>
       <ul class="perks">
         <li><i aria-hidden="true">📤</i><div>כל הודעה שיצאה, ולאילו קבוצות הגיעה</div></li>
@@ -481,8 +481,8 @@ ${installPromptCss()}
       <p class="lead gap">החיבור ל‑WhatsApp נעשה כמכשיר מקושר (כמו WhatsApp Web), ולא דרך הממשק העסקי הרשמי של WhatsApp. חשוב שתדעו מה זה אומר.</p>
     </div>
     <dl>
-      <div><dt>יש סיכון לחסימת המספר</dt><dd>WhatsApp אוסרת הודעות אוטומטיות והמוניות. לכן אנחנו ממליצים על מספר נפרד ל‑PUSH, וקובעים קצב שליחה זהיר.</dd></div>
-      <div><dt>רק לקבוצות שמותר לכם לפרסם בהן</dt><dd>PUSH שולחת רק לקבוצות שבחרתם ושהמספר חבר בהן. אין שליחה לאנשים פרטיים.</dd></div>
+      <div><dt>יש סיכון לחסימת המספר</dt><dd>WhatsApp אוסרת הודעות אוטומטיות והמוניות. לכן אנחנו ממליצים על מספר נפרד ל‑Groupush, וקובעים קצב שליחה זהיר.</dd></div>
+      <div><dt>רק לקבוצות שמותר לכם לפרסם בהן</dt><dd>Groupush שולחת רק לקבוצות שבחרתם ושהמספר חבר בהן. אין שליחה לאנשים פרטיים.</dd></div>
       <div><dt>אנחנו לא מבטיחים מה שלא בדקנו</dt><dd>עריכה ב‑WhatsApp אפשרית עד 15 דקות מהשליחה. כשמשהו לא אפשרי, הדיווח בקבוצת השליטה אומר לכם בדיוק איפה ולמה.</dd></div>
     </dl>
   </div>
@@ -496,14 +496,14 @@ ${installPromptCss()}
         <h3>חינם</h3>
         <div class="price"><b>0<span class="cur">₪</span></b></div>
         <p class="tag">לרשת קטנה של קבוצות</p>
-        <ul><li>עד 10 קבוצות יעד, WhatsApp ו‑Telegram</li><li>עריכה ומחיקה מסונכרנות</li><li>חתימה קבועה מתחת לכל הודעה</li><li>דיווחים בקבוצת השליטה</li><li>PUSH מפרסמת מדי פעם הודעות משלה בערוצי הטלגרם שחיברתם</li></ul>
+        <ul><li>עד 10 קבוצות יעד, WhatsApp ו‑Telegram</li><li>עריכה ומחיקה מסונכרנות</li><li>חתימה קבועה מתחת לכל הודעה</li><li>דיווחים בקבוצת השליטה</li><li>Groupush מפרסמת מדי פעם הודעות משלה בערוצי הטלגרם שחיברתם</li></ul>
         <a class="btn btn-dark" href="/app#signup">פתיחת חשבון</a>
       </div>
       <div class="plan main">
         <h3>Premium</h3>
         <div class="price"><b>300<span class="cur">₪</span></b><span>לחודש, לפני מע"מ</span></div>
         <p class="tag">לרשתות קבוצות שמפיצות כל יום</p>
-        <ul><li>עד 30 קבוצות יעד, WhatsApp ו‑Telegram</li><li>כמה נקראה כל הודעה, ובאיזו קבוצה</li><li>היסטוריה וסטטוס לכל קבוצה</li><li>תמיכה אישית</li><li>בלי פרסומים של PUSH</li></ul>
+        <ul><li>עד 30 קבוצות יעד, WhatsApp ו‑Telegram</li><li>כמה נקראה כל הודעה, ובאיזו קבוצה</li><li>היסטוריה וסטטוס לכל קבוצה</li><li>תמיכה אישית</li><li>בלי פרסומים של Groupush</li></ul>
         <a class="btn btn-primary" href="/app#signup">מתחילים ב‑Premium</a>
       </div>
     </div>
@@ -515,9 +515,9 @@ ${installPromptCss()}
     <div class="sec-head"><h2 id="faq-title">שאלות שחוזרות</h2></div>
     <div class="faq" id="faq">
 ${FAQ.map(([q, a]) => `      <details><summary>${q}</summary><p>${a}</p></details>`).join('\n')}
-      <details><summary>צריך להשאיר את הטלפון פתוח?</summary><p>לא. אחרי סריקת קוד ה‑QR, PUSH עובדת בענן גם כשהטלפון כבוי או רחוק. המספר צריך להישאר מחובר ל‑WhatsApp.</p></details>
-      <details><summary>מה קורה אם אחת הקבוצות לא קיבלה את ההודעה?</summary><p>PUSH מנסה שוב רק בקבוצות שנכשלו, אחרי 30 שניות, 2 דקות ו‑5 דקות. אם לא ידוע אם ההודעה הגיעה, היא לא תישלח שוב לבד, כדי שלא תופיע פעמיים.</p></details>
-      <details><summary>אפשר להפיץ גם לטלגרם?</summary><p>כן. מחברים בוט טלגרם, ו‑PUSH מפיצה גם לקבוצות ולערוצים שלכם שם. בקבוצת שליטה בטלגרם עונים "מחק" על הודעה כדי למחוק אותה מכל הקבוצות.</p></details>
+      <details><summary>צריך להשאיר את הטלפון פתוח?</summary><p>לא. אחרי סריקת קוד ה‑QR, Groupush עובדת בענן גם כשהטלפון כבוי או רחוק. המספר צריך להישאר מחובר ל‑WhatsApp.</p></details>
+      <details><summary>מה קורה אם אחת הקבוצות לא קיבלה את ההודעה?</summary><p>Groupush מנסה שוב רק בקבוצות שנכשלו, אחרי 30 שניות, 2 דקות ו‑5 דקות. אם לא ידוע אם ההודעה הגיעה, היא לא תישלח שוב לבד, כדי שלא תופיע פעמיים.</p></details>
+      <details><summary>אפשר להפיץ גם לטלגרם?</summary><p>כן. מחברים בוט טלגרם, ו‑Groupush מפיצה גם לקבוצות ולערוצים שלכם שם. בקבוצת שליטה בטלגרם עונים "מחק" על הודעה כדי למחוק אותה מכל הקבוצות.</p></details>
       <details><summary>מי עוד יכול לפרסם מקבוצת השליטה?</summary><p>אתם קובעים. אפשר להגביל את ההפצה, העריכה והמחיקה למספרים מסוימים בלבד.</p></details>
       <details><summary>מה עם הפרטיות של ההודעות?</summary><p>תוכן ההודעות נשמר רק כמה שצריך כדי להפיץ אותן, ונמחק אוטומטית אחרי 7 ימים. פרטי החיבור ל‑WhatsApp מוצפנים.</p></details>
     </div>
@@ -534,7 +534,7 @@ ${FAQ.map(([q, a]) => `      <details><summary>${q}</summary><p>${a}</p></detail
 
 <footer>
   <div class="wrap">
-    <span>© ${new Date().getFullYear()} PUSH. הודעה אחת. כל הקבוצות.</span>
+    <span>© ${new Date().getFullYear()} Groupush. הודעה אחת. כל הקבוצות.</span>
     <span><a href="#faq">שאלות נפוצות</a><a href="/app">כניסה למערכת</a></span>
   </div>
 </footer>
@@ -577,7 +577,7 @@ var timers=[];function later(ms,fn){timers.push(setTimeout(fn,ms))}
 function reset(){timers.forEach(clearTimeout);timers=[];typed.textContent='';sentAt.textContent='';report.className='report';report.textContent='';n.textContent='0';
   cards.forEach(function(c,i){c.el.classList.remove('got');c.last.textContent=i===5?'הערוץ שלכם בטלגרם':'עוד לא היום'});paths.forEach(function(p){p.setAttribute('class','wire')})}
 function finalState(){typed.textContent=MESSAGE;caret.style.display='none';sentAt.textContent='04:21 ✓✓';cards.forEach(function(c){c.el.classList.add('got');c.last.textContent=MESSAGE});n.textContent='6';
-  report.textContent='✅ PUSH · ההודעה נשלחה בהצלחה ל‑6 מתוך 6 קבוצות.';report.className='report on'}
+  report.textContent='✅ Groupush · ההודעה נשלחה בהצלחה ל‑6 מתוך 6 קבוצות.';report.className='report on'}
 function play(){
   reset();drawWires();
   if(reduce)return finalState();
@@ -589,7 +589,7 @@ function send(){
     later(300+k*380,function(){if(paths[k])paths[k].setAttribute('class','wire go')});
     later(800+k*380,function(){c.el.classList.add('got');c.last.textContent=MESSAGE;n.textContent=String(k+1);if(paths[k])paths[k].setAttribute('class','wire')});
   });
-  later(800+cards.length*380+400,function(){report.textContent='✅ PUSH · ההודעה נשלחה בהצלחה ל‑6 מתוך 6 קבוצות.';report.className='report on'});
+  later(800+cards.length*380+400,function(){report.textContent='✅ Groupush · ההודעה נשלחה בהצלחה ל‑6 מתוך 6 קבוצות.';report.className='report on'});
 }
 document.getElementById('replay').addEventListener('click',play);
 window.addEventListener('resize',function(){var on=paths.map(function(p){return p.getAttribute('class')});drawWires();paths.forEach(function(p,k){if(on[k])p.setAttribute('class',on[k])})});

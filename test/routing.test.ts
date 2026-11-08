@@ -2,7 +2,7 @@ import { describe, test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { InboundMessage } from '../src/core/types.js';
 import { MemoryDedupStore } from '../src/routing/dedup.js';
-import { Router, checkFilters, inQuietHours, nextAllowedTime, validateRoute } from '../src/routing/router.js';
+import { Router, checkFilters, inQuietHours, isOwnReport, nextAllowedTime, validateRoute } from '../src/routing/router.js';
 import { placeholdersOf, renderTemplate } from '../src/routing/template.js';
 import { contentFingerprint, normalizeForMatch, removeInviteLinks } from '../src/routing/text.js';
 import type { Route, Template } from '../src/routing/types.js';
@@ -202,3 +202,12 @@ test('control settings keep "reactions off" and default to on', async () => {
   assert.equal(parseControlSettings({})!.reactions, undefined);
 });
 
+
+describe('own status messages', () => {
+  test('reports under the new name and under the old one (before the rename) are recognised as ours', () => {
+    for (const t of ['✅ Groupush · ההודעה נשלחה בהצלחה ל-4 מתוך 4 קבוצות.', '🗑️ Groupush · ההודעה נמחקה ב-3 קבוצות', '✅ PUSH · ההודעה נשלחה בהצלחה ל-4 מתוך 4 קבוצות.', '✏️ PUSH · ההודעה עודכנה']) {
+      assert.equal(isOwnReport(msg(t, { fromSelf: true })), true, t);
+    }
+    assert.equal(isOwnReport(msg('✅ Groupush · כתב מישהו אחר', { fromSelf: false })), false, 'only from the linked number');
+  });
+});

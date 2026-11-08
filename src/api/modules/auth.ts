@@ -178,7 +178,7 @@ export function authModule(opts: AuthModuleOptions) {
         return {
           user: { id: auth!.userId, email: row.email, displayName: row.display_name, role: row.role },
           tenant: { id: auth!.tenantId, name: row.name, plan: { code: row.plan_code, name: row.plan_name, limits: row.limits }, riskAccepted: !!row.risk_accepted_at, createdAt: row.created_at,
-            // Free plan: PUSH also posts in the customer's Telegram channels (agreed when connecting).
+            // Free plan: Groupush also posts in the customer's Telegram channels (agreed when connecting).
             tgPromo: { applies: row.plan_code === 'free', accepted: !!row.tg_promo_ok_at } },
         };
       }));

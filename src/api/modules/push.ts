@@ -1,5 +1,5 @@
 /**
- * PUSH customer API: distribution history with the status of every copy,
+ * Groupush customer API: distribution history with the status of every copy,
  * manual retry, platform capabilities, and the basic dashboard page.
  *
  * Everything runs inside the caller's tenant (RLS). A copy whose outcome is

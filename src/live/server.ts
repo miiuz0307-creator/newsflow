@@ -1,5 +1,5 @@
 /**
- * PUSH live server: the real product (src/main.ts) with REAL WhatsApp linking.
+ * Groupush live server: the real product (src/main.ts) with REAL WhatsApp linking.
  *
  * Before starting the app it prepares its own database on the Postgres it is
  * given (roles, database "push_live", migrations), the same way the demo does,
@@ -7,7 +7,7 @@
  * any other system.
  *
  * Environment (Railway):
- *   DATABASE_URL   superuser URL of PUSH's own Postgres service
+ *   DATABASE_URL   superuser URL of Groupush's own Postgres service
  *   LIVE_SECRET    ≥32 chars; the database role passwords are derived from it
  *   MASTER_KEY     32 bytes base64 (encrypts each customer's WhatsApp session)
  *   TOKEN_SECRET   ≥32 chars (sign-in tokens)

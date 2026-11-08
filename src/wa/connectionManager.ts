@@ -333,11 +333,11 @@ export class ConnectionManager {
         this.signal(e, 'logged_out');
         break;
       case 'replaced':
-        // Only PUSH holds this session's keys, so "replaced" means another PUSH server took the
+        // Only Groupush holds this session's keys, so "replaced" means another Groupush server took the
         // session over (a deploy, where the new server starts before the old one stops). This
         // one steps aside; it is not a warning about the number, so sending is not stopped.
         this.setStatus(e, 'stopped');
-        this.log.warn('session taken over by another PUSH server; this one stops', { accountId: e.state.accountId });
+        this.log.warn('session taken over by another Groupush server; this one stops', { accountId: e.state.accountId });
         break;
       case 'bad_session':
         await e.store.wipe();

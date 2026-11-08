@@ -141,7 +141,7 @@ if (cfg.allowRealTelegram || !cfg.telegramApiBase.includes('api.telegram.org')) 
   log.info('telegram bots started', { count: await telegram.loadAll() });
 }
 
-// PUSH's own posts in free customers' Telegram channels (sent through each customer's bot).
+// Groupush's own posts in free customers' Telegram channels (sent through each customer's bot).
 const tgPromo = new TelegramPromo({ workerSql: workerPool, sender: (botId) => telegram.get(botId), logger: log });
 await tgPromo.closeInterrupted();
 
@@ -198,7 +198,7 @@ const phoneLinker = tgApiId && process.env.TELEGRAM_API_HASH
   : undefined;
 if (!phoneLinker) log.info('telegram QR linking off (no TELEGRAM_API_ID / TELEGRAM_API_HASH)');
 
-// "Create a bot in one tap": PUSH's manager bot (Bot Management Mode on in @BotFather).
+// "Create a bot in one tap": Groupush's manager bot (Bot Management Mode on in @BotFather).
 const botManager = process.env.TELEGRAM_MANAGER_BOT_TOKEN && (cfg.allowRealTelegram || !cfg.telegramApiBase.includes('api.telegram.org'))
   ? new TelegramBotManager({ token: process.env.TELEGRAM_MANAGER_BOT_TOKEN, apiOptions: { apiBase: cfg.telegramApiBase, allowReal: cfg.allowRealTelegram }, workerSql: workerPool, logger: log })
   : undefined;
@@ -218,7 +218,7 @@ const api = new ApiServer({
       keys, telegram, onRoutesChanged: () => routeSource.invalidate(),
       onSignup: async (t) => {
         log.info('new signup', { tenantId: t.tenantId });
-        await adminPush?.send({ title: 'לקוח חדש נרשם ל‑PUSH', body: `${t.businessName}\n${t.email}`, url: `/admin#customer=${t.tenantId}`, tag: `signup-${t.tenantId}` });
+        await adminPush?.send({ title: 'לקוח חדש נרשם ל‑Groupush', body: `${t.businessName}\n${t.email}`, url: `/admin#customer=${t.tenantId}`, tag: `signup-${t.tenantId}` });
       },
     }),
     manageModule({ keys, telegram, onRoutesChanged: () => routeSource.invalidate(), ...(phoneLinker ? { phoneLinker } : {}), ...(botManager ? { botManager } : {}) }),
