@@ -284,6 +284,43 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
       });
     });
 
+    // "צפיות": how many people read the copies, all groups together (today, 7 and 30 days, everything
+    // still kept), and per group over 30 days. Reads are WhatsApp read receipts, counted by the day the
+    // message went out.
+    api.on('GET', '/v1/reads/summary', true, async ({ auth }) =>
+      api.tenantTx(auth!, async (c) => {
+        const t = await c.query<{ today: number; d7: number; d30: number; total: number; msgs_today: number; msgs7: number; msgs30: number; msgs: number; since: Date | null }>(
+          `WITH s AS (
+             SELECT created_at, read_count, source->>'chatId' AS chat_id, source_message_id FROM outbound_jobs WHERE action = 'send' AND status = 'sent'),
+           b AS (SELECT (date_trunc('day', now() AT TIME ZONE 'Asia/Jerusalem') AT TIME ZONE 'Asia/Jerusalem') AS today)
+           SELECT COALESCE(sum(read_count) FILTER (WHERE created_at >= b.today), 0)::int AS today,
+                  COALESCE(sum(read_count) FILTER (WHERE created_at > now() - interval '7 days'), 0)::int AS d7,
+                  COALESCE(sum(read_count) FILTER (WHERE created_at > now() - interval '30 days'), 0)::int AS d30,
+                  COALESCE(sum(read_count), 0)::int AS total,
+                  count(DISTINCT (chat_id, source_message_id)) FILTER (WHERE created_at >= b.today)::int AS msgs_today,
+                  count(DISTINCT (chat_id, source_message_id)) FILTER (WHERE created_at > now() - interval '7 days')::int AS msgs7,
+                  count(DISTINCT (chat_id, source_message_id)) FILTER (WHERE created_at > now() - interval '30 days')::int AS msgs30,
+                  count(DISTINCT (chat_id, source_message_id))::int AS msgs,
+                  min(created_at) AS since
+             FROM s, b GROUP BY b.today`);
+        const g = await c.query<{ platform: string; chat_id: string; title: string | null; reads: number; copies: number }>(
+          `SELECT j.target_platform AS platform, j.target_chat_id AS chat_id, COALESCE(ch.title, max(j.target_title)) AS title,
+                  COALESCE(sum(j.read_count), 0)::int AS reads, count(*)::int AS copies
+             FROM outbound_jobs j
+             LEFT JOIN chats ch ON ch.platform = j.target_platform AND ch.account_id = j.target_account_id AND ch.chat_id = j.target_chat_id
+            WHERE j.action = 'send' AND j.status = 'sent' AND j.created_at > now() - interval '30 days'
+            GROUP BY j.target_platform, j.target_chat_id, ch.title
+            ORDER BY reads DESC, copies DESC
+            LIMIT 100`);
+        const x = t.rows[0];
+        return {
+          totals: { today: x?.today ?? 0, days7: x?.d7 ?? 0, days30: x?.d30 ?? 0, all: x?.total ?? 0 },
+          messages: { today: x?.msgs_today ?? 0, days7: x?.msgs7 ?? 0, days30: x?.msgs30 ?? 0, all: x?.msgs ?? 0 },
+          since: x?.since ?? null,
+          groups: g.rows.map((r) => ({ platform: r.platform, chatId: r.chat_id, title: r.title || r.chat_id, reads: r.reads, copies: r.copies })),
+        };
+      }));
+
     // One distribution: every copy, its latest edit and its delete.
     api.on('GET', '/v1/distributions/:plat/:acct/:chat/:msg', true, async ({ auth, params }) => {
       const { plat, acct, chat, msg } = params as Record<string, string>;
