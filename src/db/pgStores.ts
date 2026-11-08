@@ -6,6 +6,7 @@
  *  - workerPool as newsflow_worker — delivery workers (cross-tenant by design)
  */
 import type { ChatRef, MessageContent, SendResult } from '../core/types.js';
+import { chatKey } from '../core/types.js';
 import { MasterKey, TenantCipher } from '../crypto/keyring.js';
 import type { KillScope, KillSwitch, KillSwitchStore, KillTarget } from '../delivery/killSwitch.js';
 import { addToSummary, emptySummary, type ActionSummary, type JobQueue, type JobStatus, type StoredJob } from '../delivery/queue.js';
@@ -403,6 +404,26 @@ export class PgJobQueue implements JobQueue {
                      ON CONFLICT DO NOTHING RETURNING job_id)
        UPDATE outbound_jobs SET read_count = read_count + 1 WHERE id IN (SELECT job_id FROM ins) RETURNING id::text AS job_id`,
       [platform, chatId, messageId, reader.slice(0, 120)]);
+    return r.rowCount > 0;
+  }
+
+  async readTotal(platform: string, chatId: string, messageId: string) {
+    const r = await this.sql.query<JobRow & { total: number }>(
+      `WITH j AS (SELECT * FROM outbound_jobs
+                   WHERE target_chat_id = $2 AND sent_message_id = $3 AND target_platform = $1 AND action = 'send' LIMIT 1)
+       SELECT j.*, (SELECT COALESCE(sum(o.read_count), 0)::int FROM outbound_jobs o
+                     WHERE o.tenant_id = j.tenant_id AND o.source_message_id = j.source_message_id AND o.action = 'send'
+                       AND o.source->>'platform' = j.source->>'platform' AND o.source->>'accountId' = j.source->>'accountId'
+                       AND o.source->>'chatId' = j.source->>'chatId') AS total
+         FROM j`, [platform, chatId, messageId]);
+    const row = r.rows[0];
+    return row ? { job: toJob(row), total: Number(row.total) } : null;
+  }
+
+  async claimMilestone(tenantId: string, source: ChatRef, messageId: string, threshold: number) {
+    const r = await this.sql.query(
+      `INSERT INTO read_milestones (tenant_id, source_key, source_message_id, threshold) VALUES ($1, $2, $3, $4)
+       ON CONFLICT DO NOTHING RETURNING 1`, [tenantId, chatKey(source), messageId, threshold]);
     return r.rowCount > 0;
   }
 
