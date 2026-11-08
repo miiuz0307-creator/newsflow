@@ -124,6 +124,19 @@ describe('Groupush API', { skip: !available && 'local test Postgres not running'
     assert.equal((await call('GET', path, undefined, tokB)).status, 404, 'RLS hides another tenant');
   });
 
+  test('"צפיות": everyone who read, all groups together, and per group; another tenant sees zeros', async () => {
+    await db.worker.query(`UPDATE outbound_jobs SET read_count = 7 WHERE action = 'send' AND status = 'sent' AND target_chat_id = $1`, [g1]);
+    await db.worker.query(`UPDATE outbound_jobs SET read_count = 3 WHERE action = 'send' AND status = 'sent' AND target_chat_id = $1`, [g2]);
+    const r = await call('GET', '/v1/reads/summary', undefined, tokA);
+    assert.equal(r.status, 200, JSON.stringify(r.body));
+    assert.deepEqual(r.body.totals, { today: 10, days7: 10, days30: 10, all: 10 });
+    assert.equal(r.body.messages.today, 1);
+    assert.deepEqual(r.body.groups.map((g: any) => [g.title, g.reads, g.copies]), [['יעד 1', 7, 1], ['יעד 2', 3, 1]]);
+    const b = await call('GET', '/v1/reads/summary', undefined, tokB);
+    assert.deepEqual(b.body.totals, { today: 0, days7: 0, days30: 0, all: 0 });
+    assert.deepEqual(b.body.groups, []);
+  });
+
   test('an unknown copy needs explicit confirmation before it is sent again', async () => {
     net.loseNextAck(LINKED);
     const id = net.humanPost(CUSTOMER, ctrl, { kind: 'text', text: 'ללא אישור' });

@@ -250,6 +250,8 @@ main{padding:34px 40px 80px;min-width:0}
 @media (max-width:620px){.hero-band{padding:20px 18px;border-radius:18px}.hb-head h1{font-size:32px}.hstats{grid-template-columns:1fr}.hstat+.hstat{border-inline-start:0;border-top:1px solid rgba(255,255,255,.12)}.hstat{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;padding:12px 16px}.hv{font-size:34px}.hs{flex-basis:100%}}
 .alert{display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;margin-top:16px;padding:12px 16px;border-radius:12px;background:var(--warn-soft);color:var(--warn);border:1px solid transparent;font:inherit;font-size:14px;cursor:pointer;text-align:start}
 .alert span{text-decoration:underline;text-underline-offset:3px}
+.hb-body.one{grid-template-columns:1fr}.hstats.four{grid-template-columns:repeat(4,1fr)}.views-note{margin:4px 4px 24px;line-height:1.6}.views-groups{margin-top:18px}
+@media (max-width:620px){.hstats.four{grid-template-columns:1fr 1fr}.hstats.four .hstat{display:block;border-top:0;border-inline-start:0}}
 .board{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px;counter-reset:b}
 .board li{counter-increment:b;position:relative;padding-inline-start:34px}
 .board li::before{content:counter(b);position:absolute;inset-inline-start:0;top:0;width:24px;height:24px;border-radius:8px;background:var(--teal-mist);color:var(--teal-deep);font-family:var(--display);display:grid;place-items:center;font-size:14px}
@@ -524,7 +526,7 @@ function showAuth(mode,msg,prefill){
 
 // ---------------- app shell
 var formDrawn=null,me=null,demo=false,simulated=false,timer=null,route='overview',dists=[],caps=null;
-var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'connect',label:'חיבור',icon:'link'},{id:'settings',label:'חתימה',icon:'pen'},{id:'logo',label:'לוגו',icon:'image'}];
+var ROUTES=[{id:'overview',label:'סקירה',icon:'home'},{id:'dists',label:'הפצות',icon:'send'},{id:'views',label:'צפיות',icon:'eye'},{id:'sim',label:'סימולציה',icon:'lab',demo:true},{id:'connect',label:'חיבור',icon:'link'},{id:'settings',label:'חתימה',icon:'pen'},{id:'logo',label:'לוגו',icon:'image'}];
 async function start(){
   try{me=await api('GET','/v1/me')}catch(e){if(VIEW)return viewEnded();return showAuth('login')}
   try{await api('GET','/v1/demo/state');demo=true}catch(e){demo=false}
@@ -658,7 +660,7 @@ function draw(full){
   // Forms are drawn once when the page is opened (also on first load or a refresh), never redrawn under the user.
   if(route==='settings'||route==='connect'||route==='logo'){if(full||formDrawn!==route){formDrawn=route;mainEl.replaceChildren(route==='settings'?settingsPage():route==='logo'?logoPage():connectPage())}return}
   formDrawn=null;
-  mainEl.replaceChildren(route==='dists'?distsPage():overviewPage());
+  mainEl.replaceChildren(route==='dists'?distsPage():route==='views'?viewsPage():overviewPage());
 }
 
 // ---------------- overview
@@ -694,6 +696,32 @@ function overviewPage(){
     h('p',{text:'סורקים קוד QR מהטלפון, בוחרים קבוצת שליטה וקבוצות יעד, ומתחילים להפיץ. לוקח שתי דקות.'})]),
     h('button',{cls:'btn btn-primary',type:'button',text:'לחיבור',onclick:function(){go('connect')}})]):null;
   return h('div',null,[hero,notice,alert,h('div',{cls:'grid-2'},[chartPanel,board]),h('div',{cls:'grid-2 one'},[recent])]);
+}
+// ---------------- views: everyone who read, all groups together
+var viewsData=null,viewsAt=0;
+function viewsPage(){
+  var wrap=h('div');
+  var paint=function(d){
+    var stat=function(v,k,sub){return h('div',{cls:'hstat'},[h('div',{cls:'hv',text:fmt(v)}),h('div',{cls:'hk',text:k}),sub?h('div',{cls:'hs',text:sub}):null])};
+    var T=d.totals,M=d.messages;
+    var msgs=function(n){return n===1?'הודעה אחת':fmt(n)+' הודעות'};
+    var hero=h('section',{cls:'hero-band'},[
+      h('div',{cls:'hb-head'},[h('div',null,[h('h1',{text:'צפיות'}),h('p',{text:'כמה אנשים קראו את ההודעות, בכל הקבוצות יחד'})])]),
+      h('div',{cls:'hb-body one'},[h('div',{cls:'hstats four'},[
+        stat(T.today,'היום',msgs(M.today)),stat(T.days7,'7 ימים',msgs(M.days7)),stat(T.days30,'30 ימים',msgs(M.days30)),
+        stat(T.all,'סך הכול',d.since?'מאז '+new Date(d.since).toLocaleDateString('he-IL'):msgs(M.all))])])]);
+    var gs=d.groups||[],maxR=gs.length&&gs[0].reads?gs[0].reads:1;
+    var groups=h('section',{cls:'panel views-groups'},[h('div',{cls:'ph'},[h('h2',{text:'לפי קבוצה'}),h('span',{cls:'hint',text:'30 הימים האחרונים'})]),
+      gs.some(function(g){return g.reads})?h('ol',{cls:'board'},gs.filter(function(g){return g.reads}).slice(0,30).map(function(g){var bar=h('span',{cls:'bfill'});bar.style.width=(100*g.reads/maxR)+'%';
+        return h('li',null,[h('div',{cls:'bt'},[h('span',{cls:'btx',text:g.title}),h('b',{text:fmt(g.reads)})]),h('span',{cls:'btrack','aria-hidden':'true'},[bar]),
+          h('span',{cls:'bm',text:(g.platform==='tg'?'Telegram · ':'')+fmt(g.copies)+' הודעות'})])}))
+      :h('p',{cls:'hint',text:'כשאנשים יקראו את ההודעות, הקבוצות יופיעו כאן לפי מספר הקוראים.'})]);
+    var note=h('p',{cls:'hint views-note',text:'נספרים אנשים שקראו ב‑WhatsApp, לפי אישורי הקריאה (וי כחול). מי שכיבה אישורי קריאה לא נספר, ובטלגרם WhatsApp לא שולח אישורים כאלה. הקריאות נספרות ליום שבו ההודעה נשלחה, ומתעדכנות כל הזמן.'});
+    wrap.replaceChildren(hero,groups,note);
+  };
+  if(viewsData)paint(viewsData);else wrap.replaceChildren(h('p',{cls:'hint',text:'טוען…'}));
+  if(Date.now()-viewsAt>8000){viewsAt=Date.now();api('GET','/v1/reads/summary').then(function(d){viewsData=d;if(document.body.contains(wrap))paint(d)}).catch(function(e){if(!viewsData)wrap.replaceChildren(h('p',{cls:'err',text:e.message}))})}
+  return wrap;
 }
 function chart(list){
   var days=[],now=new Date();now.setHours(0,0,0,0);
