@@ -172,10 +172,12 @@ describe('terms, privacy and accessibility pages', () => {
     assert.equal(o.name, 'עסק לדוגמה script', 'angle brackets are removed');
     for (const slug of LEGAL_SLUGS) {
       const html = legalHtml(slug, 'n', 'https://x.test', env as NodeJS.ProcessEnv)!;
-      assert.ok(html.includes('hello@example.com') && html.includes('עוסק מורשה 123456789'), slug);
+      assert.ok(html.includes('hello@example.com') && html.includes('עסק לדוגמה'), slug);
       assert.ok(!html.includes('<script'), 'no scripts on legal pages');
     }
-    assert.match(legalHtml('terms', 'n', 'https://x.test', env as NodeJS.ProcessEnv)!, /354 ₪ לחודש, כולל מע"מ/);
+    assert.match(legalHtml('terms', 'n', 'https://x.test', env as NodeJS.ProcessEnv)!, /300 ₪ לחודש, מחיר סופי/);
+    assert.ok(legalHtml('terms', 'n', 'https://x.test', env as NodeJS.ProcessEnv)!.includes('עוסק מורשה 123456789'), 'the terms carry the business number');
+    for (const slug of ['privacy', 'accessibility']) assert.ok(!legalHtml(slug, 'n', 'https://x.test', env as NodeJS.ProcessEnv)!.includes('123456789'), `the number is shown only in the terms, not in ${slug}`);
     assert.equal(legalHtml('nope', 'n', 'https://x.test'), null);
     const fallback = operator({} as NodeJS.ProcessEnv);
     assert.equal(fallback.email, '');
@@ -199,7 +201,8 @@ describe('terms, privacy and accessibility pages', () => {
       }
       const home = await (await fetch(api.url + '/')).text();
       assert.match(home, /אינו קשור ל‑WhatsApp/);
-      assert.match(home, /354<span class="cur">₪<\/span><\/b><span>לחודש, כולל מע"מ/);
+      assert.match(home, /300<span class="cur">₪<\/span><\/b><span>לחודש, מחיר סופי/);
+      assert.ok(!home.includes('123456789'), 'no business number on the home page');
     } finally {
       await api.close();
       await conns.shutdown();
