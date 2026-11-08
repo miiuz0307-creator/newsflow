@@ -6,6 +6,7 @@
  */
 import { fontFaceCss } from './fonts.js';
 import { installPromptCss, installPromptHtml, installPromptJs } from './installPrompt.js';
+import { NOT_AFFILIATED, legalLinksHtml } from './legal.js';
 
 export interface LandingPage {
   slug: string;
@@ -202,6 +203,7 @@ main li::before{content:"";position:absolute;inset-inline-start:2px;top:.55em;wi
 footer{background:var(--ink);color:rgba(255,255,255,.6);padding:30px 0;font-size:14px}
 footer .wrap{max-width:1160px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
 footer a{color:rgba(255,255,255,.8);text-decoration:none;margin-inline-start:16px}
+footer .na{flex-basis:100%;margin:4px 0 0;font-size:13px;color:rgba(255,255,255,.45)}
 ${installPromptCss()}
 @media (max-width:420px){.top .get span{display:none}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
@@ -226,7 +228,7 @@ ${p.sections.map((s) => `  <section><h2>${esc(s.h2)}</h2>${s.body.map((b) => `<p
 </div></main>
 <div class="cta"><div class="wrap"><h2>כותבים פעם אחת. מגיע לכל הקבוצות.</h2><a class="btn" href="/app#signup">פתיחת חשבון בחינם</a></div></div>
 <nav class="more" aria-label="עוד נושאים"><div class="wrap"><h2>עוד ב‑Groupush</h2><ul>${others.map((o) => `<li><a href="/${o.slug}">${esc(o.h1)}</a></li>`).join('')}</ul></div></nav>
-<footer><div class="wrap"><span>© ${new Date().getFullYear()} Groupush (גרופוש)</span><span><a href="/">דף הבית</a><a href="/app">כניסה למערכת</a></span></div></footer>
+<footer><div class="wrap"><span>© ${new Date().getFullYear()} Groupush (גרופוש)</span><span><a href="/">דף הבית</a><a href="/app">כניסה למערכת</a>${legalLinksHtml()}</span><p class="na">${NOT_AFFILIATED}</p></div></footer>
 ${installPromptHtml()}
 <script nonce="${nonce}">${installPromptJs(6000)}</script>
 </body>

@@ -6,6 +6,7 @@
 import { fontFaceCss } from './fonts.js';
 import { installPromptCss, installPromptHtml, installPromptJs } from './installPrompt.js';
 import { LANDING_PAGES } from './landing.js';
+import { NOT_AFFILIATED, legalLinksHtml } from './legal.js';
 
 /** Where the site lives (PUBLIC_ORIGIN, e.g. https://push.co.il, once a domain is connected). */
 export function publicOrigin(host?: string): string {
@@ -284,6 +285,8 @@ section{padding:110px 0}
 footer{background:var(--ink);color:rgba(255,255,255,.6);padding:40px 0;font-size:14px}
 footer .wrap{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
 footer a{text-decoration:none;color:rgba(255,255,255,.75);margin-inline-start:18px}
+footer span:last-of-type{display:flex;flex-wrap:wrap;gap:8px 0}
+footer .na{flex-basis:100%;margin:6px 0 0;font-size:13px;color:rgba(255,255,255,.45)}
 
 
 /* ---------- eye candy ---------- */
@@ -536,7 +539,7 @@ ${CLIENTS.map((c) => `      <li class="client">${c.logo ? `<img src="${c.logo}" 
       </div>
       <div class="plan main">
         <h3>Premium</h3>
-        <div class="price"><b>300<span class="cur">₪</span></b><span>לחודש, לפני מע"מ</span></div>
+        <div class="price"><b>354<span class="cur">₪</span></b><span>לחודש, כולל מע"מ</span></div>
         <p class="tag">לרשתות קבוצות שמפיצות כל יום</p>
         <ul><li>עד 30 קבוצות יעד, WhatsApp ו‑Telegram</li><li>כמה נקראה כל הודעה, ובאיזו קבוצה</li><li>היסטוריה וסטטוס לכל קבוצה</li><li>תמיכה אישית</li><li>בלי פרסומים של Groupush</li></ul>
         <a class="btn btn-primary" href="/app#signup">מתחילים ב‑Premium</a>
@@ -577,7 +580,8 @@ ${FAQ.map(([q, a]) => `      <details><summary>${q}</summary><p>${a}</p></detail
 <footer>
   <div class="wrap">
     <span>© ${new Date().getFullYear()} Groupush. הודעה אחת. כל הקבוצות.</span>
-    <span><a href="#faq">שאלות נפוצות</a><a href="/app">כניסה למערכת</a></span>
+    <span><a href="#faq">שאלות נפוצות</a><a href="/app">כניסה למערכת</a>${legalLinksHtml()}</span>
+    <p class="na">${NOT_AFFILIATED}</p>
   </div>
 </footer>
 

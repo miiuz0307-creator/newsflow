@@ -1,4 +1,5 @@
 import { after, before, describe, test } from 'node:test';
+import { TERMS_VERSION } from '../src/api/legal.js';
 import assert from 'node:assert/strict';
 import { WindowLimiter, authModule } from '../src/api/modules/auth.js';
 import { ApiServer } from '../src/api/server.js';
@@ -80,6 +81,9 @@ describe('auth API', { skip: !available && 'local test Postgres not running' }, 
     assert.equal(me.body.user.displayName, 'מיכאל');
     assert.equal(me.body.tenant.plan.code, 'trial');
     assert.equal(me.body.tenant.riskAccepted, false);
+    const consent = await db.owner.query<{ terms_accepted_at: Date | null; terms_version: string | null }>('SELECT terms_accepted_at, terms_version FROM tenants WHERE id = $1', [r.body.tenantId]);
+    assert.ok(consent.rows[0]!.terms_accepted_at, 'when the terms were accepted is kept');
+    assert.equal(consent.rows[0]!.terms_version, TERMS_VERSION);
     assert.equal((await signup('owner@example.com')).status, 409);
   });
 

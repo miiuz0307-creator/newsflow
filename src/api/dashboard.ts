@@ -128,6 +128,9 @@ main{padding:34px 40px 80px;min-width:0}
 
 /* ---------- panels ---------- */
 .panel{background:var(--card);border:1px solid var(--line);border-radius:18px;padding:22px}
+.account-panel{margin-top:18px;max-width:620px}
+.account-panel .i{margin:12px 0 4px;max-width:320px}
+.auth-brand small a{color:inherit}
 .panel h2{font-size:21px}
 .panel .ph{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:16px}
 .panel .ph a{font-size:14px;color:var(--teal-deep);font-weight:600;text-decoration:none}
@@ -463,7 +466,7 @@ function showAuth(mode,msg,prefill){
     mode==='signup'?h('label',{cls:'f'},[h('span',{text:'שם העסק או רשת הקבוצות'}),biz]):null,
     h('label',{cls:'f'},[h('span',{text:'אימייל'}),email]),
     h('label',{cls:'f'},[h('span',{text:'סיסמה'}),pw]),
-    mode==='signup'?h('label',{cls:'check',for:'terms'},[terms,h('span',{text:'קראתי ואני מסכים לתנאי השימוש ולמדיניות הפרטיות, ומבין שהחיבור ל‑WhatsApp אינו רשמי וכרוך בסיכון לחסימת המספר.'})]):null,
+    mode==='signup'?h('label',{cls:'check',for:'terms'},[terms,h('span',null,['קראתי ואני מסכים ל',h('a',{href:'/terms',target:'_blank',rel:'noopener',text:'תנאי השימוש'}),' ול',h('a',{href:'/privacy',target:'_blank',rel:'noopener',text:'מדיניות הפרטיות'}),', ומבין שהחיבור ל‑WhatsApp אינו רשמי וכרוך בסיכון לחסימת המספר.'])]):null,
     h('label',{cls:'check',for:'remember'},[rememberIn,h('span',{text:'זכור אותי במכשיר הזה'})]),
     submit,err,
     h('p',{cls:'hint',text:mode==='login'?'אין לכם חשבון? עברו ל"הרשמה" למעלה.':'יש לכם כבר חשבון? עברו ל"כניסה" למעלה.'})
@@ -472,7 +475,7 @@ function showAuth(mode,msg,prefill){
     h('aside',{cls:'auth-brand'},[
       h('a',{cls:'logo',href:'/'},[h('i',{'aria-hidden':'true'}),'Groupush']),
       h('div',null,[h('h1',null,['הודעה אחת.',h('span',{text:'כל הקבוצות.'})]),h('p',{text:'כותבים פעם אחת בקבוצת השליטה. Groupush מפיצה לכל הקבוצות, ומסנכרנת עריכה ומחיקה בכל העותקים.'})]),
-      h('small',{text:'© '+new Date().getFullYear()+' Groupush'})]),
+      h('small',null,['© '+new Date().getFullYear()+' Groupush · ',h('a',{href:'/terms',target:'_blank',rel:'noopener',text:'תנאי שימוש'}),' · ',h('a',{href:'/privacy',target:'_blank',rel:'noopener',text:'מדיניות פרטיות'}),' · ',h('a',{href:'/accessibility',target:'_blank',rel:'noopener',text:'הצהרת נגישות'})])]),
     h('div',{cls:'auth-form'},[form])]));
   setTimeout(function(){(mode==='signup'?biz:email).focus()},0);
 }
@@ -1177,6 +1180,18 @@ function logoPage(){
 
 // ---------------- settings (signature)
 var settings=null;
+function accountPanel(){
+  if(demo||(VIEW&&!VIEW.control))return null;
+  var pw=h('input',{cls:'i',type:'password',autocomplete:'current-password',placeholder:'הסיסמה שלכם','aria-label':'הסיסמה, לאישור המחיקה'});
+  var err=h('p',{cls:'err',role:'alert'});
+  var del=h('button',{cls:'btn btn-danger',type:'button',text:'מחיקת החשבון',onclick:async function(){
+    if(!del.hasAttribute('data-sure')){del.setAttribute('data-sure','1');del.textContent='בטוח? לחיצה נוספת מוחקת הכול';return}
+    del.disabled=true;err.textContent='';
+    try{await api('POST','/v1/account/delete',{password:pw.value});clearTok();showAuth('login')}catch(e){err.textContent=e.message;del.disabled=false;del.removeAttribute('data-sure');del.textContent='מחיקת החשבון'}}});
+  return h('section',{cls:'panel account-panel'},[h('h2',{text:'החשבון'}),
+    h('p',{cls:'hint left',text:'מחיקת החשבון מנתקת את WhatsApp ואת הטלגרם ומוחקת את כל ההגדרות, הקבוצות וההיסטוריה. אי אפשר לשחזר.'}),
+    pw,h('div',{cls:'save-row'},[del,err]),h('p',{cls:'hint left'},[h('a',{href:'/terms',target:'_blank',rel:'noopener',text:'תנאי שימוש'}),' · ',h('a',{href:'/privacy',target:'_blank',rel:'noopener',text:'מדיניות פרטיות'}),' · ',h('a',{href:'/accessibility',target:'_blank',rel:'noopener',text:'הצהרת נגישות'})])]);
+}
 function settingsPage(){
   var wrap=h('div',null,[h('div',{cls:'page-h'},[h('div',null,[h('h1',{text:'חתימה והגדרות'}),h('p',{text:'מה מתווסף מתחת לכל הודעה, ואיזה דיווח מגיע לקבוצת השליטה.'})])]),h('p',{cls:'hint',text:'טוען…'})]);
   (async function(){
@@ -1199,7 +1214,7 @@ function settingsPage(){
       h('section',{cls:'panel'},[h('h2',{text:'כך זה ייראה בקבוצות'}),h('div',{cls:'preview'},[h('div',{cls:'b copy pv'},[prevText,prevSig,h('div',{cls:'t',text:'12:00'})])])]),
       demo?null:h('section',{cls:'panel'},[h('h2',{text:'התראות לטלפון'}),h('p',{cls:'hint left',text:'הודעה כשהמספר מתנתק, כשמשהו עוצר את השליחה, וכשיש עדכון ל‑Groupush. כל מכשיר מפעילים בנפרד.'}),notifyPanel()])]));
   })();
-  return wrap;
+  return h('div',null,[wrap,accountPanel()]);
 }
 
 // ---------------- distributions
