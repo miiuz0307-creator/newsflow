@@ -9,7 +9,7 @@ export function appManifest(): string {
   return JSON.stringify({
     id: '/app', name: 'PUSH', short_name: 'PUSH', lang: 'he', dir: 'rtl',
     description: 'הודעה אחת בקבוצת השליטה, לכל הקבוצות. רואים מה יצא, לאן הגיע ומי קרא.',
-    start_url: '/app', scope: '/app', display: 'standalone', orientation: 'portrait',
+    start_url: '/app', scope: '/', display: 'standalone', orientation: 'portrait',
     background_color: '#0A1B33', theme_color: '#0A1B33',
     icons: [
       { src: '/app/icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any maskable' },
