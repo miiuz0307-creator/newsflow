@@ -539,7 +539,7 @@ ${CLIENTS.map((c) => `      <li class="client">${c.logo ? `<img src="${c.logo}" 
       </div>
       <div class="plan main">
         <h3>Premium</h3>
-        <div class="price"><b>354<span class="cur">₪</span></b><span>לחודש, כולל מע"מ</span></div>
+        <div class="price"><b>300<span class="cur">₪</span></b><span>לחודש, מחיר סופי</span></div>
         <p class="tag">לרשתות קבוצות שמפיצות כל יום</p>
         <ul><li>עד 30 קבוצות יעד, WhatsApp ו‑Telegram</li><li>כמה נקראה כל הודעה, ובאיזו קבוצה</li><li>היסטוריה וסטטוס לכל קבוצה</li><li>תמיכה אישית</li><li>בלי פרסומים של Groupush</li></ul>
         <a class="btn btn-primary" href="/app#signup">מתחילים ב‑Premium</a>
