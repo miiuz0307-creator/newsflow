@@ -210,6 +210,17 @@ export function mapSendError(err: any): SendError {
   return new SendError('transient', msg);
 }
 
+/** A built message as a group status: { groupStatusMessageV2: { message: content marked isGroupStatus } }. */
+export function wrapGroupStatus(m: Record<string, any>): Record<string, any> {
+  const { messageContextInfo, ...rest } = m ?? {};
+  let type = Object.keys(rest).find((k) => rest[k] != null);
+  if (!type) throw new SendError('invalid', 'empty message');
+  let body = rest[type];
+  if (type === 'conversation') { type = 'extendedTextMessage'; body = { text: body }; }
+  const inner = { [type]: { ...body, contextInfo: { ...(body.contextInfo ?? {}), isGroupStatus: true } } };
+  return { groupStatusMessageV2: { message: inner }, ...(messageContextInfo ? { messageContextInfo } : {}) };
+}
+
 /** Builds the Baileys sendMessage payload for our content. */
 export function toBaileysPayload(content: MessageContent): Record<string, unknown> {
   const media = content.media;
@@ -528,7 +539,7 @@ export class BaileysTransport implements WaTransport {
         try { this.groupCache.set(chatId, await this.sock.groupMetadata(chatId)); } catch { /* Baileys tries again itself */ }
       }
       const started = Date.now();
-      const res = await this.sock.sendMessage(chatId, payload);
+      const res = content.asStatus && chatId.endsWith('@g.us') ? await this.sendGroupStatus(chatId, payload) : await this.sock.sendMessage(chatId, payload);
       const ms = Date.now() - started;
       if (ms > 1500) this.log.info('slow send', { accountId: this.accountId, chatId, ms, members: this.groupCache.get(chatId)?.participants?.length ?? null });
       if (res?.key?.id && res.message) {
@@ -539,6 +550,24 @@ export class BaileysTransport implements WaTransport {
     } catch (err: any) {
       throw mapSendError(err);
     }
+  }
+
+  /**
+   * "!סטטוס": the copy goes up as the group's status (WhatsApp group status). Built like a normal
+   * message, then wrapped as WhatsApp's own app does: the content marked isGroupStatus inside a
+   * groupStatusMessageV2, sent to the group with <meta is_group_status="true"/>.
+   */
+  private async sendGroupStatus(chatId: string, payload: Record<string, unknown>): Promise<{ key: { id: string }; message: unknown }> {
+    const B = await this.loadBaileys();
+    const sock = this.sock;
+    const full = await B.generateWAMessage(chatId, payload, {
+      userJid: sock.user?.id, upload: sock.waUploadToServer,
+      ...(B.generateMessageIDV2 ? { messageId: B.generateMessageIDV2(sock.user?.id) } : {}),
+    });
+    const message = wrapGroupStatus(full.message);
+    await sock.relayMessage(chatId, message, { messageId: full.key.id, additionalNodes: [{ tag: 'meta', attrs: { is_group_status: 'true' } }] });
+    this.log.info('group status sent', { accountId: this.accountId, chatId, id: full.key.id });
+    return { key: full.key, message };
   }
 
   /** An edit that arrived encrypted: opened with the original message's secret, then handled like any edit. */
