@@ -1034,6 +1034,7 @@ function connectPage(){
       h('p',{text:'לא מצאנו קבוצות במספר הזה. הוסיפו את המספר לקבוצות ב-WhatsApp, ואז רעננו את העמוד.'})]);
     return h('div',null,[
       h('section',{cls:'panel conn-head'},[h('div',{cls:'conn-ok'},[h('span',{cls:'dot'}),h('div',{cls:'conn-num'},[h('b',{text:'המספר מחובר'}),h('span',{dir:'ltr',text:'+'+(a.phoneNumber||'')})])]),discon]),
+      waPromoNote(),
       h('div',{cls:'grid-2 pick'},[
         h('section',{cls:'panel'},[h('div',{cls:'ph'},[h('h2',{text:'קבוצת שליטה'}),h('span',{cls:'gcount',text:groups.length+' קבוצות במספר'})]),
           h('p',{cls:'hint left',text:'הקבוצה שבה אתם כותבים. כל מה שנכתב בה יופץ, ועריכה או מחיקה בה יעודכנו בכל הקבוצות.'}),qc,ctrlNow,ctrlEl,
@@ -1045,6 +1046,16 @@ function connectPage(){
   }
   load();
   return wrap;
+}
+// Free plan: Groupush may post in the WhatsApp groups the customer distributes to, once they agree.
+var WA_PROMO_TEXT='במסלול החינמי Groupush מפרסמת מדי פעם הודעה משלה בקבוצות הוואטסאפ שאליהן אתם מפיצים, דרך המספר שחיברתם. לא בקבוצת השליטה ולא בקבוצות אחרות במספר. במסלול פרימיום אין פרסומים.';
+function waPromoNote(){
+  var pr=(me&&me.tenant&&me.tenant.waPromo)||{};if(!pr.applies||demo)return '';
+  if(pr.accepted)return h('p',{cls:'promo-note',text:WA_PROMO_TEXT});
+  var err=h('span',{cls:'err',role:'alert'}),box;
+  box=h('div',{cls:'promo-note'},[WA_PROMO_TEXT+' ',h('button',{cls:'linkish',type:'button',text:'מאשר/ת',onclick:async function(e){var btn=e.currentTarget;btn.disabled=true;
+    try{await api('POST','/v1/wa/promo-consent',{});me.tenant.waPromo.accepted=true;box.replaceWith(waPromoNote())}catch(x){err.textContent=' '+x.message;btn.disabled=false}}}),err]);
+  return box;
 }
 // 050-1234567 → 972501234567 (Israeli local format to international); +44… stays as is.
 function intlPhone(v){var d=String(v||'').replace(/[^0-9]/g,'');if(/^0[1-9]/.test(d))d='972'+d.slice(1);return d}

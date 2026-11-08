@@ -36,6 +36,8 @@ describe('Telegram promos for the free plan', { skip: !available && 'local test 
   let freeTok = '', adminTok = '';
   let freeT = '', paidT = '', noOkT = '', suspT = '';
   const fakeBots = new Map<string, { sent: { chatId: string; text: string; id: string }[]; removed: string[] }>();
+  const fakeWa = new Map<string, { sent: { chatId: string; text: string; id: string }[]; removed: string[] }>();
+  const reserved: string[] = [];
   const call = async (token: string, method: string, path: string, body?: unknown) => {
     const r = await fetch(api.url + path, { method, headers: { authorization: `Bearer ${token}`, ...(body ? { 'content-type': 'application/json' } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
     return { status: r.status, body: (await r.json()) as any };
@@ -73,6 +75,12 @@ describe('Telegram promos for the free plan', { skip: !available && 'local test 
         send: async (chatId: string, c: MessageContent) => { const id = String(Math.random()).slice(2, 8); fakeBots.get(botId)!.sent.push({ chatId, text: c.text ?? '', id }); return { messageId: id, sentAt: new Date() }; },
         remove: async (_chatId: string, id: string) => { fakeBots.get(botId)!.removed.push(id); },
       } : undefined),
+      waSender: (accountId) => fakeWa.has(accountId) ? {
+        send: async (chatId: string, c: MessageContent) => { const id = `WA${String(Math.random()).slice(2, 8)}`; fakeWa.get(accountId)!.sent.push({ chatId, text: c.text ?? '', id }); return { messageId: id, sentAt: new Date() }; },
+        remove: async (_chatId: string, id: string) => { fakeWa.get(accountId)!.removed.push(id); },
+      } : undefined,
+      waGapMs: 1,
+      reserve: async (_p, accountId, key) => { reserved.push(key); return { ok: true }; },
     });
 
     const { factory } = memoryStores();
@@ -172,6 +180,82 @@ describe('Telegram promos for the free plan', { skip: !available && 'local test 
     assert.equal((await call(adminTok, 'GET', '/admin/v1/tg-promo')).body.audience.tenants, 2);
     assert.equal((await call(adminTok, 'POST', `/admin/v1/tenants/${paidT}/telegram`, { stopped: true })).status, 200);
     assert.equal((await call(adminTok, 'POST', `/admin/v1/tenants/${suspT}/telegram`, { stopped: false })).status, 200);
+  });
+
+  /** A free customer with a WhatsApp number: control group → two target groups; one more group not in any route. */
+  const tenantWithWhatsApp = async (name: string, waOk: boolean) => {
+    const t = await keys.provision(db.app, name, 'trial', `${name.replace(/\s/g, '')}-wa@x.com`);
+    await adminSetTenant(db, t, 'free');
+    const acc = await withTenant(db.app, t, async (c) => {
+      const a = (await c.query<{ id: string }>(`INSERT INTO wa_accounts (tenant_id, label, status) VALUES ($1, 'x', 'connected') RETURNING id`, [t])).rows[0]!.id;
+      const r = (await c.query<{ id: string }>(`INSERT INTO routes (tenant_id, name) VALUES ($1, 'שליטה') RETURNING id`, [t])).rows[0]!.id;
+      await c.query(`INSERT INTO route_sources (route_id, tenant_id, platform, account_id, chat_id) VALUES ($1, $2, 'wa', $3, 'ctrl@g.us')`, [r, t, a]);
+      for (const g of ['g1@g.us', 'g2@g.us']) await c.query(`INSERT INTO route_targets (route_id, tenant_id, platform, account_id, chat_id, title) VALUES ($1, $2, 'wa', $3, $4, $5)`, [r, t, a, g, `קבוצה ${g}`]);
+      return a;
+    });
+    await db.worker.query(`INSERT INTO chats (tenant_id, platform, account_id, chat_id, title, type, can_send) VALUES ($1, 'wa', $2, 'family@g.us', 'משפחה', 'group', true)`, [t, acc]);
+    if (waOk) await db.owner.query('UPDATE tenants SET wa_promo_ok_at = now() WHERE id = $1', [t]);
+    fakeWa.set(acc, { sent: [], removed: [] });
+    return { t, acc };
+  };
+
+  test('WhatsApp: the customer agrees in the app; posts reach only the picked customers\' target groups, never the control group', async () => {
+    const agreed = await tenantWithWhatsApp('מבזקים חינם', false);
+    const notPicked = await tenantWithWhatsApp('לא נבחר', true);
+    const noOk = await tenantWithWhatsApp('וואטסאפ בלי אישור', false);
+
+    // The customer agrees in the app (free plan only).
+    const uid = (await withTenant(db.app, agreed.t, (c) => c.query<{ id: string }>('SELECT id FROM users'))).rows[0]!.id;
+    const tk = signToken({ tenantId: agreed.t, userId: uid, role: 'owner' }, SECRET);
+    const okAt = async () => (await db.owner.query<{ wa_promo_ok_at: Date | null }>('SELECT wa_promo_ok_at FROM tenants WHERE id = $1', [agreed.t])).rows[0]!.wa_promo_ok_at;
+    assert.equal(await okAt(), null);
+    assert.equal((await call(tk, 'POST', '/v1/wa/promo-consent', {})).status, 200);
+    assert.ok(await okAt(), 'agreement recorded');
+    assert.equal((await db.admin.query(`SELECT 1 FROM audit_log WHERE tenant_id = $1 AND action = 'wa_promo.accepted'`, [agreed.t])).rowCount, 1);
+
+    const g = (await call(adminTok, 'GET', '/admin/v1/tg-promo')).body;
+    assert.equal(g.whatsapp, true);
+    const row = (id: string) => g.customers.find((c: { tenantId: string }) => c.tenantId === id);
+    assert.deepEqual(row(agreed.t).wa, { consent: true, chats: ['קבוצה g1@g.us', 'קבוצה g2@g.us'] }, 'targets only: not the control group, not "משפחה"');
+    assert.equal(row(agreed.t).plan, 'free');
+    assert.deepEqual(row(noOk.t).wa, { consent: false, chats: [] });
+    assert.ok(g.audience.waAwaitingConsent >= 1);
+    assert.ok(g.customers.some((c: { plan: string }) => c.plan === 'premium'), 'premium customers are listed too (not selectable)');
+
+    // Bad choices are refused.
+    assert.equal((await call(adminTok, 'POST', '/admin/v1/tg-promo', { body: 'x', platforms: ['sms'] })).status, 400);
+    assert.equal((await call(adminTok, 'POST', '/admin/v1/tg-promo', { body: 'x', platforms: ['wa'], tenantIds: [] })).status, 400);
+    assert.equal((await call(adminTok, 'POST', '/admin/v1/tg-promo', { body: 'x', platforms: ['wa'], tenantIds: [noOk.t] })).status, 409, 'not agreed: nothing to send');
+
+    reserved.length = 0;
+    const s = await call(adminTok, 'POST', '/admin/v1/tg-promo', { body: '*Groupush* מפיצה לכל הקבוצות', platforms: ['wa'], tenantIds: [agreed.t, noOk.t, paidT] });
+    assert.equal(s.status, 200, JSON.stringify(s.body));
+    assert.equal(s.body.targets, 2);
+    assert.equal(s.body.customers, 1);
+    await until(async () => (await call(adminTok, 'GET', '/admin/v1/tg-promo')).body.history[0].status === 'done');
+    const h = (await call(adminTok, 'GET', '/admin/v1/tg-promo')).body.history[0];
+    assert.deepEqual(h.platforms, ['wa']);
+    assert.equal(h.customers, 1);
+    assert.equal(h.sent, 2);
+    assert.deepEqual(fakeWa.get(agreed.acc)!.sent.map((x) => x.chatId).sort(), ['g1@g.us', 'g2@g.us']);
+    assert.equal(fakeWa.get(agreed.acc)!.sent[0]!.text, '*Groupush* מפיצה לכל הקבוצות');
+    assert.equal(fakeWa.get(notPicked.acc)!.sent.length, 0, 'not picked');
+    assert.equal(fakeWa.get(noOk.acc)!.sent.length, 0, 'not agreed');
+    assert.equal(reserved.length, 2, 'each WhatsApp copy takes a slot in the number\'s send limits');
+    for (const b of fakeBots.values()) assert.ok(!b.sent.some((x) => x.text.includes('מפיצה לכל')), 'WhatsApp only: no Telegram copies');
+
+    const rm = await call(adminTok, 'POST', `/admin/v1/tg-promo/${h.id}/remove`);
+    assert.equal(rm.body.removed, 2);
+    assert.equal(fakeWa.get(agreed.acc)!.removed.length, 2);
+
+    // A stopped number gets nothing.
+    await db.worker.query(`INSERT INTO kill_switches (scope, scope_id, tenant_id, active, reason, set_by) VALUES ('account', $1, $2, true, 'test', 'admin:x')`, [agreed.acc, agreed.t]);
+    assert.deepEqual(((await call(adminTok, 'GET', '/admin/v1/tg-promo')).body.customers.find((c: { tenantId: string }) => c.tenantId === agreed.t)).wa.chats, []);
+    await db.worker.query(`UPDATE kill_switches SET active = false WHERE scope_id = $1`, [agreed.acc]);
+
+    // Premium customers cannot agree (nothing to agree to).
+    const pu = (await withTenant(db.app, paidT, (c) => c.query<{ id: string }>('SELECT id FROM users'))).rows[0]!.id;
+    assert.equal((await call(signToken({ tenantId: paidT, userId: pu, role: 'owner' }, SECRET), 'POST', '/v1/wa/promo-consent', {})).status, 409);
   });
 
   test('nothing to send: refused without recording a post', async () => {

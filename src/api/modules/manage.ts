@@ -93,6 +93,24 @@ export function manageModule(opts: ManageModuleOptions) {
       return { ok: true };
     });
 
+    /**
+     * WhatsApp posts go through the customer's own number, so they have their own agreement,
+     * asked in the app (not a condition for connecting). Free plan only; recorded once.
+     */
+    api.on('POST', '/v1/wa/promo-consent', true, async ({ auth }) => {
+      api.requireRole(auth!, 'owner', 'admin');
+      return api.tenantTx(auth!, async (c) => {
+        const r = await c.query<{ plan_code: string; wa_promo_ok_at: Date | null }>('SELECT plan_code, wa_promo_ok_at FROM tenants WHERE id = $1', [auth!.tenantId]);
+        const t = r.rows[0];
+        if (!t || t.plan_code !== 'free') throw new HttpError(409, 'not_free_plan', 'פרסומים של Groupush קיימים רק במסלול החינמי');
+        if (!t.wa_promo_ok_at) {
+          await c.query('UPDATE tenants SET wa_promo_ok_at = now() WHERE id = $1', [auth!.tenantId]);
+          await api.audit(c, auth!, 'wa_promo.accepted', auth!.tenantId, {});
+        }
+        return { ok: true };
+      });
+    });
+
     // ---------------- Create a bot in one tap (Telegram managed bots)
     const mgr = opts.botManager;
     if (mgr) {
