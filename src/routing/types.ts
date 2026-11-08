@@ -103,7 +103,8 @@ export type SkipReason =
   | 'duplicate'
   | 'own_forward'
   | 'sender_not_allowed'
-  | 'own_report';
+  | 'own_report'
+  | 'status_whatsapp_only';
 
 /** send = a copy; edit / delete change a copy already sent; report = a status message to the control group. */
 export type JobAction = 'send' | 'edit' | 'delete' | 'report';

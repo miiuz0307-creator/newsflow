@@ -8,6 +8,7 @@ import type { ChatRef, InboundMessage, MessageContent } from '../core/types.js';
 import { chatKey } from '../core/types.js';
 import type { DedupStore } from './dedup.js';
 import { parseSchedule, stripSchedule } from './schedule.js';
+import { parseStatusCommand } from './statusCommand.js';
 import { renderTemplate } from './template.js';
 import { codePointLength, contentFingerprint, normalizeForMatch, removeInviteLinks } from './text.js';
 import type { ControlSettings, PlannedJob, QuietHours, Route, RouteFilters, RouteTarget, RoutingPlan, SkipReason, Template } from './types.js';
@@ -50,6 +51,13 @@ export function renderCopy(
   let body = source.text ?? '';
   // A control group's "תזמון (12:20)" line is an instruction to Groupush, never part of the copy.
   if (route.control) body = stripSchedule(body);
+  // "!סטטוס": the copy goes up as the WhatsApp group's status; the command is not part of it.
+  let asStatus = false;
+  if (route.control) {
+    const st = parseStatusCommand(body);
+    asStatus = st.status && isStatusTarget(target);
+    body = st.rest;
+  }
   if (route.filters.removeInviteLinks ?? true) body = removeInviteLinks(body);
   if (source.kind === 'text' && !body.trim()) return null;
   // The control group's fixed signature goes under the message (and under the template, if any).
@@ -62,7 +70,12 @@ export function renderCopy(
     platform: target.platform,
     isCaption: source.kind !== 'text',
   });
-  return { kind: source.kind, text: rendered.text, ...(source.media ? { media: source.media } : {}) };
+  return { kind: source.kind, text: rendered.text, ...(source.media ? { media: source.media } : {}), ...(asStatus ? { asStatus: true } : {}) };
+}
+
+/** Only WhatsApp groups have a group status. */
+export function isStatusTarget(t: { platform: string; chatId: string }): boolean {
+  return t.platform === 'wa' && t.chatId.endsWith('@g.us');
 }
 
 export interface RouterOptions {
@@ -173,6 +186,8 @@ export class Router {
         continue;
       }
       let body = schedule.kind === 'scheduled' ? schedule.rest : msg.content.text ?? '';
+      const statusCmd = route.control ? parseStatusCommand(body) : { status: false, rest: body };
+      body = statusCmd.rest;
       if (route.filters.removeInviteLinks ?? true) body = removeInviteLinks(body);
       if (msg.content.kind === 'text' && !body.trim()) {
         plan.skipped.push({ routeId: route.id, reason: 'empty_after_cleanup' });
@@ -194,6 +209,11 @@ export class Router {
 
       for (const target of targets) {
         const tKey = chatKey(target);
+        // A status goes only to WhatsApp groups; Telegram channels and other chats have none.
+        if (statusCmd.status && !isStatusTarget(target)) {
+          plan.skipped.push({ routeId: route.id, reason: 'status_whatsapp_only', target: tKey });
+          continue;
+        }
         if (!claimed.has(keyOf(target))) {
           plan.skipped.push({ routeId: route.id, reason: 'duplicate', target: tKey });
           continue;
