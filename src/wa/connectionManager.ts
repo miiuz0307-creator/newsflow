@@ -340,8 +340,8 @@ export class ConnectionManager {
         this.log.warn('session taken over by another Groupush server; this one stops', { accountId: e.state.accountId });
         break;
       case 'bad_session':
-        await e.store.wipe();
-        this.setStatus(e, 'needs_relink');
+        // Never wipe the stored session here (see RECONNECT_POLICY): only a 401 does that.
+        this.setStatus(e, 'disconnected');
         break;
       case 'link_timeout':
         this.setStatus(e, 'link_expired');
