@@ -10,6 +10,7 @@
  * - Account deletion: required by Google Play; removes the tenant's data and
  *   unlinks its WhatsApp numbers.
  */
+import { TERMS_VERSION } from '../legal.js';
 import { createHash, randomBytes } from 'node:crypto';
 import { PgError } from '../../db/pg.js';
 import { withTenant, type TenantKeys } from '../../db/pgStores.js';
@@ -99,6 +100,8 @@ export function authModule(opts: AuthModuleOptions) {
         if (e instanceof PgError && e.code === '23505') throw new HttpError(409, 'email_taken', 'כבר קיים חשבון עם האימייל הזה');
         throw e;
       }
+      // Evidence of consent: when, and to which version of the terms and privacy policy.
+      await withTenant(pool, tenantId, (c) => c.query('UPDATE tenants SET terms_accepted_at = now(), terms_version = $1 WHERE id = $2', [TERMS_VERSION, tenantId]));
       const user = await withTenant(pool, tenantId, (c) => c.query<{ id: string }>('SELECT id FROM users WHERE lower(email) = $1', [email]));
       const userId = user.rows[0]!.id;
       if (body.displayName) {

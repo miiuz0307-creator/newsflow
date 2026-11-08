@@ -18,6 +18,7 @@ import { adminIcon } from '../adminIcon.js';
 import { fontFaceCss } from '../fonts.js';
 import { publicOrigin, siteHtml } from '../site.js';
 import { LANDING_PAGES, landingHtml } from '../landing.js';
+import { LEGAL_SLUGS, legalHtml } from '../legal.js';
 
 interface DistRow {
   scheduled_at: Date | null;
@@ -381,6 +382,20 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
       });
     }
 
+    // Terms of use, privacy policy, accessibility statement.
+    for (const slug of LEGAL_SLUGS) {
+      api.on('GET', `/${slug}`, false, async ({ req, res }) => {
+        const nonce = randomBytes(16).toString('base64');
+        res.writeHead(200, {
+          'content-type': 'text/html; charset=utf-8',
+          'content-security-policy': `default-src 'none'; style-src 'nonce-${nonce}'; font-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+          'referrer-policy': 'no-referrer',
+        });
+        res.end(legalHtml(slug, nonce, publicOrigin(req.headers.host)));
+        return undefined;
+      });
+    }
+
     // Search engines: only the home page is for them. The app and the panel answer "noindex"
     // themselves (listing their paths here would only advertise them).
     api.on('GET', '/robots.txt', false, async ({ req, res }) => {
@@ -391,7 +406,8 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
     api.on('GET', '/sitemap.xml', false, async ({ req, res }) => {
       res.writeHead(200, { 'content-type': 'application/xml; charset=utf-8', 'cache-control': 'public, max-age=3600' });
       const o = publicOrigin(req.headers.host);
-      const pages = LANDING_PAGES.map((p) => `<url><loc>${o}/${p.slug}</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`).join('');
+      const pages = LANDING_PAGES.map((p) => `<url><loc>${o}/${p.slug}</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>`).join('')
+        + LEGAL_SLUGS.map((s) => `<url><loc>${o}/${s}</loc><changefreq>yearly</changefreq><priority>0.2</priority></url>`).join('');
       res.end(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${o}/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>${pages}</urlset>\n`);
       return undefined;
     });
