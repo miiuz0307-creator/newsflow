@@ -10,7 +10,8 @@ import { MemoryDedupStore } from '../src/routing/dedup.js';
 import { Router } from '../src/routing/router.js';
 import { parseStatusCommand } from '../src/routing/statusCommand.js';
 import type { Route } from '../src/routing/types.js';
-import { toBaileysPayload, wrapGroupStatus } from '../src/wa/baileysTransport.js';
+import { GROUP_STATUS_META, markGroupStatus, toBaileysPayload, wrapGroupStatus } from '../src/wa/baileysTransport.js';
+import { finalReportText } from '../src/engine/reporter.js';
 
 const SRC = { platform: 'wa' as const, accountId: 'acc1', chatId: 'ctrl@g.us' };
 const G1 = { platform: 'wa' as const, accountId: 'acc1', chatId: 'g1@g.us', title: 'קבוצה 1' };
@@ -65,15 +66,32 @@ describe('!סטטוס', () => {
     assert.equal(empty.jobs.length, 0, 'nothing to post');
   });
 
-  test('the WhatsApp message: content marked isGroupStatus inside groupStatusMessageV2', () => {
+  test('the WhatsApp message: marked isGroupStatus with a messageSecret, wrapped in groupStatusMessageV2 on the wire', () => {
     const secret = { messageSecret: Buffer.alloc(32, 1) };
-    assert.deepEqual(wrapGroupStatus({ extendedTextMessage: { text: 'שלום' }, messageContextInfo: secret }), {
-      groupStatusMessageV2: { message: { extendedTextMessage: { text: 'שלום', contextInfo: { isGroupStatus: true } } } },
+    const marked = markGroupStatus({ extendedTextMessage: { text: 'שלום', backgroundArgb: 1 }, messageContextInfo: secret });
+    assert.deepEqual(marked, { extendedTextMessage: { text: 'שלום', backgroundArgb: 1, contextInfo: { isGroupStatus: true } }, messageContextInfo: secret });
+    assert.deepEqual(wrapGroupStatus(marked), {
       messageContextInfo: secret,
+      groupStatusMessageV2: { message: { extendedTextMessage: { text: 'שלום', backgroundArgb: 1, contextInfo: { isGroupStatus: true } } } },
     });
-    assert.deepEqual(wrapGroupStatus({ conversation: 'היי' }), { groupStatusMessageV2: { message: { extendedTextMessage: { text: 'היי', contextInfo: { isGroupStatus: true } } } } });
-    const img = wrapGroupStatus({ imageMessage: { url: 'u', caption: 'c', contextInfo: { stanzaId: 'x' } } });
-    assert.deepEqual(img.groupStatusMessageV2.message.imageMessage.contextInfo, { stanzaId: 'x', isGroupStatus: true });
+    assert.equal(wrapGroupStatus(wrapGroupStatus(marked)).groupStatusMessageV2.message.groupStatusMessageV2, undefined, 'wrapping twice is safe');
+    const conv = markGroupStatus({ conversation: 'היי' });
+    assert.deepEqual(conv.extendedTextMessage, { text: 'היי', contextInfo: { isGroupStatus: true } });
+    assert.equal(conv.messageContextInfo.messageSecret.length, 32, 'a secret is added when missing');
+    const img = markGroupStatus({ imageMessage: { url: 'u', caption: 'c', contextInfo: { stanzaId: 'x' } } });
+    assert.deepEqual(img.imageMessage.contextInfo, { stanzaId: 'x', isGroupStatus: true });
+    // Ordinary messages pass the send hook untouched.
+    const normal = { extendedTextMessage: { text: 'רגיל' } };
+    assert.equal(wrapGroupStatus(normal), normal);
+    assert.deepEqual(GROUP_STATUS_META, { tag: 'meta', attrs: { is_group_status: 'true', origin: 'group_status' } });
+    assert.throws(() => markGroupStatus({ documentMessage: {} }));
     assert.deepEqual(toBaileysPayload({ kind: 'text', text: 'a', asStatus: true }), { text: 'a' }, 'the content itself is built as usual');
+  });
+
+  test('the control group is told the status went up', () => {
+    const s = { total: 5, sent: 5, failed: 0, skipped: 0, cancelled: 0, unknown: 0, pending: 0, reasons: {}, failedTargets: [], cancelledReasons: {} } as any;
+    assert.match(finalReportText('send', s, { status: true }), /✅ Groupush · הסטטוס הועלה בהצלחה ב-5 מתוך 5 קבוצות\./);
+    assert.match(finalReportText('send', { ...s, sent: 4, failed: 1, failedTargets: ['קבוצה 3'] }, { status: true }), /⚠️ Groupush · הסטטוס עלה ב-4 מתוך 5 קבוצות\.\n1 לא הצליחו: קבוצה 3/);
+    assert.match(finalReportText('send', s), /ההודעה נשלחה בהצלחה/);
   });
 });

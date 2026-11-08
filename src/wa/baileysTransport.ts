@@ -14,7 +14,7 @@
  * Using this client is against WhatsApp's terms. It identifies itself
  * honestly, does not spoof devices and does not retry after a ban.
  */
-import { createDecipheriv, hkdfSync } from 'node:crypto';
+import { createDecipheriv, hkdfSync, randomBytes } from 'node:crypto';
 import type { ChatInfo, MessageContent, MessageKind, SendResult } from '../core/types.js';
 import { SendError } from '../core/types.js';
 import type { Logger } from '../logger.js';
@@ -210,16 +210,41 @@ export function mapSendError(err: any): SendError {
   return new SendError('transient', msg);
 }
 
-/** A built message as a group status: { groupStatusMessageV2: { message: content marked isGroupStatus } }. */
-export function wrapGroupStatus(m: Record<string, any>): Record<string, any> {
-  const { messageContextInfo, ...rest } = m ?? {};
-  let type = Object.keys(rest).find((k) => rest[k] != null);
-  if (!type) throw new SendError('invalid', 'empty message');
-  let body = rest[type];
-  if (type === 'conversation') { type = 'extendedTextMessage'; body = { text: body }; }
-  const inner = { [type]: { ...body, contextInfo: { ...(body.contextInfo ?? {}), isGroupStatus: true } } };
-  return { groupStatusMessageV2: { message: inner }, ...(messageContextInfo ? { messageContextInfo } : {}) };
+/** Background of a text group status (Groupush blue). */
+const STATUS_BACKGROUND = '#0A5BD3';
+
+/** Message types WhatsApp shows as a group status. */
+const STATUS_TYPES = ['extendedTextMessage', 'imageMessage', 'videoMessage', 'audioMessage'] as const;
+
+/**
+ * Marks a built message as a group status, the way WhatsApp's own clients send it: the content
+ * carries contextInfo.isGroupStatus, and the message has a 32-byte messageSecret.
+ */
+export function markGroupStatus(m: Record<string, any>): Record<string, any> {
+  const out: Record<string, any> = { ...(m ?? {}) };
+  if (out.conversation != null) { out.extendedTextMessage = { ...(out.extendedTextMessage ?? {}), text: out.conversation }; delete out.conversation; }
+  const type = STATUS_TYPES.find((k) => out[k] != null);
+  if (!type) throw new SendError('invalid', 'a group status can be text, a photo, a video or audio');
+  out[type] = { ...out[type], contextInfo: { ...(out[type].contextInfo ?? {}), isGroupStatus: true } };
+  if (!out.messageContextInfo?.messageSecret) out.messageContextInfo = { ...(out.messageContextInfo ?? {}), messageSecret: randomBytes(32) };
+  return out;
 }
+
+/**
+ * The envelope that goes on the wire: { messageContextInfo, groupStatusMessageV2: { message } }.
+ * Only a message marked by markGroupStatus is wrapped; anything else (and an envelope) is returned
+ * as it is, so this is safe as Baileys' patchMessageBeforeSending, including on re-sends.
+ */
+export function wrapGroupStatus(m: Record<string, any>): Record<string, any> {
+  if (!m || m.groupStatusMessageV2) return m;
+  const type = STATUS_TYPES.find((k) => m[k] != null);
+  if (!type || m[type]?.contextInfo?.isGroupStatus !== true) return m;
+  const { messageContextInfo, ...inner } = m;
+  return { ...(messageContextInfo ? { messageContextInfo } : {}), groupStatusMessageV2: { message: inner } };
+}
+
+/** The stanza node that tells WhatsApp the message is a group status. */
+export const GROUP_STATUS_META = { tag: 'meta', attrs: { is_group_status: 'true', origin: 'group_status' } };
 
 /** Builds the Baileys sendMessage payload for our content. */
 export function toBaileysPayload(content: MessageContent): Record<string, unknown> {
@@ -319,6 +344,8 @@ export class BaileysTransport implements WaTransport {
       // When a group member's phone can't decrypt one of our messages it asks for it again;
       // Baileys answers from its own recent cache, and from ours as a fallback.
       getMessage: async (key: any) => this.sentCache.get(key?.id ?? ''),
+      // "!סטטוס": a message marked as a group status goes on the wire inside its envelope.
+      patchMessageBeforeSending: (msg: any) => wrapGroupStatus(msg),
       // Group member lists are needed on every send; caching them avoids a lookup per message.
       cachedGroupMetadata: async (jid: string) => this.groupCache.get(jid),
       auth: { creds, keys: B.makeCacheableSignalKeyStore ? B.makeCacheableSignalKeyStore(keys) : keys },
@@ -553,21 +580,30 @@ export class BaileysTransport implements WaTransport {
   }
 
   /**
-   * "!סטטוס": the copy goes up as the group's status (WhatsApp group status). Built like a normal
-   * message, then wrapped as WhatsApp's own app does: the content marked isGroupStatus inside a
-   * groupStatusMessageV2, sent to the group with <meta is_group_status="true"/>.
+   * "!סטטוס": the copy goes up as the group's status (WhatsApp group status), sent as WhatsApp's own
+   * clients send it: the content marked isGroupStatus inside a groupStatusMessageV2 envelope, with a
+   * messageSecret and <meta is_group_status="true" origin="group_status"/>. Text gets a status
+   * background and font. The message is handed to Baileys unwrapped (so photos and videos get their
+   * media type) and wrapped by patchMessageBeforeSending; the cache for re-sends keeps the envelope,
+   * so a member whose phone asks again never gets it as an ordinary chat message.
    */
   private async sendGroupStatus(chatId: string, payload: Record<string, unknown>): Promise<{ key: { id: string }; message: unknown }> {
     const B = await this.loadBaileys();
     const sock = this.sock;
-    const full = await B.generateWAMessage(chatId, payload, {
+    const isText = 'text' in payload;
+    const full = await B.generateWAMessage(chatId, isText ? { ...payload, linkPreview: null } : payload, {
       userJid: sock.user?.id, upload: sock.waUploadToServer,
+      ...(isText ? { backgroundColor: STATUS_BACKGROUND, font: 1 } : {}),
       ...(B.generateMessageIDV2 ? { messageId: B.generateMessageIDV2(sock.user?.id) } : {}),
     });
-    const message = wrapGroupStatus(full.message);
-    await sock.relayMessage(chatId, message, { messageId: full.key.id, additionalNodes: [{ tag: 'meta', attrs: { is_group_status: 'true' } }] });
-    this.log.info('group status sent', { accountId: this.accountId, chatId, id: full.key.id });
-    return { key: full.key, message };
+    const marked = markGroupStatus(full.message);
+    if (isText && marked.extendedTextMessage && marked.extendedTextMessage.textArgb == null) marked.extendedTextMessage.textArgb = 0xffffffff;
+    const message = B.proto.Message.fromObject(marked);
+    const wrapped = wrapGroupStatus(message);
+    await sock.relayMessage(chatId, message, { messageId: full.key.id, additionalNodes: [GROUP_STATUS_META] });
+    sock.messageRetryManager?.addRecentMessage?.(chatId, full.key.id, wrapped);
+    this.log.info('group status sent', { accountId: this.accountId, chatId, id: full.key.id, kind: Object.keys(marked).find((k) => k !== 'messageContextInfo') });
+    return { key: full.key, message: wrapped };
   }
 
   /** An edit that arrived encrypted: opened with the original message's secret, then handled like any edit. */
