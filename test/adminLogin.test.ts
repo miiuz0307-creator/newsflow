@@ -140,6 +140,28 @@ describe('admin sign-in, second step', { skip: !available && 'local test Postgre
     assert.equal((await call('GET', '/app')).headers.get('x-robots-tag'), 'noindex, nofollow');
     assert.equal((await call('GET', '/admin')).headers.get('x-robots-tag'), 'noindex');
   });
+
+  test('topic pages for search engines: each served, in the sitemap, linked from home, honest structured data', async () => {
+    const { LANDING_PAGES } = await import('../src/api/landing.js');
+    assert.ok(LANDING_PAGES.length >= 5);
+    const map = (await call('GET', '/sitemap.xml')).text;
+    const home = (await call('GET', '/')).text;
+    assert.match(home, /מערכת שליחה אוטומטית/);
+    for (const p of LANDING_PAGES) {
+      const r = await call('GET', `/${p.slug}`);
+      assert.equal(r.status, 200, p.slug);
+      assert.match(r.headers.get('content-security-policy') ?? '', /script-src 'nonce-/);
+      assert.ok(r.text.includes(`<link rel="canonical" href="http://127.0.0.1:`) && r.text.includes(`/${p.slug}">`), 'canonical');
+      assert.ok(r.text.includes(`<h1>${p.h1}</h1>`));
+      assert.ok(map.includes(`/${p.slug}</loc>`), `${p.slug} in the sitemap`);
+      assert.ok(home.includes(`href="/${p.slug}"`), `${p.slug} linked from home`);
+      assert.ok(p.title.length <= 70 && p.description.length <= 170, `${p.slug}: title/description length`);
+      const ld = JSON.parse(/<script type="application\/ld\+json" nonce="[^"]+">(.+?)<\/script>/.exec(r.text)![1]!);
+      for (const q of ld['@graph'][2].mainEntity) assert.ok(r.text.includes(`<summary>${q.name}</summary>`), 'every structured question is on the page');
+      for (const m of r.text.matchAll(/<script nonce="[^"]+">([\s\S]*?)<\/script>/g)) assert.doesNotThrow(() => new Function(m[1]!));
+      assert.ok(!r.headers.get('x-robots-tag'), 'indexable');
+    }
+  });
 });
 
 describe('per-address limit', () => {
