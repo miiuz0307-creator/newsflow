@@ -214,6 +214,10 @@ tr.susp td{color:var(--muted)}tr.susp .av{filter:grayscale(1);opacity:.6}
 .lines>div{display:flex;justify-content:space-between;gap:10px;align-items:center}
 .promo-ta{min-height:150px;resize:vertical;line-height:1.55;font:inherit;width:100%}
 .promo-big{display:flex;gap:22px;flex-wrap:wrap;margin:2px 0 10px}.promo-big b{display:block;font-family:var(--display);font-size:30px;line-height:1.1;color:var(--ink)}.promo-big span{font-size:13px;color:var(--muted)}
+.refresh-row{display:flex;gap:18px;flex-wrap:wrap;margin:2px 0 4px}.linkish{background:none;border:0;padding:0;color:var(--teal-ink);font:inherit;font-weight:600;cursor:pointer;text-decoration:underline}
+.pchips{display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 8px}.pchip{display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:99px;padding:7px 14px;font-weight:600;cursor:pointer;background:var(--soft)}.pchip input{width:18px;height:18px}
+.pcusts{display:flex;flex-direction:column;gap:2px;margin:6px 0;max-height:46vh;overflow:auto}.pcust{display:flex;gap:10px;align-items:flex-start;padding:9px 6px;border-top:1px solid var(--line);cursor:pointer}.pcust:first-child{border-top:0}
+.pcust input{width:18px;height:18px;margin-top:2px;flex:none}.pcust b{font-size:15px}.pcust p{margin:2px 0 0;font-size:13px}.pcust.off{opacity:.55;cursor:default}.pcust.none b{color:var(--muted)}
 .promo-item{border-top:1px solid var(--line);padding:12px 0;display:flex;flex-direction:column;gap:6px}.promo-item:first-of-type{border-top:0;padding-top:4px}
 .promo-item p{margin:0;white-space:pre-wrap;font-size:14px;max-height:4.6em;overflow:hidden}.promo-item .meta{display:flex;gap:10px;flex-wrap:wrap;align-items:center;font-size:13px;color:var(--muted)}
 .counter{font-size:12px;color:var(--muted);text-align:left;margin:4px 0 10px}
@@ -267,7 +271,7 @@ var bellBtn=null;
 function shell(content,withLogout){
   bellBtn=withLogout?h('button',{cls:'out bell',type:'button','aria-label':'התראות',onclick:notifySettings},[bellIcon(),h('span',{text:'התראות'})]):null;
   root.replaceChildren(h('div',{cls:'top'},[withLogout?h('button',{cls:'logo home',type:'button','aria-label':'למסך הפתיחה',onclick:function(){showGate()}},[h('i'),'Groupush',h('small',{text:'ניהול'})]):h('div',{cls:'logo'},[h('i'),'Groupush',h('small',{text:'ניהול'})]),
-    withLogout?h('div',{cls:'top-actions'},[h('button',{cls:'out bell',type:'button','aria-label':'פרסום בטלגרם',onclick:function(){openPromo()}},[megaIcon(),h('span',{cls:'col-hide',text:'פרסום בטלגרם'})]),bellBtn,h('button',{cls:'out',type:'button',text:'יציאה',onclick:function(){setTok(null);showLogin()}})]):null]),content);
+    withLogout?h('div',{cls:'top-actions'},[h('button',{cls:'out bell',type:'button','aria-label':'שליחת פרסום',onclick:function(){openPromo()}},[megaIcon(),h('span',{cls:'col-hide',text:'שליחת פרסום'})]),bellBtn,h('button',{cls:'out',type:'button',text:'יציאה',onclick:function(){setTok(null);showLogin()}})]):null]),content);
   if(withLogout)refreshBell();
 }
 
@@ -429,7 +433,7 @@ async function showGate(){
   shell(h('div',null,[hero,h('div',{cls:'tiles'},[
     tile('people','ניהול','הלקוחות, המסלולים, ההשעיות, והוספת לקוח חדש. כל המספרים של 24 השעות האחרונות.','לניהול ←',false,function(){showHome()}),
     tile('eye','צפייה חיה','בוחרים לקוח ורואים בדיוק את מה שהוא רואה באפליקציה, מתעדכן בזמן אמת.','לבחירת לקוח ←',true,function(){showLive()}),
-    tile('mega','פרסום בטלגרם','הודעה של Groupush לערוצים של הלקוחות במסלול החינמי, וגם הסרה שלה.','לפרסום ←',false,function(){openPromo()}),
+    tile('mega','שליחת פרסום','הודעה של Groupush לקבוצות ה‑WhatsApp ולערוצי ה‑Telegram של הלקוחות החינמיים שבוחרים, וגם הסרה שלה.','לפרסום ←',false,function(){openPromo()}),
     tile('bell','התראות','התראה לטלפון ברגע שלקוח חדש נרשם.','להגדרה ←',false,function(){notifySettings()})])]),true);
   try{
     var d=await api('GET','/admin/v1/dashboard'),T=d.tenants||{},WA=d.whatsappNumbers||{};
@@ -635,41 +639,80 @@ function tgBox(d,redraw){
     tgBtn?h('div',{cls:'actions tg-list'},[tgBtn]):'',msg]);
 }
 
-// ---------------- Groupush posts in free customers' Telegram channels
+// ---------------- Groupush posts in free customers' groups (WhatsApp and Telegram)
 async function openPromo(){
   var w=sideWindow(),box=w.box,close0=w.close,timer=null;
   var close=function(){clearTimeout(timer);close0()};
-  var aud=h('div',{cls:'box'},[h('p',{cls:'hint',text:'טוען…'})]),hist=h('div',{cls:'box'});
-  var ta=h('textarea',{cls:'i promo-ta',maxlength:'4000',placeholder:'מה לפרסם? טקסט וקישורים, עד 4,000 תווים.','aria-label':'נוסח הפרסום'});
-  var counter=h('p',{cls:'counter',text:'0 / 4,000'}),msg=h('p',{cls:'err',role:'status'}),channels=0;
-  var go=h('button',{cls:'btn btn-primary',type:'button',text:'פרסום',onclick:async function(){
+  var custBox=h('div',{cls:'box'},[h('p',{cls:'hint',text:'טוען…'})]),hist=h('div',{cls:'box'});
+  var ta=h('textarea',{cls:'i promo-ta',maxlength:'4000',placeholder:'מה לפרסם? טקסט וקישורים, עד 4,000 תווים. *מודגש* עובד גם בטלגרם.','aria-label':'נוסח הפרסום'});
+  var counter=h('p',{cls:'counter',text:'0 / 4,000'}),msg=h('p',{cls:'err',role:'status'});
+  var st={customers:[],picked:{},wa:false,tg:true,waOn:false};
+  var chip=function(label,key){var cb=h('input',{type:'checkbox'});cb.checked=!!st[key];
+    cb.addEventListener('change',function(){st[key]=cb.checked;paint()});
+    return {el:h('label',{cls:'pchip'},[cb,h('span',{text:label})]),cb:cb}};
+  var waChip=chip('WhatsApp','wa'),tgChip=chip('Telegram','tg');
+  var plats=function(){var p=[];if(st.wa&&st.waOn)p.push('wa');if(st.tg)p.push('tg');return p};
+  var reach=function(c){var n=0;if(st.wa&&st.waOn)n+=c.wa.chats.length;if(st.tg)n+=c.tg.chats.length;return n};
+  var can=function(c){return c.plan==='free'&&!c.suspended};
+  var total=function(){var n=0,k=0;st.customers.forEach(function(c){if(st.picked[c.tenantId]&&can(c)){var r=reach(c);n+=r;if(r)k++}});return {chats:n,customers:k}};
+  var go=h('button',{cls:'btn btn-primary',type:'button',onclick:async function(){
     msg.className='err';msg.textContent='';
+    var t=total();
     if(!ta.value.trim()){msg.textContent='כתבו את ההודעה';return}
-    if(!channels){msg.textContent='אין כרגע ערוצים לפרסם בהם';return}
-    if(go.getAttribute('data-sure')!=='1'){go.setAttribute('data-sure','1');go.textContent='לחצו שוב: לפרסם ב‑'+num(channels)+' ערוצים';return}
+    if(!plats().length){msg.textContent='בחרו WhatsApp, Telegram או את שניהם';return}
+    if(!t.chats){msg.textContent='סמנו לקוחות שיש להם קבוצות או ערוצים בפלטפורמה שבחרתם';return}
+    if(go.getAttribute('data-sure')!=='1'){go.setAttribute('data-sure','1');go.textContent='לחצו שוב: לפרסם ב‑'+num(t.chats)+' קבוצות וערוצים של '+num(t.customers)+' לקוחות';return}
     go.disabled=true;
-    try{var r=await api('POST','/admin/v1/tg-promo',{body:ta.value});ta.value='';counter.textContent='0 / 4,000';msg.className='ok';msg.textContent='הפרסום יוצא ל‑'+num(r.targets)+' ערוצים. ההתקדמות מתעדכנת למטה.';await load()}
+    var ids=st.customers.filter(function(c){return st.picked[c.tenantId]&&can(c)&&reach(c)}).map(function(c){return c.tenantId});
+    try{var r=await api('POST','/admin/v1/tg-promo',{body:ta.value,platforms:plats(),tenantIds:ids});ta.value='';counter.textContent='0 / 4,000';msg.className='ok';
+      msg.textContent='הפרסום יוצא ל‑'+num(r.targets)+' קבוצות וערוצים. ההתקדמות מתעדכנת למטה.';await load()}
     catch(e){msg.textContent=e.message}
-    go.disabled=false;go.removeAttribute('data-sure');go.textContent='פרסום ב‑'+num(channels)+' ערוצים'}});
-  ta.addEventListener('input',function(){counter.textContent=num(ta.value.length)+' / 4,000';go.removeAttribute('data-sure');go.textContent='פרסום ב‑'+num(channels)+' ערוצים'});
-  box.replaceChildren(h('div',{cls:'d-head'},[h('button',{cls:'close',type:'button',text:'סגירה',onclick:close}),h('div',{cls:'d-id'},[h('div',null,[h('h2',{text:'פרסום בטלגרם'}),
-      h('p',{text:'הודעה של Groupush לערוצים ולקבוצות של הלקוחות במסלול החינמי, דרך הבוט של כל לקוח. לקוחות בתשלום לא מקבלים פרסומים.'})])])]),
-    h('div',{cls:'d-body'},[aud,h('div',{cls:'box'},[h('h3',{text:'הודעה חדשה'}),ta,counter,h('div',{cls:'actions'},[go]),msg]),hist]));
-  var statusText=function(p){return p.status==='sending'?'יוצא… '+num(p.sent)+' מתוך '+num(p.targets):p.status==='retracted'?'הוסר מהערוצים':'נשלח ל‑'+num(p.sent)+' מתוך '+num(p.targets)+(p.failed?' · '+num(p.failed)+' לא נשלחו':'')};
+    go.disabled=false;go.removeAttribute('data-sure');paintGo()}});
+  var paintGo=function(){if(go.getAttribute('data-sure')==='1')return;var t=total();go.textContent=t.chats?'פרסום ב‑'+num(t.chats)+' קבוצות וערוצים':'פרסום'};
+  ta.addEventListener('input',function(){counter.textContent=num(ta.value.length)+' / 4,000';go.removeAttribute('data-sure');paintGo()});
+  var platLine=function(c,key,name,unit){var x=c[key];
+    if(key==='wa'&&!st.waOn)return '';
+    if(x.chats.length)return num(x.chats.length)+' '+unit+' ב‑'+name+' ('+x.chats.slice(0,2).join(', ')+(x.chats.length>2?' ועוד '+(x.chats.length-2):'')+')';
+    return x.consent?'אין '+unit+' פעילים ב‑'+name:'עוד לא אישר פרסומים ב‑'+name};
+  var paint=function(){
+    go.removeAttribute('data-sure');
+    var rows=st.customers.map(function(c){
+      var ok=can(c),r=reach(c),cb=h('input',{type:'checkbox','aria-label':'פרסום אצל '+c.name});
+      cb.checked=!!st.picked[c.tenantId]&&ok;cb.disabled=!ok;
+      cb.addEventListener('change',function(){st.picked[c.tenantId]=cb.checked;go.removeAttribute('data-sure');paintGo();sum.textContent=sumText()});
+      var label=c.plan==='free'?'חינמי':(c.planName||c.plan);
+      var why=c.suspended?'מושעה, לא מקבל פרסומים':c.plan!=='free'?'לא מקבל פרסומים (מסלול '+label+')':[platLine(c,'wa','WhatsApp','קבוצות'),platLine(c,'tg','Telegram','ערוצים')].filter(Boolean).join(' · ');
+      return h('label',{cls:'pcust'+(ok?'':' off')+(ok&&!r?' none':'')},[cb,h('div',null,[h('b',{text:c.name}),h('span',{cls:'pill '+(c.plan==='free'?'ok':'mute'),text:label}),h('p',{cls:'hint',text:why})])]);
+    });
+    var free=st.customers.filter(can);
+    var all=h('button',{cls:'linkish',type:'button',text:'סימון כל החינמיים',onclick:function(){free.forEach(function(c){st.picked[c.tenantId]=true});paint()}});
+    var none=h('button',{cls:'linkish',type:'button',text:'ניקוי הסימון',onclick:function(){st.picked={};paint()}});
+    custBox.replaceChildren(h('h3',{text:'איפה ולמי'}),h('div',{cls:'pchips'},[waChip.el,tgChip.el]),
+      st.waOn?'':h('p',{cls:'hint tg-list',text:'פרסום ב‑WhatsApp לא זמין בשרת הזה.'}),
+      h('div',{cls:'refresh-row'},[all,none]),
+      rows.length?h('div',{cls:'pcusts'},rows):h('p',{cls:'hint',text:'אין עדיין לקוחות.'}),
+      sum,
+      h('p',{cls:'hint tg-list',text:'מגיע רק ללקוחות במסלול החינמי שאישרו פרסומים בפלטפורמה. ב‑WhatsApp: רק לקבוצות היעד שהלקוח מפיץ אליהן, דרך המספר שלו ובאותו קצב שליחה, לא לקבוצת השליטה ולא לקבוצות אחרות. לא נשלח ללקוחות מושעים או למספרים ולבוטים שעצרתם. אפשר להסיר פרסום מכל המקומות גם אחרי שיצא.'}));
+    sum.textContent=sumText();paintGo();
+  };
+  var sum=h('p',{cls:'ok tg-list'});
+  var sumText=function(){var t=total();return t.chats?'מסומנים '+num(t.customers)+' לקוחות · '+num(t.chats)+' קבוצות וערוצים':'עוד לא סומן לקוח עם קבוצות בפלטפורמה שבחרתם'};
+  box.replaceChildren(h('div',{cls:'d-head'},[h('button',{cls:'close',type:'button',text:'סגירה',onclick:close}),h('div',{cls:'d-id'},[h('div',null,[h('h2',{text:'שליחת פרסום'}),
+      h('p',{text:'הודעה של Groupush לקבוצות ולערוצים של לקוחות במסלול החינמי. בוחרים WhatsApp, Telegram או את שניהם, מסמנים לקוחות וכותבים. לקוחות בתשלום לא מקבלים פרסומים.'})])])]),
+    h('div',{cls:'d-body'},[custBox,h('div',{cls:'box'},[h('h3',{text:'ההודעה'}),ta,counter,h('div',{cls:'actions'},[go]),msg]),hist]));
+  var platName=function(p){return (p||['tg']).map(function(x){return x==='wa'?'WhatsApp':'Telegram'}).join(' + ')};
+  var statusText=function(p){return p.status==='sending'?'יוצא… '+num(p.sent)+' מתוך '+num(p.targets):p.status==='retracted'?'הוסר מכל המקומות':'נשלח ל‑'+num(p.sent)+' מתוך '+num(p.targets)+(p.failed?' · '+num(p.failed)+' לא נשלחו':'')};
+  var first=true;
   var load=async function(){
     clearTimeout(timer);
-    var d;try{d=await api('GET','/admin/v1/tg-promo')}catch(e){aud.replaceChildren(h('p',{cls:'err',text:e.message}));return}
-    var a=d.audience;channels=a.channels;if(go.getAttribute('data-sure')!=='1')go.textContent='פרסום ב‑'+num(channels)+' ערוצים';
-    aud.replaceChildren(h('h3',{text:'למי זה יגיע'}),h('div',{cls:'promo-big'},[h('div',null,[h('b',{text:num(a.tenants)}),h('span',{text:'לקוחות חינמיים'})]),h('div',null,[h('b',{text:num(a.channels)}),h('span',{text:'ערוצים וקבוצות'})])]),
-      a.list.length?h('div',{cls:'lines'},a.list.slice(0,12).map(function(x){return h('div',null,[h('span',{text:x.name}),h('span',{cls:'hint',text:x.channels.slice(0,3).join(', ')+(x.channels.length>3?' ועוד '+(x.channels.length-3):'')})])})):h('p',{cls:'hint',text:'עדיין אין לקוח חינמי עם ערוץ טלגרם מחובר שאישר פרסומים.'}),
-      a.list.length>12?h('p',{cls:'hint tg-list',text:'ועוד '+(a.list.length-12)+' לקוחות'}):'',
-      a.awaitingConsent?h('p',{cls:'hint tg-list',text:num(a.awaitingConsent)+' לקוחות חינמיים עם טלגרם עוד לא אישרו פרסומים, ולכן לא יקבלו. הם רואים בקשת אישור במסך החיבור.'}):'',
-      h('p',{cls:'hint tg-list',text:'לא נשלח ללקוחות מושעים או לערוצים שעצרתם. אפשר להסיר פרסום מכל הערוצים גם אחרי שיצא.'}));
+    var d;try{d=await api('GET','/admin/v1/tg-promo')}catch(e){custBox.replaceChildren(h('p',{cls:'err',text:e.message}));return}
+    st.customers=d.customers||[];st.waOn=!!d.whatsapp;
+    if(first){first=false;st.wa=st.waOn;waChip.cb.checked=st.wa;waChip.cb.disabled=!st.waOn;paint()}
     var items=(d.history||[]).map(function(p){
-      var rm=p.status==='retracted'?null:h('button',{cls:'btn btn-ghost btn-sm',type:'button',text:'הסרה מכל הערוצים',onclick:async function(){
+      var rm=p.status==='retracted'?null:h('button',{cls:'btn btn-ghost btn-sm',type:'button',text:'הסרה מכל המקומות',onclick:async function(){
         if(rm.getAttribute('data-sure')!=='1'){rm.setAttribute('data-sure','1');rm.textContent='לחצו שוב לאישור ההסרה';return}
-        rm.disabled=true;try{var r=await api('POST','/admin/v1/tg-promo/'+p.id+'/remove');msg.className='ok';msg.textContent='הוסר מ‑'+num(r.removed)+' ערוצים'+(r.failed?' ('+num(r.failed)+' לא הוסרו)':'');load()}catch(e){msg.className='err';msg.textContent=e.message;rm.disabled=false}}});
-      return h('div',{cls:'promo-item'},[h('p',{text:p.body}),h('div',{cls:'meta'},[h('span',{text:fmtDate(p.createdAt)+' · '+ago(p.createdAt)}),
+        rm.disabled=true;try{var r=await api('POST','/admin/v1/tg-promo/'+p.id+'/remove');msg.className='ok';msg.textContent='הוסר מ‑'+num(r.removed)+' קבוצות וערוצים'+(r.failed?' ('+num(r.failed)+' לא הוסרו)':'');load()}catch(e){msg.className='err';msg.textContent=e.message;rm.disabled=false}}});
+      return h('div',{cls:'promo-item'},[h('p',{text:p.body}),h('div',{cls:'meta'},[h('span',{text:fmtDate(p.createdAt)+' · '+ago(p.createdAt)}),h('span',{text:platName(p.platforms)+(p.customers?' · '+num(p.customers)+' לקוחות':'')}),
         h('span',{cls:'pill '+(p.status==='retracted'?'mute':p.status==='sending'?'mute':'ok'),text:statusText(p)}),rm||''])]);
     });
     hist.replaceChildren.apply(hist,[h('h3',{text:'פרסומים קודמים'})].concat(items.length?items:[h('p',{cls:'hint',text:'עוד לא פורסם כלום.'})]));

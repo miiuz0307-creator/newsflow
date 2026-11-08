@@ -163,8 +163,13 @@ if (cfg.allowRealTelegram || !cfg.telegramApiBase.includes('api.telegram.org')) 
   log.info('telegram bots started', { count: await telegram.loadAll() });
 }
 
-// Groupush's own posts in free customers' Telegram channels (sent through each customer's bot).
-const tgPromo = new TelegramPromo({ workerSql: workerPool, sender: (botId) => telegram.get(botId), logger: log });
+// Groupush's own posts in free customers' Telegram channels and WhatsApp groups (through each customer's bot or number).
+// WhatsApp posts go through the customer's own number and share its send limits.
+const tgPromo = new TelegramPromo({
+  workerSql: workerPool, sender: (botId) => telegram.get(botId), logger: log,
+  waSender: (accountId) => (conns.getState(accountId)?.status === 'connected' ? conns.sender(accountId) : undefined),
+  reserve: (platform, accountId, key) => worker.limiter.reserve(platform, accountId, key),
+});
 await tgPromo.closeInterrupted();
 
 // The Super Admin API runs only where its database role and secret are configured.

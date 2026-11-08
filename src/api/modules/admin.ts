@@ -23,6 +23,8 @@ import { HttpError, type ApiServer } from '../server.js';
 import { signToken } from '../auth.js';
 import { WindowLimiter } from './auth.js';
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export interface AdminClaims {
   kind: 'admin';
   adminId: string;
@@ -83,7 +85,7 @@ export interface AdminModuleOptions {
   /** Notifications to the admins' devices (new signups etc.). Without it the panel hides the option. */
   push?: AdminPush;
   /** Groupush's own posts in free customers' Telegram channels (runs on the worker, which holds the bots). */
-  tgPromo?: Pick<TelegramPromo, 'audience' | 'list' | 'send' | 'retract'>;
+  tgPromo?: Pick<TelegramPromo, 'audience' | 'list' | 'send' | 'retract' | 'whatsappEnabled'>;
   /**
    * Operations the admin role may not do on its own (it cannot write tenants or admins);
    * the server passes them in. Without them the matching routes answer 501.
@@ -529,20 +531,35 @@ export function adminModule(opts: AdminModuleOptions) {
       const [aud, history] = await Promise.all([p.audience(), p.list()]);
       const byTenant = new Map<string, { tenantId: string; name: string; channels: string[] }>();
       for (const t of aud.targets) {
+        if (t.platform !== 'tg') continue;
         const e = byTenant.get(t.tenantId) ?? { tenantId: t.tenantId, name: t.tenantName, channels: [] };
         e.channels.push(t.title || t.chatId);
         byTenant.set(t.tenantId, e);
       }
-      return { audience: { tenants: aud.tenants, channels: aud.channels, awaitingConsent: aud.awaitingConsent, list: [...byTenant.values()] }, history };
+      return {
+        audience: { tenants: aud.tenants, channels: aud.channels, awaitingConsent: aud.awaitingConsent, list: [...byTenant.values()],
+          waTenants: aud.waTenants, waGroups: aud.waGroups, waAwaitingConsent: aud.waAwaitingConsent },
+        whatsapp: p.whatsappEnabled,
+        customers: aud.customers,
+        history,
+      };
     });
     api.on('POST', '/admin/v1/tg-promo', false, async ({ req, body }) => {
       const a = await authOf(req, 'superadmin');
       const text = String(body.body ?? '').trim();
       if (!text) throw new HttpError(400, 'bad_request', 'כתבו את ההודעה');
       if (text.length > 4000) throw new HttpError(400, 'too_long', 'עד 4,000 תווים');
-      const r = await promo().send(text, `admin:${a.adminId}`);
-      if (!r.targets) throw new HttpError(409, 'no_audience', 'אין כרגע ערוצים של לקוחות חינמיים שאישרו פרסום');
-      await audit(a, 'tg_promo.sent', String(r.id), null, { targets: r.targets });
+      const platforms = body.platforms === undefined ? ['tg'] : body.platforms;
+      if (!Array.isArray(platforms) || !platforms.length || platforms.some((x) => x !== 'tg' && x !== 'wa')) throw new HttpError(400, 'bad_platforms', 'בחרו WhatsApp, Telegram או את שניהם');
+      let tenantIds: string[] | undefined;
+      if (body.tenantIds !== undefined) {
+        if (!Array.isArray(body.tenantIds) || (body.tenantIds as unknown[]).some((x) => typeof x !== 'string' || !UUID_RE.test(x))) throw new HttpError(400, 'bad_customers', 'רשימת לקוחות לא תקינה');
+        if (!body.tenantIds.length) throw new HttpError(400, 'no_customers', 'סמנו לפחות לקוח אחד');
+        tenantIds = body.tenantIds as string[];
+      }
+      const r = await promo().send(text, `admin:${a.adminId}`, { platforms: platforms as ('tg' | 'wa')[], ...(tenantIds ? { tenantIds } : {}) });
+      if (!r.targets) throw new HttpError(409, 'no_audience', tenantIds ? 'ללקוחות שסימנתם אין כרגע קבוצות או ערוצים שאפשר לפרסם בהם' : 'אין כרגע ערוצים של לקוחות חינמיים שאישרו פרסום');
+      await audit(a, 'tg_promo.sent', String(r.id), null, { targets: r.targets, customers: r.customers, platforms });
       return r;
     });
     api.on('POST', '/admin/v1/tg-promo/:id/remove', false, async ({ req, params }) => {

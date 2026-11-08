@@ -534,7 +534,7 @@ ${CLIENTS.map((c) => `      <li class="client">${c.logo ? `<img src="${c.logo}" 
         <h3>חינם</h3>
         <div class="price"><b>0<span class="cur">₪</span></b></div>
         <p class="tag">לרשת קטנה של קבוצות</p>
-        <ul><li>עד 10 קבוצות יעד, WhatsApp ו‑Telegram</li><li>עריכה ומחיקה מסונכרנות</li><li>חתימה קבועה מתחת לכל הודעה</li><li>דיווחים בקבוצת השליטה</li><li>Groupush מפרסמת מדי פעם הודעות משלה בערוצי הטלגרם שחיברתם</li></ul>
+        <ul><li>עד 10 קבוצות יעד, WhatsApp ו‑Telegram</li><li>עריכה ומחיקה מסונכרנות</li><li>חתימה קבועה מתחת לכל הודעה</li><li>דיווחים בקבוצת השליטה</li><li>Groupush מפרסמת מדי פעם הודעות משלה בערוצי הטלגרם שחיברתם, ובקבוצות הוואטסאפ אם תאשרו</li></ul>
         <a class="btn btn-dark" href="/app#signup">פתיחת חשבון</a>
       </div>
       <div class="plan main">
