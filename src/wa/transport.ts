@@ -37,7 +37,11 @@ export const RECONNECT_POLICY: Record<DisconnectReason, 'backoff' | 'immediate' 
   logged_out: 'never',
   replaced: 'never',
   account_blocked: 'never',
-  bad_session: 'never',
+  // Baileys reports every stream error it does not recognise as 500 "bad session" (for example
+  // "Stream Errored (ack)", which WhatsApp sends now and then). That is not a reason to give up a
+  // linked number: reconnect from the stored session. A session that is really gone fails the
+  // reconnect with 401 (logged out), and only that clears it.
+  bad_session: 'backoff',
   link_timeout: 'never',
   stopped: 'never',
 };

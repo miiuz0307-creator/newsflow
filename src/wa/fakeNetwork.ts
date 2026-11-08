@@ -173,6 +173,11 @@ export class FakeWaNetwork {
     this.closeAll(phone, 'connection_lost');
   }
 
+  /** WhatsApp closes the stream with an error Baileys does not recognise (reported as 500 "bad session"). */
+  streamError(phone: string): void {
+    this.closeAll(phone, 'bad_session');
+  }
+
   setRateLimit(phone: string, max: number, windowMs: number): void {
     this.mustPhone(phone).rateLimit = { max, windowMs };
   }
