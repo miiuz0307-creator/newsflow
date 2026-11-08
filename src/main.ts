@@ -43,6 +43,10 @@ import { TelegramBotManager } from './telegram/manager.js';
 import { CachedRouteSource } from './engine/routeCache.js';
 import { Worker } from './engine/worker.js';
 import { createLogger } from './logger.js';
+import { indexNowKeyModule, submitIndexNow } from './api/indexNow.js';
+import { LANDING_PAGES } from './api/landing.js';
+import { LEGAL_SLUGS } from './api/legal.js';
+import { publicOrigin } from './api/site.js';
 import { applyLogo, ffmpegAvailable, type LogoPosition } from './media/watermark.js';
 import { baileysTransportFactory } from './wa/baileysTransport.js';
 import { ConnectionManager } from './wa/connectionManager.js';
@@ -226,6 +230,7 @@ const api = new ApiServer({
     pushModule({ onRoutesChanged: () => routeSource.invalidate() }),
     fontsModule(),
     clientLogosModule(),
+    indexNowKeyModule(process.env.INDEXNOW_KEY),
     notifyPushModule({ push: customerPush, version: APP_VERSION }),
     ...adminModules,
   ],
@@ -235,6 +240,18 @@ const api = new ApiServer({
 // Media is needed until its jobs are sent or skipped as stale: 2 hours after sending time, and a
 // scheduled message can wait up to 24 hours first. Keep 30 hours, then delete.
 setInterval(() => void worker.media.sweep(30 * 3_600_000).catch((e) => log.error('media sweep failed', { err: String(e) })), 3_600_000).unref();
+
+// Search engines other than Google (Bing and the IndexNow group): tell them about the public pages.
+if (process.env.INDEXNOW_KEY) {
+  setTimeout(() => void submitIndexNow({
+    origin: publicOrigin(), key: process.env.INDEXNOW_KEY!,
+    paths: ['/', ...LANDING_PAGES.map((p) => `/${p.slug}`), ...LEGAL_SLUGS.map((s) => `/${s}`)],
+    store: {
+      get: async () => (await workerPool.query<{ value: string }>(`SELECT value FROM system_meta WHERE key = 'indexnow_sent'`)).rows[0]?.value ?? null,
+      set: async (v) => { await workerPool.query(`INSERT INTO system_meta (key, value, updated_at) VALUES ('indexnow_sent', $1, now()) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`, [v]); },
+    },
+  }).then((r) => log.info('indexnow', { result: r })).catch((e) => log.warn('indexnow failed', { err: String(e) })), 20_000).unref();
+}
 
 // Retention: clear old message content and expired duplicate keys every hour.
 setInterval(() => void workerPool.query('SELECT * FROM purge_expired(7)').catch((e) => log.error('purge failed', { err: String(e) })), 3_600_000).unref();
