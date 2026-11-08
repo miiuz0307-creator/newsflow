@@ -231,7 +231,7 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
     assert.ok(!/innerHTML/.test(page.text));
     const man = await call('GET', '/app/manifest.webmanifest');
     assert.equal(man.body.start_url, '/app');
-    assert.equal(man.body.scope, '/app');
+    assert.equal(man.body.scope, '/', 'the home page is in scope too, so it can offer the install');
     assert.equal(man.body.display, 'standalone');
     assert.deepEqual(man.body.icons.map((i: { sizes: string }) => i.sizes), ['192x192', '512x512']);
     const sw = await call('GET', '/app/sw.js');

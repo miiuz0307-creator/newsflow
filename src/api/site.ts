@@ -4,6 +4,7 @@
  * itself: one message in the control group spreading to every group.
  */
 import { fontFaceCss } from './fonts.js';
+import { installPromptCss, installPromptHtml, installPromptJs } from './installPrompt.js';
 
 /** Where the site lives (PUBLIC_ORIGIN, e.g. https://push.co.il, once a domain is connected). */
 export function publicOrigin(host?: string): string {
@@ -52,6 +53,10 @@ export function siteHtml(nonce: string, origin = publicOrigin(), googleVerificat
 <meta name="theme-color" content="#0A1B33">
 <link rel="icon" type="image/png" href="/app/icon-192.png">
 <link rel="apple-touch-icon" href="/app/icon-180.png">
+<link rel="manifest" href="/app/manifest.webmanifest">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="PUSH">
 ${gv ? `<meta name="google-site-verification" content="${gv}">` : ''}
 <script type="application/ld+json" nonce="${nonce}">${structuredData(origin)}</script>
 <link rel="preload" href="/fonts/secular-one-hebrew-400-normal.woff2" as="font" type="font/woff2" crossorigin>
@@ -74,7 +79,7 @@ h1,h2,h3{font-family:var(--display);font-weight:400;line-height:1.15;margin:0}
 h2{font-size:clamp(30px,4vw,44px);letter-spacing:-.01em}
 p{margin:0}
 .lead{font-size:clamp(18px,1.6vw,21px);color:var(--muted);max-width:56ch}
-.btn{display:inline-flex;align-items:center;gap:10px;font:600 17px/1 var(--body);padding:16px 26px;border-radius:999px;text-decoration:none;border:0;cursor:pointer;transition:transform .15s,background .15s}
+.btn{position:relative;overflow:hidden;display:inline-flex;align-items:center;gap:10px;font:600 17px/1 var(--body);padding:16px 26px;border-radius:999px;text-decoration:none;border:0;cursor:pointer;transition:transform .15s,background .15s}
 .btn:active{transform:translateY(1px)}
 .btn-primary{background:var(--teal);color:var(--ink)}
 .btn-primary:hover{background:#2fd8c6}
@@ -83,8 +88,10 @@ p{margin:0}
 .btn-dark{background:var(--ink);color:var(--white)}
 
 /* ---------- header ---------- */
-.top{position:absolute;inset-inline:0;top:0;z-index:5}
-.top .wrap{display:flex;align-items:center;gap:28px;height:78px}
+.top{position:fixed;inset-inline:0;top:0;z-index:50;transition:background .35s,box-shadow .35s,backdrop-filter .35s}
+.top.solid{background:rgba(10,27,51,.82);-webkit-backdrop-filter:blur(14px) saturate(1.4);backdrop-filter:blur(14px) saturate(1.4);box-shadow:0 10px 30px -18px rgba(0,0,0,.6)}
+.top .wrap{display:flex;align-items:center;gap:28px;height:78px;transition:height .35s}
+.top.solid .wrap{height:64px}
 .brand{font-family:var(--display);font-size:30px;color:var(--white);text-decoration:none;letter-spacing:.02em;display:flex;align-items:center;gap:10px}
 .brand i{display:inline-block;width:12px;height:12px;border-radius:50%;background:var(--teal);box-shadow:0 0 0 5px rgba(25,198,180,.22)}
 .nav{display:flex;gap:26px;margin-inline-start:12px}
@@ -92,6 +99,10 @@ p{margin:0}
 .nav a:hover{color:var(--white)}
 .top .spacer{flex:1}
 .top .login{color:var(--white);text-decoration:none;font-size:15px;opacity:.85}
+.top .get{display:inline-flex;align-items:center;gap:7px;background:rgba(25,198,180,.14);color:var(--teal);border:1px solid rgba(25,198,180,.45);border-radius:999px;padding:8px 14px;font:600 14px var(--body);cursor:pointer;text-decoration:none;transition:background .2s,color .2s}
+.top .get:hover{background:var(--teal);color:var(--ink)}
+.top .get svg{width:16px;height:16px}
+@media (max-width:420px){.top .wrap{gap:14px}.top .get span{display:none}.top .get{padding:8px 10px}}
 @media (max-width:860px){.nav{display:none}}
 
 /* ---------- hero ---------- */
@@ -223,26 +234,110 @@ footer{background:var(--ink);color:rgba(255,255,255,.6);padding:40px 0;font-size
 footer .wrap{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
 footer a{text-decoration:none;color:rgba(255,255,255,.75);margin-inline-start:18px}
 
-@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}html{scroll-behavior:auto}}
+
+/* ---------- eye candy ---------- */
+.progress{position:fixed;top:0;inset-inline:0;height:3px;z-index:60;background:linear-gradient(270deg,var(--teal),#8ff5ea,#5b8cff);transform-origin:right center;transform:scaleX(0);pointer-events:none}
+.hero::before,.hero::after{content:"";position:absolute;border-radius:50%;filter:blur(90px);pointer-events:none;will-change:transform}
+.hero::before{width:560px;height:560px;background:rgba(25,198,180,.42);top:-200px;inset-inline-start:-140px;animation:drift 16s ease-in-out infinite alternate}
+.hero::after{width:620px;height:620px;background:rgba(70,110,230,.38);bottom:-300px;inset-inline-end:-200px;animation:drift2 21s ease-in-out infinite alternate}
+@keyframes drift{to{transform:translate(-90px,70px) scale(1.18)}}
+@keyframes drift2{to{transform:translate(110px,-60px) scale(.9)}}
+.hero .dots{position:absolute;inset:0;background-image:radial-gradient(rgba(255,255,255,.09) 1px,transparent 1.2px);background-size:26px 26px;-webkit-mask-image:radial-gradient(65% 60% at 50% 40%,#000,transparent);mask-image:radial-gradient(65% 60% at 50% 40%,#000,transparent);pointer-events:none}
+.hero .wrap{position:relative;z-index:1}
+.hero h1 .l2{background:linear-gradient(90deg,#19C6B4 0%,#9ff7ee 25%,#19C6B4 50%,#5fe0d2 75%,#19C6B4 100%);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shine 5s linear infinite}
+@keyframes shine{to{background-position:-200% 0}}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:22px}
+.chip{display:inline-flex;align-items:center;gap:8px;font-size:13.5px;color:rgba(255,255,255,.85);background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.14);border-radius:999px;padding:6px 13px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.chip .live{width:8px;height:8px;border-radius:50%;background:#2ee59d;box-shadow:0 0 0 0 rgba(46,229,157,.7);animation:ping 1.8s infinite}
+@keyframes ping{70%{box-shadow:0 0 0 9px rgba(46,229,157,0)}100%{box-shadow:0 0 0 0 rgba(46,229,157,0)}}
+.btn-primary{position:relative;overflow:hidden;box-shadow:0 10px 30px -10px rgba(25,198,180,.7)}
+.btn-primary::after{content:"";position:absolute;top:0;bottom:0;left:0;width:35%;background:linear-gradient(100deg,transparent,rgba(255,255,255,.65),transparent);transform:translateX(-160%) skewX(-20deg);animation:sweep 3.4s ease-in-out infinite;pointer-events:none}
+@keyframes sweep{55%,100%{transform:translateX(420%) skewX(-20deg)}}
+.btn:hover{transform:translateY(-2px)}
+.ripple{position:absolute;border-radius:50%;background:rgba(255,255,255,.55);transform:scale(0);animation:rip .6s ease-out forwards;pointer-events:none}
+@keyframes rip{to{transform:scale(4);opacity:0}}
+.ctrl{animation:floaty 6s ease-in-out infinite}
+@keyframes floaty{50%{transform:translateY(calc(-50% - 8px))}}
+@media (max-width:560px){.ctrl{animation:none}}
+.spark{position:absolute;width:7px;height:7px;border-radius:50%;pointer-events:none;animation:spark .95s cubic-bezier(.15,.8,.3,1) forwards;z-index:3}
+@keyframes spark{from{transform:translate(0,0) scale(1);opacity:1}to{transform:translate(var(--tx),var(--ty)) scale(.2);opacity:0}}
+
+.ticker{background:var(--teal);color:var(--ink);overflow:hidden;white-space:nowrap;padding:15px 0;font-family:var(--display);font-size:clamp(17px,2vw,21px);position:relative;z-index:2;box-shadow:0 -1px 0 rgba(0,0,0,.05)}
+.ticker .track{display:inline-flex;align-items:center;gap:34px;padding-inline-end:34px;animation:marq 32s linear infinite;will-change:transform}
+.ticker .track span{display:inline-flex;align-items:center;gap:34px}
+.ticker .track span::after{content:"✦";font-size:.8em;opacity:.55}
+.ticker:hover .track{animation-play-state:paused}
+@keyframes marq{to{transform:translateX(50%)}}
+
+.rv{opacity:0;transform:translateY(30px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1);transition-delay:var(--d,0s)}
+.rv.in{opacity:1;transform:none}
+.step::before{background:linear-gradient(160deg,var(--teal),var(--teal-deep));-webkit-background-clip:text;background-clip:text;color:transparent}
+.spot{position:relative;isolation:isolate;transition:transform .25s ease,box-shadow .3s}
+.spot::before{content:"";position:absolute;inset:0;border-radius:inherit;background:radial-gradient(380px circle at var(--mx,50%) var(--my,50%),rgba(25,198,180,.22),transparent 45%);opacity:0;transition:opacity .3s;z-index:-1;pointer-events:none}
+.spot:hover::before{opacity:1}
+.plan.spot:hover{box-shadow:0 30px 60px -30px rgba(10,27,51,.45)}
+
+/* the app section */
+.appsec{background:linear-gradient(180deg,var(--white),var(--paper));overflow:hidden}
+.appsec .grid{display:grid;grid-template-columns:1fr 1fr;gap:70px;align-items:center}
+.perks{list-style:none;padding:0;margin:26px 0 30px;display:grid;gap:14px}
+.perks li{display:flex;gap:12px;align-items:flex-start}
+.perks li i{flex:none;width:34px;height:34px;border-radius:11px;background:var(--teal-mist);display:grid;place-items:center;font-style:normal;font-size:17px}
+.appsec .ctas{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
+.appsec .how{color:var(--teal-deep);font-weight:600;text-decoration:none}
+.phone-wrap{position:relative;display:grid;place-items:center;min-height:560px}
+.phone-wrap::before{content:"";position:absolute;width:420px;height:420px;border-radius:50%;background:radial-gradient(circle,rgba(25,198,180,.35),transparent 65%);filter:blur(10px);animation:glow 5s ease-in-out infinite alternate}
+@keyframes glow{to{transform:scale(1.15);opacity:.7}}
+.phone{position:relative;width:280px;height:560px;border-radius:44px;background:#0b1424;padding:12px;box-shadow:0 50px 90px -30px rgba(10,27,51,.55),inset 0 0 0 2px #26344d;transform:rotate(-4deg);animation:phonefloat 7s ease-in-out infinite}
+@keyframes phonefloat{50%{transform:rotate(-2deg) translateY(-12px)}}
+.phone::before{content:"";position:absolute;top:20px;left:50%;width:90px;height:24px;margin-left:-45px;border-radius:20px;background:#0b1424;z-index:2}
+.screen{height:100%;border-radius:34px;background:var(--paper);overflow:hidden;display:flex;flex-direction:column}
+.ph-top{background:var(--ink);color:#fff;padding:52px 16px 14px;display:flex;align-items:center;justify-content:space-between}
+.ph-top b{font-family:var(--display);font-weight:400;font-size:20px;letter-spacing:.04em}
+.ph-live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:#bfe9e3}
+.ph-live i{width:7px;height:7px;border-radius:50%;background:#2ee59d;animation:ping 1.8s infinite}
+.ph-list{padding:12px;display:grid;gap:10px}
+.ph-card{background:#fff;border-radius:16px;padding:11px 12px;box-shadow:0 6px 16px -10px rgba(10,27,51,.35);opacity:0;transform:translateY(14px) scale(.98);transition:opacity .5s,transform .5s cubic-bezier(.2,.9,.25,1.2)}
+.ph-card.in{opacity:1;transform:none}
+.ph-card p{margin:0;font-size:12.5px;line-height:1.45;color:var(--ink)}
+.ph-meta{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:11.5px;color:var(--muted)}
+.ph-bar{height:5px;border-radius:5px;background:var(--line);overflow:hidden;margin-top:7px}
+.ph-bar i{display:block;height:100%;width:0;background:linear-gradient(270deg,var(--teal),var(--teal-deep));border-radius:5px;transition:width 1.6s cubic-bezier(.2,.8,.2,1)}
+.ph-eye{font-weight:600;color:var(--teal-deep)}
+.ph-toast{position:absolute;top:118px;inset-inline:22px;z-index:3;background:rgba(10,27,51,.94);color:#fff;border-radius:16px;padding:10px 12px;font-size:12.5px;display:flex;gap:10px;align-items:center;box-shadow:0 18px 40px -14px rgba(0,0,0,.6);transform:translateY(-30px) scale(.95);opacity:0;transition:transform .5s cubic-bezier(.2,.9,.25,1.3),opacity .4s}
+.ph-toast.on{transform:none;opacity:1}
+.ph-toast img{width:28px;height:28px;border-radius:8px}
+.ph-tag{position:absolute;inset-inline-end:-6px;bottom:30px;background:var(--white);border:1px solid var(--line);border-radius:999px;padding:7px 14px;font-size:13px;color:var(--muted);box-shadow:0 10px 30px -16px rgba(10,27,51,.4)}
+@media (max-width:900px){.appsec .grid{grid-template-columns:1fr;gap:30px}.phone-wrap{min-height:520px;order:2}}
+@media (max-width:420px){.phone{width:250px;height:510px}}
+.final .ctas{display:flex;gap:12px;flex-wrap:wrap}
+.btn-ink-ghost{background:transparent;color:var(--ink);box-shadow:inset 0 0 0 2px var(--ink)}
+.btn svg{width:18px;height:18px}
+${installPromptCss()}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}html{scroll-behavior:auto}.rv{opacity:1;transform:none}.ph-card{opacity:1;transform:none}}
 </style>
 </head>
 <body>
+<div class="progress" id="progress" aria-hidden="true"></div>
 
-<header class="top">
+<header class="top" id="top">
   <div class="wrap">
     <a class="brand" href="/" aria-label="PUSH, דף הבית"><i aria-hidden="true"></i>PUSH</a>
     <nav class="nav" aria-label="ניווט ראשי">
       <a href="#how">איך זה עובד</a><a href="#sync">עריכה ומחיקה</a><a href="#pricing">מחירים</a><a href="#faq">שאלות</a>
     </nav>
     <div class="spacer"></div>
+    <a class="get" href="/app/install" data-install="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>התקנת האפליקציה</span></a>
     <a class="login" href="/app">כניסה</a>
   </div>
 </header>
 
 <main>
 <section class="hero" aria-labelledby="hero-title">
+  <div class="dots" aria-hidden="true"></div>
   <div class="wrap">
     <div>
+      <div class="chips"><span class="chip"><i class="live" aria-hidden="true"></i>עובד בענן, גם כשהטלפון כבוי</span><span class="chip">WhatsApp + Telegram</span></div>
       <h1 id="hero-title">הודעה אחת.<span class="l2">כל הקבוצות.</span></h1>
       <p class="lead">כותבים פעם אחת בקבוצת שליטה ב‑WhatsApp, ו‑PUSH מפיצה לכל קבוצות ה‑WhatsApp וה‑Telegram שלכם. טעות כתיב? עורכים פעם אחת, וכל העותקים מתעדכנים.</p>
       <div class="ctas">
@@ -265,6 +360,8 @@ footer a{text-decoration:none;color:rgba(255,255,255,.75);margin-inline-start:18
     </div>
   </div>
 </section>
+
+<div class="ticker" aria-hidden="true"><div class="track"><span>הודעה אחת לכל הקבוצות</span><span>עריכה מסונכרנת</span><span>מחיקה לכולם</span><span>תזמון לשעה מדויקת</span><span>הלוגו שלכם על תמונות וסרטונים</span><span>דיווח בקבוצת השליטה</span><span>WhatsApp וגם Telegram</span><span>כמה קראו כל הודעה</span><span>הודעה אחת לכל הקבוצות</span><span>עריכה מסונכרנת</span><span>מחיקה לכולם</span><span>תזמון לשעה מדויקת</span><span>הלוגו שלכם על תמונות וסרטונים</span><span>דיווח בקבוצת השליטה</span><span>WhatsApp וגם Telegram</span><span>כמה קראו כל הודעה</span></div></div>
 
 <section id="how" aria-labelledby="how-title">
   <div class="wrap">
@@ -313,6 +410,40 @@ footer a{text-decoration:none;color:rgba(255,255,255,.75);margin-inline-start:18
       <div><h3>מנהלי קבוצות חדשות</h3><p>מבזק אחד שצריך להגיע לעשרות קבוצות עכשיו, ולהתעדכן כשהפרטים משתנים.</p></div>
       <div><h3>קהילות וארגונים</h3><p>הודעות לחברים בכמה קבוצות, בלי להעתיק ולהדביק ובלי לפספס אף קבוצה.</p></div>
       <div><h3>עסקים</h3><p>עדכונים ללקוחות בקבוצות WhatsApp ובערוצי Telegram מאותו מקום.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="appsec" id="app" aria-labelledby="app-title">
+  <div class="wrap grid">
+    <div class="phone-wrap" aria-hidden="true">
+      <div class="phone" id="phone">
+        <div class="ph-toast" id="ph-toast"><img src="/app/icon-192.png" alt="" width="28" height="28"><span><b>PUSH</b><br>ההודעה הגיעה ל‑12 מתוך 12 קבוצות</span></div>
+        <div class="screen">
+          <div class="ph-top"><b>PUSH</b><span class="ph-live"><i></i>WhatsApp מחובר</span></div>
+          <div class="ph-list" id="ph-list">
+            <div class="ph-card"><p>🔴 מבזק: עומסים כבדים בכניסה לירושלים</p><div class="ph-bar"><i data-w="100"></i></div><div class="ph-meta"><span>12/12 קבוצות</span><span class="ph-eye">👁 <b data-to="1840">0</b></span></div></div>
+            <div class="ph-card"><p>⚡ עדכון: הכביש נפתח מחדש לתנועה</p><div class="ph-bar"><i data-w="100"></i></div><div class="ph-meta"><span>12/12 קבוצות</span><span class="ph-eye">👁 <b data-to="960">0</b></span></div></div>
+            <div class="ph-card"><p>📷 תמונה עם הלוגו שלכם, אוטומטית</p><div class="ph-bar"><i data-w="100"></i></div><div class="ph-meta"><span>12/12 קבוצות</span><span class="ph-eye">👁 <b data-to="2315">0</b></span></div></div>
+            <div class="ph-card"><p>🕐 12:30 · תזכורת: שידור חי בעוד חצי שעה</p><div class="ph-bar"><i data-w="35"></i></div><div class="ph-meta"><span>מתוזמנת</span><span class="ph-eye">⏳</span></div></div>
+          </div>
+        </div>
+      </div>
+      <span class="ph-tag">הדגמה</span>
+    </div>
+    <div>
+      <h2 id="app-title">PUSH גם בכיס שלכם</h2>
+      <p class="lead gap">מתקינים את האפליקציה ישר ממסך הבית: בלי חנות אפליקציות, בלי הורדה כבדה, ונפתחת בלחיצה אחת.</p>
+      <ul class="perks">
+        <li><i aria-hidden="true">📤</i><div>כל הודעה שיצאה, ולאילו קבוצות הגיעה</div></li>
+        <li><i aria-hidden="true">👁</i><div>כמה אנשים קראו כל הודעה</div></li>
+        <li><i aria-hidden="true">🔔</i><div>התראה לטלפון מיד כשהמספר מתנתק או כשמשהו עוצר את השליחה</div></li>
+        <li><i aria-hidden="true">⚙️</i><div>חתימה, לוגו וקבוצות, לשינוי מתי שרוצים</div></li>
+      </ul>
+      <div class="ctas">
+        <a class="btn btn-primary" href="/app/install" data-install="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>התקנת האפליקציה</a>
+        <a class="how" href="/app/install">איך מתקינים באייפון ובאנדרואיד ←</a>
+      </div>
     </div>
   </div>
 </section>
@@ -370,7 +501,7 @@ ${FAQ.map(([q, a]) => `      <details><summary>${q}</summary><p>${a}</p></detail
 <section class="final">
   <div class="wrap">
     <h2>מוכנים להפסיק להעתיק ולהדביק?</h2>
-    <a class="btn btn-dark" href="/app#signup">התחילו עכשיו</a>
+    <div class="ctas"><a class="btn btn-dark" href="/app#signup">התחילו עכשיו</a><a class="btn btn-ink-ghost" href="/app/install" data-install="1"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>התקנת האפליקציה</a></div>
   </div>
 </section>
 </main>
@@ -381,6 +512,8 @@ ${FAQ.map(([q, a]) => `      <details><summary>${q}</summary><p>${a}</p></detail
     <span><a href="#faq">שאלות נפוצות</a><a href="/app">כניסה למערכת</a></span>
   </div>
 </footer>
+
+${installPromptHtml()}
 
 <script nonce="${nonce}">
 (function(){
@@ -450,8 +583,57 @@ document.querySelectorAll('.tabs button').forEach(function(b){b.addEventListener
   var a=b.getAttribute('data-act');setAll(a==='edit'?EDITED:SRC,a==='delete',a!=='send');note.textContent=NOTES[a];
 })});
 setAll(SRC,false,false);note.textContent=NOTES.send;
+
+// ---- eye candy: scroll progress, glass header, reveal on scroll, spotlight + tilt, ripples, sparks, the phone demo
+var hdr=document.getElementById('top'),bar=document.getElementById('progress'),ticking=false;
+function onScroll(){if(ticking)return;ticking=true;requestAnimationFrame(function(){ticking=false;
+  var h=document.documentElement,max=h.scrollHeight-h.clientHeight,y=h.scrollTop||document.body.scrollTop;
+  bar.style.transform='scaleX('+(max>0?Math.min(1,y/max):0)+')';hdr.classList.toggle('solid',y>30)})}
+window.addEventListener('scroll',onScroll,{passive:true});onScroll();
+
+var revealTargets=document.querySelectorAll('.sec-head,.step,.who>div,.plan,.faq details,.stage,.sync li,.honest dl>div,.honest h2,.honest .lead,.final h2,.final .ctas,.perks li,.appsec h2,.appsec .lead,.appsec .ctas');
+if('IntersectionObserver' in window&&!reduce){
+  var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{rootMargin:'0px 0px -8% 0px',threshold:.12});
+  var groupsSeen=new Map();
+  [].forEach.call(revealTargets,function(el){var p=el.parentElement,k=(groupsSeen.get(p)||0);groupsSeen.set(p,k+1);
+    el.style.setProperty('--d',(Math.min(k,6)*0.09)+'s');el.classList.add('rv');io.observe(el)});
+}
+
+var fine=window.matchMedia&&matchMedia('(hover: hover) and (pointer: fine)').matches;
+[].forEach.call(document.querySelectorAll('.plan,.who>div,.stage'),function(el){
+  el.classList.add('spot');
+  el.addEventListener('pointermove',function(e){var r=el.getBoundingClientRect(),x=e.clientX-r.left,y=e.clientY-r.top;
+    el.style.setProperty('--mx',x+'px');el.style.setProperty('--my',y+'px');
+    if(fine&&!reduce&&el.classList.contains('plan')){var rx=((y/r.height)-.5)*-6,ry=((x/r.width)-.5)*6;el.style.transform='perspective(900px) rotateX('+rx+'deg) rotateY('+ry+'deg) translateY(-4px)'}});
+  el.addEventListener('pointerleave',function(){el.style.transform=''});
+});
+
+[].forEach.call(document.querySelectorAll('.btn'),function(b){b.addEventListener('pointerdown',function(e){if(reduce)return;
+  var r=b.getBoundingClientRect(),s=Math.max(r.width,r.height),d=document.createElement('span');d.className='ripple';
+  d.style.width=d.style.height=s+'px';d.style.left=(e.clientX-r.left-s/2)+'px';d.style.top=(e.clientY-r.top-s/2)+'px';
+  b.appendChild(d);setTimeout(function(){d.remove()},650)})});
+
+var ctrl=document.getElementById('ctrl');
+function sparks(){if(reduce)return;var colors=['#19C6B4','#8ff5ea','#ffffff','#2ee59d','#5b8cff'];
+  var rr=report.getBoundingClientRect(),cr=ctrl.getBoundingClientRect(),ox=rr.left-cr.left+rr.width/2,oy=rr.top-cr.top+rr.height/2;
+  for(var i=0;i<22;i++){var p=document.createElement('span');p.className='spark';var a=Math.random()*Math.PI*2,dist=50+Math.random()*90;
+    p.style.left=ox+'px';p.style.top=oy+'px';p.style.background=colors[i%colors.length];
+    p.style.setProperty('--tx',Math.cos(a)*dist+'px');p.style.setProperty('--ty',Math.sin(a)*dist+'px');
+    ctrl.appendChild(p);(function(x){setTimeout(function(){x.remove()},1000)})(p)}}
+new MutationObserver(function(){if(report.classList.contains('on'))sparks()}).observe(report,{attributes:true,attributeFilter:['class']});
+
+var phoneCards=[].slice.call(document.querySelectorAll('.ph-card')),toast=document.getElementById('ph-toast'),phoneRan=false;
+function countUp(el,to){if(reduce){el.textContent=to.toLocaleString('he-IL');return}var t0=performance.now(),dur=1800;
+  (function f(t){var k=Math.min(1,(t-t0)/dur),v=Math.round(to*(1-Math.pow(1-k,3)));el.textContent=v.toLocaleString('he-IL');if(k<1)requestAnimationFrame(f)})(t0)}
+function runPhone(){if(phoneRan)return;phoneRan=true;
+  phoneCards.forEach(function(c,i){setTimeout(function(){c.classList.add('in');
+    var b=c.querySelector('.ph-bar i');if(b)setTimeout(function(){b.style.width=b.getAttribute('data-w')+'%'},150);
+    var n=c.querySelector('[data-to]');if(n)setTimeout(function(){countUp(n,Number(n.getAttribute('data-to')))},300)},reduce?0:300+i*450)});
+  setTimeout(function(){toast.classList.add('on');setTimeout(function(){toast.classList.remove('on')},3600)},reduce?0:2200)}
+if('IntersectionObserver' in window){var pio=new IntersectionObserver(function(es){if(es.some(function(e){return e.isIntersecting})){runPhone();pio.disconnect()}},{threshold:.35});pio.observe(document.getElementById('phone'))}else runPhone();
 })();
 </script>
+<script nonce="${nonce}">${installPromptJs(4000)}</script>
 </body>
 </html>`;
 }

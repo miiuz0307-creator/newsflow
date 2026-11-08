@@ -9,6 +9,7 @@
  */
 import { fontFaceCss } from './fonts.js';
 import { APP_INSTALL_HEAD } from './installPage.js';
+import { installPromptCss, installPromptHtml, installPromptJs } from './installPrompt.js';
 
 export function dashboardHtml(nonce: string): string {
   return `<!doctype html>
@@ -389,6 +390,7 @@ var store={get:function(k){try{return bin().getItem(k)}catch(e){return null}},se
 // the token lives only in this page's memory and never replaces a sign-in stored on the device.
 // #view=… is read-only; #as=… is the admin working inside the account (full control). Both stay in memory only.
 var VIEW=(function(){var m=/^#(view|as)=([A-Za-z0-9_.-]+)$/.exec(location.hash||'');if(!m)return null;try{history.replaceState(null,'',location.pathname+'#overview')}catch(e){}return {token:m[2],control:m[1]==='as'}})();
+if(VIEW)window.PUSH_NO_INSTALL=true; // the admin looking at a customer's app: no install offer
 var mem={};function tok(k){if(VIEW)return k==='at'?VIEW.token:null;return mem[k]||store.get(k)}function setTok(a,r){mem.at=a;mem.rt=r;store.set('at',a);store.set('rt',r)}function clearTok(){mem={};store.del('at');store.del('rt')}
 function h(tag,attrs,kids){var e=document.createElement(tag);if(attrs)for(var k in attrs){var v=attrs[k];if(v==null||v===false)continue;if(k==='text')e.textContent=v;else if(k==='cls')e.className=v;else if(k.slice(0,2)==='on')e.addEventListener(k.slice(2),v);else e.setAttribute(k,v===true?'':v)}
   (kids||[]).forEach(function(c){if(c!=null&&c!==false)e.appendChild(typeof c==='string'?document.createTextNode(c):c)});return e}
@@ -1306,6 +1308,9 @@ if(VIEW||tok('at'))start();else showAuth(location.hash==='#signup'?'signup':'log
 if('serviceWorker' in navigator)navigator.serviceWorker.register('/app/sw.js',{scope:'/app'}).catch(function(){});
 })();
 </script>
+<style nonce="${nonce}">${installPromptCss()}</style>
+${installPromptHtml()}
+<script nonce="${nonce}">${installPromptJs(6000)}</script>
 </body>
 </html>`;
 }
