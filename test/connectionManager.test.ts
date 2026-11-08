@@ -120,6 +120,18 @@ describe('after linking', () => {
     await mgr.shutdown();
   });
 
+  test('an unrecognised stream error ("bad session", e.g. Stream Errored (ack)) reconnects and keeps the stored session', async () => {
+    const { net, mgr, stores } = await linked();
+    const store = stores.get('acc1')!;
+    assert.ok(await store.hasCreds());
+    net.streamError(PHONE);
+    await waitFor(() => mgr.getState('acc1')?.lastDisconnect?.reason === 'bad_session', 500, 'saw the error');
+    await waitFor(() => mgr.getState('acc1')?.status === 'connected', 1000, 'reconnected by itself');
+    assert.equal(mgr.getState('acc1')!.qr, undefined, 'no new QR needed');
+    assert.ok(await store.hasCreds(), 'the session was not wiped');
+    await mgr.shutdown();
+  });
+
   test('ban stops the account, raises a safety signal and is not retried', async () => {
     const { net, mgr, signals } = await linked();
     net.ban(PHONE);
