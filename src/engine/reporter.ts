@@ -70,6 +70,8 @@ export interface ReportExtra {
   cancelledBeforeSend?: number;
   /** Copies in "pending verification", which an edit or delete cannot reach. */
   unknownCopies?: number;
+  /** "!סטטוס": the copies went up as group status. */
+  status?: boolean;
 }
 
 /** Hebrew text of a final report. Exported for tests. */
@@ -80,7 +82,9 @@ export function finalReportText(action: Exclude<JobAction, 'report'>, s: ActionS
   const total = s.total - s.cancelled - moot;
   const bad = s.failed + (s.skipped - moot);
   const lines: string[] = [];
-  if (action === 'send') {
+  if (action === 'send' && extra.status) {
+    lines.push(bad || s.unknown ? `${tag('⚠️')}הסטטוס עלה ב-${done} מתוך ${total} קבוצות.` : `${tag('✅')}הסטטוס הועלה בהצלחה ב-${done} מתוך ${total} קבוצות.`);
+  } else if (action === 'send') {
     lines.push(bad || s.unknown ? `${tag('⚠️')}ההודעה נשלחה ל-${done} מתוך ${total} קבוצות.` : `${tag('✅')}ההודעה נשלחה בהצלחה ל-${done} מתוך ${total} קבוצות.`);
   } else if (action === 'edit') {
     const before = extra.changedBeforeSend ?? 0;
@@ -190,12 +194,17 @@ export class Reporter {
     const byRoute = new Map<string, number>();
     for (const j of jobs) byRoute.set(j.routeId, (byRoute.get(j.routeId) ?? 0) + 1);
     const later = isLater(jobs, this.now());
+    const status = jobs.some((j) => j.content.asStatus);
     for (const [routeId, n] of byRoute) {
       const route = await this.controlRoute(tenantId, source, routeId);
       if (!route || this.mode(route) !== 'all') continue;
-      const text = later
-        ? `${tag('🕐')}ההודעה תוזמנה ל-${israelTime(later)} ותישלח ל-${n} קבוצות.`
-        : `${tag('🕒')}התקבלה הודעה, מפיץ ל-${n} קבוצות…`;
+      const text = status
+        ? later
+          ? `${tag('🕐')}הסטטוס תוזמן ל-${israelTime(later)} ויעלה ב-${n} קבוצות.`
+          : `${tag('🕒')}מעלה סטטוס ב-${n} קבוצות…`
+        : later
+          ? `${tag('🕐')}ההודעה תוזמנה ל-${israelTime(later)} ותישלח ל-${n} קבוצות.`
+          : `${tag('🕒')}התקבלה הודעה, מפיץ ל-${n} קבוצות…`;
       await this.post(route, source, messageId, `received`, text, 1);
     }
   }
@@ -250,6 +259,7 @@ export class Reporter {
     if (job.action === 'send') await this.mark(route, job.source, job.sourceMessageId, s.failed + s.unknown > 0 ? '⚠️' : '✅');
     if (mode === 'off') return;
     const extra: ReportExtra = {};
+    if (job.action === 'send' && job.content.asStatus) extra.status = true;
     if (job.action !== 'send') {
       const sends = await q.summary(job.tenantId, job.source, job.sourceMessageId, 'send', undefined, route.id);
       extra.unknownCopies = sends.unknown;
@@ -260,7 +270,8 @@ export class Reporter {
       }
     }
     const bad = s.failed + s.unknown + (extra.unknownCopies ?? 0);
-    if (mode === 'failures' && bad === 0) return;
+    // A status is always confirmed (unless reports are off): it does not show in the group's chat.
+    if (mode === 'failures' && bad === 0 && !extra.status) return;
     if (job.action === 'edit' && s.sent === 0 && bad === 0 && !extra.changedBeforeSend) return; // nothing visible happened
     await this.post(route, job.source, job.sourceMessageId, finalStage(job.action, job.version), finalReportText(job.action, s, extra), job.version);
   }
