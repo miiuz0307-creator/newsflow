@@ -176,7 +176,7 @@ const adminModules = adminPool && process.env.ADMIN_TOKEN_SECRET
         ...(ownerPool ? {
           resetOwnerPassword: async (tenantId: string, hash: string) => {
             const r = await ownerPool.query<{ email: string }>(
-              `UPDATE users SET password_hash = $2 WHERE id = (
+              `UPDATE users SET password_hash = $2, failed_logins = 0, locked_until = NULL WHERE id = (
                  SELECT id FROM users WHERE tenant_id = $1 ORDER BY (role = 'owner') DESC, created_at LIMIT 1) RETURNING email`, [tenantId, hash]);
             return r.rows[0]?.email ?? null;
           },
