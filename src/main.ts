@@ -97,6 +97,11 @@ setInterval(() => void refreshCaps().catch((e) => log.error('caps refresh failed
 const vapidKeys = process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY ? { publicKey: process.env.VAPID_PUBLIC_KEY, privateKey: process.env.VAPID_PRIVATE_KEY } : undefined;
 const customerPush = vapidKeys ? new CustomerPush(workerPool, vapidKeys, process.env.VAPID_SUBJECT ?? 'mailto:admin@localhost', { log }) : undefined;
 const notifications = new NotificationService(workerPool, customerPush);
+// Group status copies sent before outbound_jobs.is_status existed: marked from their content. (The
+// migration could not do it: row-level security hides other tenants' rows from the migration role.)
+await workerPool.query(`UPDATE outbound_jobs SET is_status = true WHERE NOT is_status AND action = 'send' AND content->>'asStatus' = 'true'`)
+  .then((r) => { if (r.rowCount) log.info('status copies marked', { count: r.rowCount }); })
+  .catch((err) => log.warn('status copies not marked', { err: String(err) }));
 const routeSource = new CachedRouteSource(new PgRouteSource(workerPool));
 
 const worker = new Worker({
