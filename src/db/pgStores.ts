@@ -265,7 +265,7 @@ export class PgJobQueue implements JobQueue {
   /** One multi-row INSERT per batch of up to 500 jobs (a news item fans out to many targets at once). */
   async enqueue(jobs: PlannedJob[]) {
     let inserted = 0;
-    const COLS = 17;
+    const COLS = 18;
     for (let i = 0; i < jobs.length; i += 500) {
       const batch = jobs.slice(i, i + 500);
       const params: unknown[] = [];
@@ -273,13 +273,13 @@ export class PgJobQueue implements JobQueue {
         const action = j.action ?? 'send';
         params.push(j.tenantId, j.routeId || null, j.idempotencyKey, j.source, j.sourceMessageId, j.target.platform, j.target.accountId,
           j.target.chatId, j.target.title ?? null, storableContent(j.content), j.requiresApproval ? 'pending_approval' : 'queued', j.notBefore,
-          action, ACTION_PRIORITY[action], j.parentJobId ?? null, j.version ?? 1, j.scheduledAt ?? null);
+          action, ACTION_PRIORITY[action], j.parentJobId ?? null, j.version ?? 1, j.scheduledAt ?? null, !!j.content.asStatus);
         return `(${Array.from({ length: COLS }, (_, c) => `$${k * COLS + c + 1}`).join(', ')})`;
       });
       const r = await this.sql.query(
         `INSERT INTO outbound_jobs (tenant_id, route_id, idempotency_key, source, source_message_id,
            target_platform, target_account_id, target_chat_id, target_title, content, status, not_before,
-           action, priority, parent_job_id, version, scheduled_at)
+           action, priority, parent_job_id, version, scheduled_at, is_status)
          VALUES ${rows.join(', ')}
          ON CONFLICT (idempotency_key) DO NOTHING`,
         params,

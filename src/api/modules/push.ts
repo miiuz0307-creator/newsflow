@@ -285,15 +285,17 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
     });
 
     // "צפיות": how many people read the copies, all groups together (today, 7 and 30 days, everything
-    // still kept), and per group over 30 days. Reads are WhatsApp read receipts, counted by the day the
-    // message went out.
+    // still kept), and per group over 30 days; group statuses ("!סטטוס") are counted on their own.
+    // Reads are WhatsApp read receipts, counted by the day the message went out.
     api.on('GET', '/v1/reads/summary', true, async ({ auth }) =>
       api.tenantTx(auth!, async (c) => {
-        const t = await c.query<{ today: number; d7: number; d30: number; total: number; msgs_today: number; msgs7: number; msgs30: number; msgs: number; since: Date | null }>(
+        type Row = { is_status: boolean; today: number; d7: number; d30: number; total: number; msgs_today: number; msgs7: number; msgs30: number; msgs: number; since: Date | null };
+        const t = await c.query<Row>(
           `WITH s AS (
-             SELECT created_at, read_count, source->>'chatId' AS chat_id, source_message_id FROM outbound_jobs WHERE action = 'send' AND status = 'sent'),
+             SELECT created_at, read_count, is_status, source->>'chatId' AS chat_id, source_message_id FROM outbound_jobs WHERE action = 'send' AND status = 'sent'),
            b AS (SELECT (date_trunc('day', now() AT TIME ZONE 'Asia/Jerusalem') AT TIME ZONE 'Asia/Jerusalem') AS today)
-           SELECT COALESCE(sum(read_count) FILTER (WHERE created_at >= b.today), 0)::int AS today,
+           SELECT is_status,
+                  COALESCE(sum(read_count) FILTER (WHERE created_at >= b.today), 0)::int AS today,
                   COALESCE(sum(read_count) FILTER (WHERE created_at > now() - interval '7 days'), 0)::int AS d7,
                   COALESCE(sum(read_count) FILTER (WHERE created_at > now() - interval '30 days'), 0)::int AS d30,
                   COALESCE(sum(read_count), 0)::int AS total,
@@ -302,22 +304,38 @@ export function pushModule(opts: { onRoutesChanged?: () => void } = {}) {
                   count(DISTINCT (chat_id, source_message_id)) FILTER (WHERE created_at > now() - interval '30 days')::int AS msgs30,
                   count(DISTINCT (chat_id, source_message_id))::int AS msgs,
                   min(created_at) AS since
-             FROM s, b GROUP BY b.today`);
-        const g = await c.query<{ platform: string; chat_id: string; title: string | null; reads: number; copies: number }>(
+             FROM s, b GROUP BY b.today, is_status`);
+        const g = await c.query<{ platform: string; chat_id: string; title: string | null; reads: number; copies: number; status_reads: number; statuses: number }>(
           `SELECT j.target_platform AS platform, j.target_chat_id AS chat_id, COALESCE(ch.title, max(j.target_title)) AS title,
-                  COALESCE(sum(j.read_count), 0)::int AS reads, count(*)::int AS copies
+                  COALESCE(sum(j.read_count) FILTER (WHERE NOT j.is_status), 0)::int AS reads, count(*) FILTER (WHERE NOT j.is_status)::int AS copies,
+                  COALESCE(sum(j.read_count) FILTER (WHERE j.is_status), 0)::int AS status_reads, count(*) FILTER (WHERE j.is_status)::int AS statuses
              FROM outbound_jobs j
              LEFT JOIN chats ch ON ch.platform = j.target_platform AND ch.account_id = j.target_account_id AND ch.chat_id = j.target_chat_id
             WHERE j.action = 'send' AND j.status = 'sent' AND j.created_at > now() - interval '30 days'
             GROUP BY j.target_platform, j.target_chat_id, ch.title
-            ORDER BY reads DESC, copies DESC
+            ORDER BY COALESCE(sum(j.read_count), 0) DESC, count(*) DESC
             LIMIT 100`);
-        const x = t.rows[0];
+        const st = await c.query<{ chat_id: string; message_id: string; created_at: Date; text: string | null; kind: string | null; groups: number; reads: number }>(
+          `SELECT source->>'chatId' AS chat_id, source_message_id AS message_id, min(created_at) AS created_at,
+                  (array_agg(content->>'text' ORDER BY id))[1] AS text, (array_agg(content->>'kind' ORDER BY id))[1] AS kind,
+                  count(*)::int AS groups, COALESCE(sum(read_count), 0)::int AS reads
+             FROM outbound_jobs WHERE action = 'send' AND status = 'sent' AND is_status AND created_at > now() - interval '30 days'
+            GROUP BY 1, 2 ORDER BY min(created_at) DESC LIMIT 20`);
+        const pick = (status: boolean) => {
+          const x = t.rows.find((r) => r.is_status === status);
+          return {
+            totals: { today: x?.today ?? 0, days7: x?.d7 ?? 0, days30: x?.d30 ?? 0, all: x?.total ?? 0 },
+            messages: { today: x?.msgs_today ?? 0, days7: x?.msgs7 ?? 0, days30: x?.msgs30 ?? 0, all: x?.msgs ?? 0 },
+            since: x?.since ?? null,
+          };
+        };
         return {
-          totals: { today: x?.today ?? 0, days7: x?.d7 ?? 0, days30: x?.d30 ?? 0, all: x?.total ?? 0 },
-          messages: { today: x?.msgs_today ?? 0, days7: x?.msgs7 ?? 0, days30: x?.msgs30 ?? 0, all: x?.msgs ?? 0 },
-          since: x?.since ?? null,
-          groups: g.rows.map((r) => ({ platform: r.platform, chatId: r.chat_id, title: r.title || r.chat_id, reads: r.reads, copies: r.copies })),
+          ...pick(false),
+          status: {
+            ...pick(true),
+            recent: st.rows.map((r) => ({ createdAt: r.created_at, preview: (r.text ?? '').slice(0, 160), kind: r.kind ?? 'text', groups: r.groups, reads: r.reads })),
+          },
+          groups: g.rows.map((r) => ({ platform: r.platform, chatId: r.chat_id, title: r.title || r.chat_id, reads: r.reads, copies: r.copies, statusReads: r.status_reads, statuses: r.statuses })),
         };
       }));
 
