@@ -182,3 +182,28 @@ describe('per-address limit', () => {
     }
   });
 });
+
+describe('customer logos on the home page', () => {
+  test('served from public/clients only, shown on the home page with the names', async () => {
+    const { clientLogosModule } = await import('../src/api/fonts.js');
+    const { factory } = memoryStores();
+    const conns = new ConnectionManager({ transportFactory: fakeTransportFactory(new FakeWaNetwork()), storeFactory: async (t, a) => factory(t, a) });
+    const api = new ApiServer({ appPool: undefined as never, connections: conns, queue: undefined as never, killSwitches: undefined as never, tokenSecret: SECRET, modules: [pushModule(), clientLogosModule()] });
+    await api.listen();
+    try {
+      for (const f of ['realtime-updates.png', 'hamivzakist.png']) {
+        const r = await fetch(`${api.url}/img/clients/${f}`);
+        assert.equal(r.status, 200, f);
+        assert.equal(r.headers.get('content-type'), 'image/png');
+        const buf = Buffer.from(await r.arrayBuffer());
+        assert.equal(buf.subarray(1, 4).toString(), 'PNG');
+      }
+      for (const bad of ['..%2Fpackage.json', 'x.jpg', 'missing.png']) assert.equal((await fetch(`${api.url}/img/clients/${bad}`)).status, 404, bad);
+      const home = await (await fetch(api.url + '/')).text();
+      for (const s of ['עדכונים בזמן אמת', 'המבזקיסט', '/img/clients/realtime-updates.png', '/img/clients/hamivzakist.png']) assert.ok(home.includes(s), s);
+    } finally {
+      await api.close();
+      await conns.shutdown();
+    }
+  });
+});
