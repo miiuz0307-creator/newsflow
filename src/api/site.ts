@@ -16,8 +16,8 @@ export function publicOrigin(host?: string): string {
 
 /** Customers shown on the home page (with their permission). Logo: a path served by /img/clients/. */
 const CLIENTS: { name: string; logo?: string }[] = [
-  { name: 'עדכונים בזמן אמת' },
-  { name: 'המבזקיסט' },
+  { name: 'עדכונים בזמן אמת', logo: '/img/clients/realtime-updates.png' },
+  { name: 'המבזקיסט', logo: '/img/clients/hamivzakist.png' },
 ];
 
 const TITLE = 'Groupush (גרופוש) — מערכת שליחה אוטומטית לכל קבוצות הוואטסאפ והטלגרם';
@@ -220,7 +220,7 @@ section{padding:110px 0}
 .logos{list-style:none;padding:0;margin:0;display:flex;justify-content:center;flex-wrap:wrap;gap:18px}
 .client{display:flex;align-items:center;gap:14px;background:var(--white);border:1px solid var(--line);border-radius:20px;padding:14px 22px 14px 26px;box-shadow:0 18px 40px -30px rgba(10,27,51,.45);transition:transform .25s,box-shadow .25s,border-color .25s}
 .client:hover{transform:translateY(-3px);border-color:var(--teal);box-shadow:0 24px 44px -28px rgba(10,27,51,.5)}
-.client img,.client .mono{width:56px;height:56px;border-radius:50%;object-fit:cover;flex:none}
+.client img,.client .mono{width:64px;height:64px;border-radius:50%;object-fit:cover;flex:none}
 .client .mono{display:grid;place-items:center;background:linear-gradient(140deg,var(--navy),var(--ink));color:var(--teal);font-family:var(--display);font-size:24px}
 .client b{font-family:var(--display);font-weight:400;font-size:22px}
 @media (max-width:560px){.client{padding:12px 16px 12px 20px}.client b{font-size:19px}}
