@@ -30,7 +30,8 @@ describe('scheduled messages', () => {
     assert.equal(parseSchedule('תזמון (25:00)\nטקסט', new Date()).kind, 'invalid');
     assert.equal(parseSchedule('תזמון מחר\nטקסט', new Date()).kind, 'invalid');
     assert.equal(parseSchedule('תזמונים חדשים לאוטובוסים', new Date()).kind, 'none', 'a word that only starts with it');
-    assert.equal(parseSchedule('מבזק\nתזמון (12:20)', new Date()).kind, 'none', 'only the first line counts');
+    assert.equal(parseSchedule('מבזק\nתזמון (12:20)', new Date()).kind, 'scheduled', 'the last line counts too');
+    assert.equal(parseSchedule('מבזק\nתזמון (12:20)\nעוד שורה', new Date()).kind, 'none', 'not a line in the middle');
     assert.equal(stripSchedule('תזמון (12:20)\n\nמבזק'), 'מבזק');
     assert.equal(stripSchedule('מבזק רגיל'), 'מבזק רגיל');
   });
@@ -52,6 +53,26 @@ describe('scheduled messages', () => {
     assert.deepEqual(iso('תיזמון (12:20)\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק'], 'spelled with yod');
     assert.deepEqual(iso('תזמן 12:20\nמבזק'), ['2026-11-10T10:20:00.000Z', 'מבזק']);
     assert.equal(iso('תזמון 1220\nמבזק'), 'invalid');
+  });
+
+  test('the schedule line never goes out: emoji in front, as the last line, "היום" / "מחר"', () => {
+    const now = at('2026-11-08T19:10:00Z'); // 21:10 in Israel
+    const ok = (text: string, rest: string, iso: string) => {
+      const r = parseSchedule(text, now);
+      assert.equal(r.kind, 'scheduled', text);
+      assert.equal(r.kind === 'scheduled' && r.rest, rest, text);
+      assert.equal(r.kind === 'scheduled' && r.at.toISOString(), iso, text);
+    };
+    ok('⏰ תזמון 21:30\nמבזק', 'מבזק', '2026-11-08T19:30:00.000Z');
+    ok('🕘תזמון(21:30) מבזק', 'מבזק', '2026-11-08T19:30:00.000Z');
+    ok('מבזק\nשורה 2\nתזמון (21:30)', 'מבזק\nשורה 2', '2026-11-08T19:30:00.000Z');
+    ok('מבזק\n\n⏰ *תזמון 21:30*\n', 'מבזק', '2026-11-08T19:30:00.000Z');
+    ok('תזמון היום 21:30\nמבזק', 'מבזק', '2026-11-08T19:30:00.000Z');
+    ok('תזמון מחר 9\nמבזק', 'מבזק', '2026-11-09T07:00:00.000Z');
+    // At the end only a real time counts.
+    assert.equal(parseSchedule('מבזק\nתזמון הפגישה נדחה', now).kind, 'none');
+    assert.equal(parseSchedule('שלום\nתזמון 99:99', now).kind, 'none');
+    assert.equal(stripSchedule('מבזק\nתזמון (21:30)'), 'מבזק');
   });
 
   test('wall-clock time in summer and winter', () => {

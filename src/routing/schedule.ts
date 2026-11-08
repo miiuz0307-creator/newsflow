@@ -16,10 +16,11 @@ const GRACE_MS = 2 * 60_000;
 
 /** Direction marks, zero-width characters and other invisible format characters. */
 const INVISIBLE = /[\p{Cf}­]/gu;
-/** WhatsApp formatting markers and the bullets people put in front. */
-const MARKS = /^[\s*_~>•\-–—]+|[\s*_~]+$/gu;
+/** WhatsApp formatting markers, and the bullets or emoji people put in front ("⏰ תזמון"). */
+const MARKS = /^[^\p{L}\p{N}]+|[\s*_~]+$/gu;
 /** "תזמון", also spelled "תיזמון", or "תזמן". */
 const WORD = /^(?:תי?זמון|תזמן)(?![\p{L}])/u;
+const DAY = /^\s*(?:[:\-–]\s*)?(היום|מחר)(?![\p{L}])/u;
 const TIME = /^\s*(?:[:\-–]\s*)?(?:(?:לשעה|בשעה|ל-?|ב-?)\s*)?[([]?\s*(\d{1,2})(?:\s*[:.]\s*(\d{2}))?\s*[)\]]?(?![\d:.])\s*[:\-–]?\s*(.*)$/u;
 
 export type ScheduleParse =
@@ -43,7 +44,7 @@ function clean(line: string): string {
   return asciiDigits(line.replace(INVISIBLE, '').replace(/ /g, ' ')).replace(MARKS, '').trim();
 }
 
-const HEAD = /^[\s*_~>•\-–—]*(?:תי?זמון|תזמן)\s*[*_~]*\s*(?:[:\-–]\s*)?(?:(?:לשעה|בשעה|ל-?|ב-?)\s*)?[([]?\s*\d{1,2}(?:\s*[:.]\s*\d{2})?\s*[)\]]?\s*(?:[*_~](?=\s|$))?\s*[:\-–]?\s*/u;
+const HEAD = /^[^\p{L}\p{N}]*(?:תי?זמון|תזמן)\s*[*_~]*\s*(?:[:\-–]\s*)?(?:(?:היום|מחר)(?![\p{L}])\s*)?(?:[:\-–]\s*)?(?:(?:לשעה|בשעה|ל-?|ב-?)\s*)?[([]?\s*\d{1,2}(?:\s*[:.]\s*\d{2})?\s*[)\]]?\s*(?:[*_~](?=\s|$))?\s*[:\-–]?\s*/u;
 function sameLineRest(line: string): string {
   const l = asciiDigits(line.replace(INVISIBLE, '').replace(/\u00A0/g, ' '));
   const head = HEAD.exec(l);
@@ -75,30 +76,71 @@ export function zonedTime(y: number, mo: number, d: number, h: number, mi: numbe
   return new Date(t);
 }
 
-/** Reads the schedule line of a control-group message (text or caption). */
-export function parseSchedule(text: string | undefined, now: Date, timeZone = SCHEDULE_TIME_ZONE): ScheduleParse {
-  if (!text) return { kind: 'none' };
-  const { line, rest } = firstLine(text);
+function lastLine(text: string): { line: string; before: string } | null {
+  const t = text.replace(/(?:\n[\s\p{Cf}]*)+$/u, '');
+  const i = t.lastIndexOf('\n');
+  if (i < 0) return null;
+  return { line: t.slice(i + 1), before: t.slice(0, i).replace(/(?:\n[\s\p{Cf}]*)+$/u, '') };
+}
+
+type LineParse = null | 'invalid' | { h: number; mi: number; days: number; sameLine: string };
+
+/** One line read as a schedule instruction ("תזמון (12:20)", "⏰ תזמון מחר 9", …). */
+function readLine(line: string): LineParse {
   const c = clean(line);
   const w = WORD.exec(c);
-  if (!w) return { kind: 'none' };
-  const m = TIME.exec(c.slice(w[0].length));
-  if (!m) return { kind: 'invalid' };
+  if (!w) return null;
+  let after = c.slice(w[0].length);
+  const day = DAY.exec(after);
+  if (day) after = after.slice(day[0].length);
+  const m = TIME.exec(after);
+  if (!m) return 'invalid';
   const h = Number(m[1]);
   const mi = m[2] === undefined ? 0 : Number(m[2]);
-  if (h > 23 || mi > 59) return { kind: 'invalid' };
-  // The message may start on the same line, right after the time ("תזמון (05:13) *מבזק* ...").
-  // Taken from the line as written, so its own *bold* and _italic_ markers stay intact.
-  const sameLine = sameLineRest(line);
-  const body = sameLine ? (rest ? `${sameLine}\n${rest}` : sameLine) : rest;
+  if (h > 23 || mi > 59) return 'invalid';
+  return { h, mi, days: day?.[1] === 'מחר' ? 1 : 0, sameLine: sameLineRest(line) };
+}
+
+/**
+ * Reads the schedule line of a control-group message (text or caption). The line is usually the
+ * first one; a schedule written as the last line is read too ("מבזק…\nתזמון 21:30").
+ */
+export function parseSchedule(text: string | undefined, now: Date, timeZone = SCHEDULE_TIME_ZONE): ScheduleParse {
+  if (!text) return { kind: 'none' };
+  let r: LineParse;
+  let body: string;
+  const { line, rest } = firstLine(text);
+  r = readLine(line);
+  if (r && r !== 'invalid') {
+    // The message may start on the same line, right after the time ("תזמון (05:13) *מבזק* ...").
+    // Taken from the line as written, so its own *bold* and _italic_ markers stay intact.
+    body = r.sameLine ? (rest ? `${r.sameLine}\n${rest}` : r.sameLine) : rest;
+  } else if (r === null) {
+    const last = lastLine(text);
+    if (!last) return { kind: 'none' };
+    r = readLine(last.line);
+    // At the end only a real time counts: a last line that merely starts with the word is text.
+    if (r === null || r === 'invalid') return { kind: 'none' };
+    body = r.sameLine ? `${last.before}\n${r.sameLine}` : last.before;
+  } else {
+    return { kind: 'invalid' };
+  }
+  const { h, mi, days } = r;
   const today = zonedParts(now, timeZone);
-  let at = zonedTime(today.y, today.mo, today.d, h, mi, timeZone);
-  if (at.getTime() < now.getTime() - GRACE_MS) {
+  let at: Date;
+  if (days > 0) {
     const tomorrow = new Date(Date.UTC(today.y, today.mo - 1, today.d) + 36 * 3_600_000); // safely inside the next day
     const p = zonedParts(tomorrow, 'UTC');
     at = zonedTime(p.y, p.mo, p.d, h, mi, timeZone);
-  } else if (at.getTime() < now.getTime()) {
-    at = now;
+  } else {
+    at = zonedTime(today.y, today.mo, today.d, h, mi, timeZone);
+    if (at.getTime() < now.getTime() - GRACE_MS) {
+      const tomorrow = new Date(Date.UTC(today.y, today.mo - 1, today.d) + 36 * 3_600_000);
+      const p = zonedParts(tomorrow, 'UTC');
+      at = zonedTime(p.y, p.mo, p.d, h, mi, timeZone);
+    } else if (at.getTime() < now.getTime()) {
+      at = now;
+    }
   }
   return { kind: 'scheduled', at, hhmm: `${String(h).padStart(2, '0')}:${String(mi).padStart(2, '0')}`, rest: body };
 }
