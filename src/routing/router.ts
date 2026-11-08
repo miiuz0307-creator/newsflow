@@ -14,14 +14,16 @@ import type { ControlSettings, PlannedJob, QuietHours, Route, RouteFilters, Rout
 
 const SUPPORTED_DEFAULT = new Set(['text', 'image', 'video', 'audio', 'document']);
 
-/** Every status message PUSH posts into a control group starts with an emoji and this tag. */
-export const REPORT_TAG = 'PUSH ·';
+/** Every status message Groupush posts into a control group starts with an emoji and this tag. */
+export const REPORT_TAG = 'Groupush ·';
+/** The tag reports carried before the rename (PUSH → Groupush): still recognised as our own. */
+const LEGACY_REPORT_TAGS = ['PUSH ·'];
 
-/** True for a status message PUSH itself posted (so it is never distributed). */
+/** True for a status message Groupush itself posted (so it is never distributed). */
 export function isOwnReport(msg: InboundMessage): boolean {
   if (!msg.fromSelf || msg.content.kind !== 'text') return false;
-  const head = (msg.content.text ?? '').slice(0, 16);
-  return head.includes(REPORT_TAG);
+  const head = (msg.content.text ?? '').slice(0, 24);
+  return head.includes(REPORT_TAG) || LEGACY_REPORT_TAGS.some((t) => head.includes(t));
 }
 
 /** The phone number or user id in a sender id ("972501234567:3@s.whatsapp.net" → "972501234567"). */
@@ -46,7 +48,7 @@ export function renderCopy(
   now: Date,
 ): MessageContent | null {
   let body = source.text ?? '';
-  // A control group's "תזמון (12:20)" line is an instruction to PUSH, never part of the copy.
+  // A control group's "תזמון (12:20)" line is an instruction to Groupush, never part of the copy.
   if (route.control) body = stripSchedule(body);
   if (route.filters.removeInviteLinks ?? true) body = removeInviteLinks(body);
   if (source.kind === 'text' && !body.trim()) return null;
@@ -144,7 +146,7 @@ export class Router {
         plan.skipped.push({ routeId: route.id, reason: 'route_disabled' });
         continue;
       }
-      // A PUSH status message is never content, for any route reading this group.
+      // A Groupush status message is never content, for any route reading this group.
       if (isOwnReport(msg)) {
         plan.skipped.push({ routeId: route.id, reason: 'own_report' });
         continue;
@@ -154,7 +156,7 @@ export class Router {
         continue;
       }
       // In a control group the customer usually writes from the linked number itself, so "from
-      // this number" is the content, not an echo. PUSH's own copies and reports are still never
+      // this number" is the content, not an echo. Groupush's own copies and reports are still never
       // redistributed: copies go to other groups and are recognised by message id (wasSentByUs),
       // and reports carry REPORT_TAG (isOwnReport above).
       const reason = checkFilters(route.control ? { ...route.filters, ignoreFromSelf: false } : route.filters, msg);

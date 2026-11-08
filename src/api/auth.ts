@@ -14,9 +14,9 @@ export interface TokenClaims {
   role: 'owner' | 'admin' | 'editor';
   /** Expiry, seconds since epoch. */
   exp: number;
-  /** Set when a PUSH admin watches the customer's app: the admin id. Such a token may only read (GET). */
+  /** Set when a Groupush admin watches the customer's app: the admin id. Such a token may only read (GET). */
   view?: string;
-  /** Set when a PUSH admin works inside the customer's account (full control): the admin id. */
+  /** Set when a Groupush admin works inside the customer's account (full control): the admin id. */
   admin?: string;
 }
 

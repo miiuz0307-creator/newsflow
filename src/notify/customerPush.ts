@@ -1,6 +1,6 @@
 /**
- * Notifications to customers' devices (the PUSH app on their phone or computer):
- * alerts about their WhatsApp number and "what's new in PUSH". Devices are in
+ * Notifications to customers' devices (the Groupush app on their phone or computer):
+ * alerts about their WhatsApp number and "what's new in Groupush". Devices are in
  * customer_push_subscriptions; the worker role reads them across tenants to send.
  */
 import type { Sql } from '../db/pg.js';

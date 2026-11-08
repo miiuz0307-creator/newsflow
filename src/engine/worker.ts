@@ -36,7 +36,7 @@ export interface WorkerOptions {
   media: MediaStore;
   /** Burns the customer's logo into videos/photos (see InboundPipeline). */
   brand?: PipelineOptions['brand'];
-  /** PUSH Sync state of source messages. Default: in memory (tests, simulator). */
+  /** Groupush Sync state of source messages. Default: in memory (tests, simulator). */
   sources?: SourceMessageStore;
   /** Called after each edit / delete from a control group was planned (monitoring, tests). */
   onSync?: (e: SyncEvent, out: SyncOutcome) => void;

@@ -1,5 +1,5 @@
 /**
- * Notifications to the PUSH owner's own devices (the management panel), for example
+ * Notifications to the Groupush owner's own devices (the management panel), for example
  * "a new customer signed up". Devices are stored in admin_push_subscriptions.
  */
 import type { Sql } from '../db/pg.js';

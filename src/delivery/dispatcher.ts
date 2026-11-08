@@ -9,7 +9,7 @@
  *   4. rate limits → put back until the limiter's retry time
  *   5. send → done, retry, fail, or 'unknown' depending on the error kind
  *
- * Edit and delete jobs (PUSH Sync) take a separate path: they wait for the
+ * Edit and delete jobs (Groupush Sync) take a separate path: they wait for the
  * copy they change to be sent, are skipped when a newer edit or a delete
  * replaced them, and fail without retrying once the platform's time window
  * for that change has passed. Repeating an edit or delete is harmless, so an
@@ -47,7 +47,7 @@ export interface DispatcherOptions {
   /** When a kill switch blocks a job, look again after this long. */
   killedRecheckMs?: number;
   now?: () => number;
-  /** Current version / deleted flag of a source message (PUSH Sync). */
+  /** Current version / deleted flag of a source message (Groupush Sync). */
   sourceState?: (job: StoredJob) => Promise<SourceState | undefined>;
   /** Spread retries by ±this fraction so many failures don't retry in the same second. Default 0.2. */
   retryJitter?: number;

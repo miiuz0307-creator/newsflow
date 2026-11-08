@@ -1,13 +1,13 @@
 /**
  * The customer app as an installable phone app: its manifest, a small service worker
  * (an offline notice when there is no connection), and the /app/install page that a
- * PUSH owner sends to customers. The page shows the right steps for the visitor's
+ * Groupush owner sends to customers. The page shows the right steps for the visitor's
  * device (iPhone, Android, computer), and on Chrome/Edge offers a one-tap install.
  */
 
 export function appManifest(): string {
   return JSON.stringify({
-    id: '/app', name: 'PUSH', short_name: 'PUSH', lang: 'he', dir: 'rtl',
+    id: '/app', name: 'Groupush', short_name: 'Groupush', lang: 'he', dir: 'rtl',
     description: 'הודעה אחת בקבוצת השליטה, לכל הקבוצות. רואים מה יצא, לאן הגיע ומי קרא.',
     start_url: '/app', scope: '/', display: 'standalone', orientation: 'portrait',
     background_color: '#0A1B33', theme_color: '#0A1B33',
@@ -25,7 +25,7 @@ self.addEventListener('install',function(){self.skipWaiting()});
 self.addEventListener('activate',function(e){e.waitUntil(self.clients.claim())});
 self.addEventListener('push',function(e){
   var d={};try{d=e.data?e.data.json():{}}catch(x){d={body:e.data?e.data.text():''}}
-  e.waitUntil(self.registration.showNotification(d.title||'PUSH',{body:d.body||'',icon:'/app/icon-192.png',badge:'/app/icon-192.png',lang:'he',dir:'rtl',tag:d.tag||undefined,data:{url:d.url||'/app'}}));
+  e.waitUntil(self.registration.showNotification(d.title||'Groupush',{body:d.body||'',icon:'/app/icon-192.png',badge:'/app/icon-192.png',lang:'he',dir:'rtl',tag:d.tag||undefined,data:{url:d.url||'/app'}}));
 });
 self.addEventListener('notificationclick',function(e){
   e.notification.close();
@@ -38,7 +38,7 @@ self.addEventListener('notificationclick',function(e){
 self.addEventListener('fetch',function(e){
   if(e.request.mode!=='navigate')return;
   e.respondWith(fetch(e.request).catch(function(){
-    return new Response('<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>PUSH</title>'+
+    return new Response('<!doctype html><html lang="he" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Groupush</title>'+
       '<body style="margin:0;font-family:system-ui,sans-serif;background:#0A1B33;color:#fff;display:grid;place-items:center;min-height:100vh;text-align:center;padding:24px">'+
       '<div><div style="width:18px;height:18px;border-radius:50%;background:#19C6B4;margin:0 auto 18px"></div><h1 style="margin:0 0 8px;font-size:24px">אין חיבור לאינטרנט</h1>'+
       '<p style="margin:0;color:#93A5C0">ההפצות ממשיכות לעבוד בשרת. כשהחיבור יחזור, פתחו שוב את האפליקציה.</p></div></body></html>',
@@ -48,14 +48,14 @@ self.addEventListener('fetch',function(e){
 `;
 }
 
-/** Head tags that make /app installable (and give it the PUSH icon on the home screen). */
+/** Head tags that make /app installable (and give it the Groupush icon on the home screen). */
 export const APP_INSTALL_HEAD = `<link rel="manifest" href="/app/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/app/icon-180.png">
 <link rel="icon" type="image/png" href="/app/icon-192.png">
 <meta name="theme-color" content="#0A1B33">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="PUSH">
+<meta name="apple-mobile-web-app-title" content="Groupush">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">`;
 
 export function installHtml(nonce: string, fontCss: string): string {
@@ -64,8 +64,8 @@ export function installHtml(nonce: string, fontCss: string): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>התקנת PUSH</title>
-<meta name="description" content="מתקינים את PUSH בטלפון ורואים מה יצא, לאן הגיע ומי קרא.">
+<title>התקנת Groupush</title>
+<meta name="description" content="מתקינים את Groupush בטלפון ורואים מה יצא, לאן הגיע ומי קרא.">
 ${APP_INSTALL_HEAD}
 <style nonce="${nonce}">
 ${fontCss}
@@ -102,9 +102,9 @@ ol{margin:0;padding-inline-start:22px;display:grid;gap:12px;font-size:17px}
 </head>
 <body>
 <main>
-  <div class="brand"><i></i>PUSH</div>
+  <div class="brand"><i></i>Groupush</div>
   <img class="icon" src="/app/icon-192.png" alt="" width="96" height="96">
-  <h1>האפליקציה של PUSH בטלפון שלכם</h1>
+  <h1>האפליקציה של Groupush בטלפון שלכם</h1>
   <p class="lead">מאחורי הקלעים של ההפצות: כל מה שקורה עם ההודעות שלכם, במקום אחד.</p>
   <ul class="gets">
     <li>כל הודעה שיצאה מקבוצת השליטה, ולאילו קבוצות הגיעה</li>
@@ -128,7 +128,7 @@ ol{margin:0;padding-inline-start:22px;display:grid;gap:12px;font-size:17px}
       <li>פותחים את הדף הזה ב<span class="k">Safari</span>.</li>
       <li>לוחצים על כפתור השיתוף <span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12M8 7l4-4 4 4M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>שיתוף</span> בתחתית המסך.</li>
       <li>גוללים ובוחרים <span class="k">הוספה למסך הבית</span>, ואז <span class="k">הוספה</span>.</li>
-      <li>פותחים את <span class="k">PUSH</span> ממסך הבית ונכנסים עם האימייל והסיסמה.</li>
+      <li>פותחים את <span class="k">Groupush</span> ממסך הבית ונכנסים עם האימייל והסיסמה.</li>
     </ol>
     <p class="note">נפתח בתוך WhatsApp? לוחצים על סמל המצפן או על "פתיחה ב‑Safari", וממשיכים משם.</p>
   </section>
@@ -138,7 +138,7 @@ ol{margin:0;padding-inline-start:22px;display:grid;gap:12px;font-size:17px}
     <ol>
       <li>פותחים את הדף הזה ב<span class="k">Chrome</span>.</li>
       <li>אם מופיע הכפתור "התקנת האפליקציה" למעלה, לוחצים עליו. אם לא: לוחצים על <span class="k">⋮</span> בפינה ובוחרים <span class="k">התקנת אפליקציה</span> או <span class="k">הוספה למסך הבית</span>.</li>
-      <li>פותחים את <span class="k">PUSH</span> ממסך הבית ונכנסים עם האימייל והסיסמה.</li>
+      <li>פותחים את <span class="k">Groupush</span> ממסך הבית ונכנסים עם האימייל והסיסמה.</li>
     </ol>
     <p class="note">נפתח בתוך WhatsApp? לוחצים על <span class="k">⋮</span> ובוחרים "פתיחה ב‑Chrome".</p>
   </section>
@@ -148,7 +148,7 @@ ol{margin:0;padding-inline-start:22px;display:grid;gap:12px;font-size:17px}
     <ol>
       <li>פותחים את הדף ב‑<span class="k">Chrome</span> או ב‑<span class="k">Edge</span>.</li>
       <li>לוחצים על "התקנת האפליקציה" למעלה, או על סמל ההתקנה בשורת הכתובת.</li>
-      <li>PUSH נפתחת בחלון משלה, ואפשר להצמיד אותה לשורת המשימות.</li>
+      <li>Groupush נפתחת בחלון משלה, ואפשר להצמיד אותה לשורת המשימות.</li>
     </ol>
   </section>
 

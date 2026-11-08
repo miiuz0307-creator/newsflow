@@ -1,5 +1,5 @@
 /**
- * Live view: the PUSH admin opens a customer's app exactly as the customer sees it.
+ * Live view: the Groupush admin opens a customer's app exactly as the customer sees it.
  * The token reads everything the customer reads and can change nothing; it is short,
  * audited, superadmin-only, and refused for a suspended customer.
  */

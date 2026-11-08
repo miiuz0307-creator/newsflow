@@ -19,7 +19,7 @@ export interface ManageModuleOptions {
   onRoutesChanged?: () => void;
   /** Connect Telegram by scanning a QR / phone login (needs the app's api_id). Without it only bot tokens. */
   phoneLinker?: TelegramPhoneLinker;
-  /** "Create a bot in one tap" through PUSH's manager bot (Telegram managed bots). */
+  /** "Create a bot in one tap" through Groupush's manager bot (Telegram managed bots). */
   botManager?: TelegramBotManager;
 }
 
@@ -73,7 +73,7 @@ export function manageModule(opts: ManageModuleOptions) {
     };
 
     /**
-     * On the free plan PUSH also publishes its own posts in the customer's Telegram channels.
+     * On the free plan Groupush also publishes its own posts in the customer's Telegram channels.
      * Connecting Telegram on that plan needs the customer's agreement (promoOk in the body,
      * recorded once); other plans pass.
      */
@@ -82,7 +82,7 @@ export function manageModule(opts: ManageModuleOptions) {
         const r = await c.query<{ plan_code: string; tg_promo_ok_at: Date | null }>('SELECT plan_code, tg_promo_ok_at FROM tenants WHERE id = $1', [auth.tenantId]);
         const t = r.rows[0];
         if (!t || t.plan_code !== 'free' || t.tg_promo_ok_at) return;
-        if (ok !== true) throw new HttpError(403, 'promo_consent', 'במסלול החינמי PUSH מפרסמת מדי פעם הודעות משלה בערוצי הטלגרם שמחוברים. סמנו שאתם מאשרים כדי להמשיך.');
+        if (ok !== true) throw new HttpError(403, 'promo_consent', 'במסלול החינמי Groupush מפרסמת מדי פעם הודעות משלה בערוצי הטלגרם שמחוברים. סמנו שאתם מאשרים כדי להמשיך.');
         await c.query('UPDATE tenants SET tg_promo_ok_at = now() WHERE id = $1', [auth.tenantId]);
         await api.audit(c, auth, 'tg_promo.accepted', auth.tenantId, {});
       });
@@ -124,7 +124,7 @@ export function manageModule(opts: ManageModuleOptions) {
         return { name: l.rows[0]?.name ?? '', free: n.rows[0]!.n < (l.rows[0]?.limits.tgBots ?? 1) };
       });
       if (!t.free) throw new HttpError(403, 'plan_limit', 'במסלול שלכם כבר מחובר בוט טלגרם. נתקו אותו קודם, או שדרגו מסלול.');
-      const name = String(body.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 64) || t.name.slice(0, 64) || 'PUSH';
+      const name = String(body.name ?? '').replace(/\s+/g, ' ').trim().slice(0, 64) || t.name.slice(0, 64) || 'Groupush';
       for (let i = 0; i < 5; i++) {
         const username = suggestBotUsername(t.name);
         try {
@@ -186,7 +186,7 @@ export function manageModule(opts: ManageModuleOptions) {
       });
       if (!free) throw new HttpError(403, 'plan_limit', 'במסלול שלכם כבר מחובר בוט טלגרם. נתקו אותו קודם, או שדרגו מסלול.');
       await promoConsent(auth!, body.promoOk);
-      const made = await linkCall(() => linker!.finish(auth!.tenantId, ids, `${name || 'PUSH'} · PUSH`));
+      const made = await linkCall(() => linker!.finish(auth!.tenantId, ids, `${name || 'Groupush'} · Groupush`));
       const bot = await connectBot(auth!, made.token);
       const chats = [];
       for (const c of made.added) {

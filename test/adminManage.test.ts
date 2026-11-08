@@ -59,7 +59,7 @@ describe('management panel', { skip: !available && 'local test Postgres not runn
       appPool: db.app, connections: conns, queue: new PgJobQueue(db.worker, db.app), killSwitches: new PgKillSwitchStore(db.worker), tokenSecret: SECRET,
       modules: [
         authModule({ keys, loginLimiter: new WindowLimiter(1000, 60_000), signupLimiter: new WindowLimiter(1000, 60_000),
-          onSignup: (t) => adminPush.send({ title: 'לקוח חדש נרשם ל‑PUSH', body: `${t.businessName}\n${t.email}`, url: `/admin#customer=${t.tenantId}` }).then(() => {}) }),
+          onSignup: (t) => adminPush.send({ title: 'לקוח חדש נרשם ל‑Groupush', body: `${t.businessName}\n${t.email}`, url: `/admin#customer=${t.tenantId}` }).then(() => {}) }),
         adminModule({
           adminPool: db.admin, push: adminPush, adminTokenSecret: ADMIN_SECRET, customerTokenSecret: SECRET, masterKeyB64: MASTER, loginLimiter: new WindowLimiter(1000, 60_000),
           manage: {
@@ -159,7 +159,7 @@ describe('management panel', { skip: !available && 'local test Postgres not runn
     assert.equal(su.status, 200, JSON.stringify(su.body));
     for (let i = 0; i < 50 && pushed.length < 2; i++) await new Promise((r) => setTimeout(r, 20));
     const n = JSON.parse(pushed.at(-1)!);
-    assert.equal(n.title, 'לקוח חדש נרשם ל‑PUSH');
+    assert.equal(n.title, 'לקוח חדש נרשם ל‑Groupush');
     assert.match(n.body, /חדשות המרכז/);
     assert.equal(n.url, `/admin#customer=${su.body.tenantId}`);
     assert.equal((await call('POST', '/admin/v1/push/unsubscribe', { endpoint: pushUrl }, token)).body.devices, 0);

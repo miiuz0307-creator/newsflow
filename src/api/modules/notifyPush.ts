@@ -43,7 +43,7 @@ export function notifyPushModule(opts: { push?: CustomerPush; version: string; a
 
     api.on('POST', '/v1/notify/push/test', true, async ({ auth }) => {
       if (!push) throw new HttpError(501, 'not_configured', 'התראות לא זמינות כרגע');
-      const r = await push.sendToTenant(auth!.tenantId, { title: 'התראת בדיקה מ‑PUSH', body: 'ההתראות עובדות. כך תדעו כשהמספר מתנתק או כשיש עדכון.', url: '/app', tag: 'test' });
+      const r = await push.sendToTenant(auth!.tenantId, { title: 'התראת בדיקה מ‑Groupush', body: 'ההתראות עובדות. כך תדעו כשהמספר מתנתק או כשיש עדכון.', url: '/app', tag: 'test' });
       if (!r.sent) throw new HttpError(502, 'push_failed', r.failed ? 'שירות ההתראות של הדפדפן לא קיבל את ההודעה. נסו לכבות ולהפעיל מחדש.' : 'אין מכשיר רשום להתראות');
       return r;
     });

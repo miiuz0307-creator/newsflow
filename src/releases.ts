@@ -1,5 +1,5 @@
 /**
- * "What's new" in PUSH. The newest entry first. When a server starts with an entry
+ * "What's new" in Groupush. The newest entry first. When a server starts with an entry
  * that was not announced yet, every device that allowed notifications (customers
  * and the owner) gets one notification about it, and the app shows it once.
  * Add an entry here for each update customers should hear about.
@@ -16,7 +16,7 @@ export const RELEASES: Release[] = [
   {
     id: '2026-10-26-telegram',
     date: '2026-10-26',
-    title: 'חדש ב‑PUSH: טלגרם, תזמון ועוד',
+    title: 'חדש ב‑Groupush: טלגרם, תזמון ועוד',
     items: [
       'טלגרם: מחברים בוט במסך "חיבור", וכל הודעה מקבוצת השליטה יוצאת גם לערוצים שלכם',
       'תזמון: כותבים בשורה הראשונה "תזמון (12:20)" וההודעה יוצאת בשעה הזו',

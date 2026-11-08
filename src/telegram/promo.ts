@@ -1,5 +1,5 @@
 /**
- * PUSH's own posts in the Telegram channels and groups of free-plan customers.
+ * Groupush's own posts in the Telegram channels and groups of free-plan customers.
  *
  * Who gets them: active customers on the free plan who agreed when connecting Telegram
  * (tenants.tg_promo_ok_at), through their own bot, to the channels and groups where the

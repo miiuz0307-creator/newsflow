@@ -34,7 +34,7 @@ export class GramUserClient implements TelegramUserClient {
     this.client = new TelegramClient(new StringSession(''), apiId, apiHash, {
       connectionRetries: 3,
       baseLogger: new Logger(LogLevel.NONE),
-      deviceModel: 'PUSH',
+      deviceModel: 'Groupush',
       appVersion: '1.0',
     });
   }
@@ -121,7 +121,7 @@ export class GramUserClient implements TelegramUserClient {
       await say('/cancel').catch(() => '');
       const first = await say('/newbot');
       if (/20 bots|too many/i.test(first)) throw new PhoneLinkError('too_many_bots', 'בחשבון הטלגרם הזה כבר יש 20 בוטים, המקסימום של טלגרם. מחקו בוט ישן ב‑BotFather ונסו שוב.');
-      await say(name.slice(0, 60) || 'PUSH');
+      await say(name.slice(0, 60) || 'Groupush');
       for (let i = 0; i < 4; i++) {
         const username = randomBotUsername();
         const reply = await say(username);
@@ -142,7 +142,7 @@ export class GramUserClient implements TelegramUserClient {
       const rights = channel.broadcast
         ? new Api.ChatAdminRights({ postMessages: true, editMessages: true, deleteMessages: true })
         : new Api.ChatAdminRights({ deleteMessages: true, pinMessages: false, other: true });
-      await this.client.invoke(new Api.channels.EditAdmin({ channel, userId: bot, adminRights: rights, rank: 'PUSH' }));
+      await this.client.invoke(new Api.channels.EditAdmin({ channel, userId: bot, adminRights: rights, rank: 'Groupush' }));
     } catch (e) {
       throw explain(e);
     }

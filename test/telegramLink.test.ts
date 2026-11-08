@@ -47,7 +47,7 @@ class FakeUser implements TelegramUserClient {
 
 describe('Telegram link helpers', () => {
   test('bot usernames and the token in a BotFather reply', () => {
-    assert.match(randomBotUsername(), /^push_[a-z0-9]{8}_bot$/);
+    assert.match(randomBotUsername(), /^groupush_[a-z0-9]{8}_bot$/);
     assert.equal(tokenInReply('Done! Congratulations on your new bot.\nUse this token to access the HTTP API:\n7001234567:AAHk3jK9xYzT4fQ1-2_abcdefghijklmnop\nKeep your token secure'), '7001234567:AAHk3jK9xYzT4fQ1-2_abcdefghijklmnop');
     assert.equal(tokenInReply('Sorry, this username is already taken.'), null);
   });

@@ -16,7 +16,7 @@ export interface TelegramRuntimeOptions {
   keys: TenantKeys;
   apiOptions: BotApiOptions;
   onMessage: (m: InboundMessage) => void;
-  /** Edits seen by a bot (PUSH Sync). */
+  /** Edits seen by a bot (Groupush Sync). */
   onSync?: (e: SyncEvent) => void;
   /** Called so the worker can send through the bot. */
   onStarted?: (acc: TelegramAccount) => void;

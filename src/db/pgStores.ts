@@ -406,7 +406,7 @@ export class PgJobQueue implements JobQueue {
     return r.rowCount > 0;
   }
 
-  // ---- PUSH Sync
+  // ---- Groupush Sync
 
   async markUnknown(id: string, message: string) {
     await this.sql.query(
@@ -490,7 +490,7 @@ export class PgJobQueue implements JobQueue {
   }
 }
 
-// ---------------------------------------------------------------- source messages (PUSH Sync)
+// ---------------------------------------------------------------- source messages (Groupush Sync)
 
 export class PgSourceMessageStore implements SourceMessageStore {
   constructor(private readonly sql: Sql) {}

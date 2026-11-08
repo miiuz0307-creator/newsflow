@@ -49,7 +49,7 @@ export function installPromptHtml(): string {
   return `<div class="ip" id="ip" role="dialog" aria-labelledby="ip-t" aria-describedby="ip-s" hidden>
   <div class="ip-h">
     <img class="ip-ic" src="/app/icon-192.png" alt="" width="52" height="52">
-    <div><p class="ip-t" id="ip-t">התקינו את PUSH בטלפון</p><p class="ip-s" id="ip-s">פותחים בלחיצה ממסך הבית, ומקבלים התראה מיד כשמשהו קורה.</p></div>
+    <div><p class="ip-t" id="ip-t">התקינו את Groupush בטלפון</p><p class="ip-s" id="ip-s">פותחים בלחיצה ממסך הבית, ומקבלים התראה מיד כשמשהו קורה.</p></div>
     <button class="ip-x" id="ip-x" type="button" aria-label="סגירה">×</button>
   </div>
   <ol class="ip-steps" id="ip-ios" hidden>
@@ -83,7 +83,7 @@ export function installPromptJs(delayMs: number): string {
   function laterThisVisit(){try{return sessionStorage.getItem(KEY)==='1'}catch(e){return false}}
   function hide(){ip.classList.remove('on');setTimeout(function(){ip.hidden=true},400)}
   function show(){if(standalone)return;ip.hidden=false;requestAnimationFrame(function(){requestAnimationFrame(function(){ip.classList.add('on')})})}
-  if(!ios&&!android&&!inApp){document.getElementById('ip-t').textContent='התקינו את PUSH במחשב';document.getElementById('ip-s').textContent='נפתחת בחלון משלה, בלי לחפש את הלשונית בדפדפן.'}
+  if(!ios&&!android&&!inApp){document.getElementById('ip-t').textContent='התקינו את Groupush במחשב';document.getElementById('ip-s').textContent='נפתחת בחלון משלה, בלי לחפש את הלשונית בדפדפן.'}
   if(inApp){inappNote.hidden=false;goT.textContent=android?'פתיחה ב‑Chrome':'איך פותחים בדפדפן'}
   else if(ios){steps.hidden=false;goT.textContent='הבנתי, מוסיפים'}
   window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();deferred=e;goT.textContent='התקנת האפליקציה'});

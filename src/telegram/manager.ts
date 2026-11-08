@@ -1,7 +1,7 @@
 /**
  * "Create a Telegram bot in one tap" (Telegram managed bots, Bot API 9.6).
  *
- * PUSH has one manager bot (Bot Management Mode on in @BotFather). The app gives the
+ * Groupush has one manager bot (Bot Management Mode on in @BotFather). The app gives the
  * customer a link: https://t.me/newbot/<manager>/<username>?name=<business name>. Telegram
  * opens a ready creation screen, the customer confirms, and the bot exists: the customer
  * owns it, our manager bot controls it. Telegram then tells the manager bot (a `managed_bot`
@@ -26,11 +26,11 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 export function suggestBotUsername(businessName: string): string {
   const latin = businessName.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 16);
   const tail = randomBytes(4).toString('hex').slice(0, 5);
-  const base = latin && /^[a-z]/.test(latin) ? `${latin}_${tail}` : `push_${tail}${randomBytes(2).toString('hex').slice(0, 3)}`;
+  const base = latin && /^[a-z]/.test(latin) ? `${latin}_${tail}` : `groupush_${tail}${randomBytes(2).toString('hex').slice(0, 3)}`;
   return `${base.replace(/_+/g, '_')}_bot`.slice(0, 32);
 }
 
-/** Links that add a bot as an admin with the rights PUSH needs (Telegram bot deep links). */
+/** Links that add a bot as an admin with the rights Groupush needs (Telegram bot deep links). */
 export function addToChannelLink(botUsername: string): string {
   return `https://t.me/${botUsername}?startchannel&admin=post_messages+edit_messages+delete_messages`;
 }

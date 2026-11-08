@@ -72,7 +72,7 @@ export interface JobQueue {
   /** True if this system sent `messageId` into that chat (loop guard). */
   wasSentByUs?(platform: string, chatId: string, messageId: string): Promise<boolean>;
 
-  // ---- PUSH Sync
+  // ---- Groupush Sync
 
   /** The outcome is not known; never resent automatically ("ממתין לאימות"). */
   markUnknown(id: string, message: string): Promise<void>;

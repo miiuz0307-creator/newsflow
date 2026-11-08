@@ -1,5 +1,5 @@
 /**
- * Regressions from the independent review of PUSH Sync (October 2026). Each
+ * Regressions from the independent review of Groupush Sync (October 2026). Each
  * test reproduces a race or gap the review found and asserts the fixed
  * behaviour: a deleted message is never sent, only allowed senders may
  * delete, and reports count exactly what happened.
@@ -79,7 +79,7 @@ async function world(control: ControlSettings, opts: { batchSize?: number } = {}
 }
 
 
-describe('PUSH Sync — review regressions', () => {
+describe('Groupush Sync — review regressions', () => {
   test('Telegram "מחק" from a member not on the allowed list deletes nothing and is not distributed', async () => {
     const w = await world({ syncEdits: true, syncDeletes: true, reportMode: 'summary', allowedSenders: ['42'] });
     try {
@@ -153,7 +153,7 @@ describe('PUSH Sync — review regressions', () => {
       const unk = [...w.queue.jobs.values()].find((j) => j.status === 'unknown')!;
       w.net.humanDeleteForEveryone(CUSTOMER, w.ctrl, id);
       await w.drain();
-      assert.match(w.reports().at(-1)!, /🗑️ PUSH · ההודעה נמחקה ב-3 קבוצות/);
+      assert.match(w.reports().at(-1)!, /🗑️ Groupush · ההודעה נמחקה ב-3 קבוצות/);
       assert.match(w.reports().at(-1)!, /1 עותקים ממתינים לאימות, ולכן לא נמחקו/);
       await w.queue.requeue(w.tenantId, unk.id);
       await w.drain();
@@ -200,7 +200,7 @@ describe('PUSH Sync — review regressions', () => {
       w.net.humanPost(CUSTOMER, w.ctrl, { kind: 'text', text: 'hello' });
       await w.drain();
       const finals = w.reports().filter((r) => r.includes('נשלחה'));
-      assert.deepEqual(finals, ['✅ PUSH · ההודעה נשלחה בהצלחה ל-4 מתוך 4 קבוצות.']);
+      assert.deepEqual(finals, ['✅ Groupush · ההודעה נשלחה בהצלחה ל-4 מתוך 4 קבוצות.']);
       assert.deepEqual(w.live(archive), ['hello'], 'the archive gets the message, never the report');
     } finally { await w.close(); }
   });

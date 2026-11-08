@@ -1,5 +1,5 @@
 /**
- * PUSH API on the real schema: control-group routes, distribution history,
+ * Groupush API on the real schema: control-group routes, distribution history,
  * per-copy status, manual retry (with confirmation for unknown copies),
  * tenant isolation, and the dashboard page.
  */
@@ -22,7 +22,7 @@ const SECRET = 'push-api-secret-0123456789abcdefghijkl';
 const LINKED = '972500000401';
 const CUSTOMER = '972500000402';
 
-describe('PUSH API', { skip: !available && 'local test Postgres not running' }, () => {
+describe('Groupush API', { skip: !available && 'local test Postgres not running' }, () => {
   let db: TestDb;
   let api: ApiServer;
   let worker: Worker;
@@ -91,7 +91,7 @@ describe('PUSH API', { skip: !available && 'local test Postgres not running' }, 
 
   test('a control-group route is validated and saved', async () => {
     const base = {
-      name: 'PUSH', sources: [{ platform: 'wa', accountId: acc, chatId: ctrl }],
+      name: 'Groupush', sources: [{ platform: 'wa', accountId: acc, chatId: ctrl }],
       targets: [{ platform: 'wa', accountId: acc, chatId: g1, title: 'יעד 1' }, { platform: 'wa', accountId: acc, chatId: g2, title: 'יעד 2' }],
     };
     const bad = await call('POST', '/v1/routes', { ...base, control: { reportMode: 'loud' } }, tokA);
