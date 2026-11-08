@@ -14,6 +14,12 @@ export function publicOrigin(host?: string): string {
   return host && /^[a-z0-9.-]+(:\d+)?$/i.test(host) ? `http://${host}` : 'http://localhost';
 }
 
+/** Customers shown on the home page (with their permission). Logo: a path served by /img/clients/. */
+const CLIENTS: { name: string; logo?: string }[] = [
+  { name: 'עדכונים בזמן אמת' },
+  { name: 'המבזקיסט' },
+];
+
 const TITLE = 'Groupush (גרופוש) — מערכת שליחה אוטומטית לכל קבוצות הוואטסאפ והטלגרם';
 const DESCRIPTION = 'כותבים הודעה אחת בקבוצת שליטה, ו‑Groupush מפיצה אותה לכל קבוצות הוואטסאפ וערוצי הטלגרם שלכם, עם עריכה, מחיקה ותזמון מסונכרנים. מתחילים בחינם.';
 /** The questions on the page, also given to search engines as structured data (same text). */
@@ -207,6 +213,17 @@ section{padding:110px 0}
 .msg.gone{color:#5b6b5e;font-style:italic}
 .stage .note{margin-top:14px;font-size:14px;color:#8ff5ea;min-height:1.6em}
 @media (max-width:900px){.sync .grid{grid-template-columns:1fr;gap:40px}.st-grid{grid-template-columns:1fr}}
+
+/* clients */
+.clients{padding:64px 0 10px}
+.eyebrow{margin:0 0 22px;text-align:center;font-size:14px;letter-spacing:.12em;color:var(--muted);font-weight:600}
+.logos{list-style:none;padding:0;margin:0;display:flex;justify-content:center;flex-wrap:wrap;gap:18px}
+.client{display:flex;align-items:center;gap:14px;background:var(--white);border:1px solid var(--line);border-radius:20px;padding:14px 22px 14px 26px;box-shadow:0 18px 40px -30px rgba(10,27,51,.45);transition:transform .25s,box-shadow .25s,border-color .25s}
+.client:hover{transform:translateY(-3px);border-color:var(--teal);box-shadow:0 24px 44px -28px rgba(10,27,51,.5)}
+.client img,.client .mono{width:56px;height:56px;border-radius:50%;object-fit:cover;flex:none}
+.client .mono{display:grid;place-items:center;background:linear-gradient(140deg,var(--navy),var(--ink));color:var(--teal);font-family:var(--display);font-size:24px}
+.client b{font-family:var(--display);font-weight:400;font-size:22px}
+@media (max-width:560px){.client{padding:12px 16px 12px 20px}.client b{font-size:19px}}
 
 /* who */
 .who{display:grid;grid-template-columns:repeat(3,1fr);gap:40px}
@@ -438,6 +455,15 @@ ${installPromptCss()}
   </div>
 </section>
 
+<section class="clients" aria-labelledby="clients-title">
+  <div class="wrap">
+    <p class="eyebrow" id="clients-title">הלקוחות שלנו</p>
+    <ul class="logos">
+${CLIENTS.map((c) => `      <li class="client">${c.logo ? `<img src="${c.logo}" alt="" width="64" height="64" loading="lazy">` : `<span class="mono" aria-hidden="true">${c.name.slice(0, 1)}</span>`}<b>${c.name}</b></li>`).join('\n')}
+    </ul>
+  </div>
+</section>
+
 <section aria-labelledby="who-title">
   <div class="wrap">
     <div class="sec-head"><h2 id="who-title">למי זה מתאים</h2></div>
@@ -647,7 +673,7 @@ function onScroll(){if(ticking)return;ticking=true;requestAnimationFrame(functio
   bar.style.transform='scaleX('+(max>0?Math.min(1,y/max):0)+')';hdr.classList.toggle('solid',y>30)})}
 window.addEventListener('scroll',onScroll,{passive:true});onScroll();
 
-var revealTargets=document.querySelectorAll('.sec-head,.step,.who>div,.plan,.faq details,.stage,.sync li,.honest dl>div,.honest h2,.honest .lead,.final h2,.final .ctas,.perks li,.appsec h2,.appsec .lead,.appsec .ctas');
+var revealTargets=document.querySelectorAll('.client,.sec-head,.step,.who>div,.plan,.faq details,.stage,.sync li,.honest dl>div,.honest h2,.honest .lead,.final h2,.final .ctas,.perks li,.appsec h2,.appsec .lead,.appsec .ctas');
 if('IntersectionObserver' in window&&!reduce){
   var io=new IntersectionObserver(function(es){es.forEach(function(e){if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{rootMargin:'0px 0px -8% 0px',threshold:.12});
   var groupsSeen=new Map();
