@@ -134,6 +134,15 @@ const worker = new Worker({
   },
   onStatus: async (e) => {
     await recordConnectionEvent(workerPool, e.state.tenantId, e.state.accountId, e.state.status, e.state.lastDisconnect?.reason, e.state.phoneNumber);
+    if (e.state.status === 'connected') {
+      // The number is linked and working again: lift the stops that its disconnection set by itself
+      // (logged out, gave up reconnecting). Stops set by a person, and "blocked", stay.
+      const r = await workerPool.query(
+        `UPDATE kill_switches SET active = false
+          WHERE active AND scope = 'account' AND scope_id = $1 AND set_by = 'system:auto'
+            AND reason IN ('connection: logged_out', 'connection: reconnect_exhausted')`, [e.state.accountId]);
+      if (r.rowCount) log.info('stops lifted: number connected again', { accountId: e.state.accountId, count: r.rowCount });
+    }
     await notifications.notify(noticeForStatus(e));
   },
   logger: log,
