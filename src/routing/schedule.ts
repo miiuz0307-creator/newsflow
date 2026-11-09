@@ -20,8 +20,8 @@ const INVISIBLE = /[\p{Cf}­]/gu;
 const MARKS = /^[^\p{L}\p{N}]+|[\s*_~]+$/gu;
 /** "תזמון", also spelled "תיזמון", or "תזמן". */
 const WORD = /^(?:תי?זמון|תזמן)(?![\p{L}])/u;
-const DAY = /^\s*(?:[:\-–]\s*)?(היום|מחר)(?![\p{L}])/u;
-const TIME = /^\s*(?:[:\-–]\s*)?(?:(?:לשעה|בשעה|ל-?|ב-?)\s*)?[([]?\s*(\d{1,2})(?:\s*[:.]\s*(\d{2}))?\s*[)\]]?(?![\d:.])\s*[:\-–]?\s*(.*)$/u;
+const DAY = /^\s*(?:[:\-–!！]\s*)?(היום|מחר)(?![\p{L}])/u;
+const TIME = /^\s*(?:[:\-–!！]\s*)?(?:(?:לשעה|בשעה|ל-?|ב-?)\s*)?[([]?\s*(\d{1,2})(?:\s*[:.]\s*(\d{2}))?\s*[)\]]?(?![\d:.])\s*[:\-–]?\s*(.*)$/u;
 
 export type ScheduleParse =
   | { kind: 'none' }
@@ -44,7 +44,7 @@ function clean(line: string): string {
   return asciiDigits(line.replace(INVISIBLE, '').replace(/ /g, ' ')).replace(MARKS, '').trim();
 }
 
-const HEAD = /^[^\p{L}\p{N}]*(?:תי?זמון|תזמן)\s*[*_~]*\s*(?:[:\-–]\s*)?(?:(?:היום|מחר)(?![\p{L}])\s*)?(?:[:\-–]\s*)?(?:(?:לשעה|בשעה|ל-?|ב-?)\s*)?[([]?\s*\d{1,2}(?:\s*[:.]\s*\d{2})?\s*[)\]]?\s*(?:[*_~](?=\s|$))?\s*[:\-–]?\s*/u;
+const HEAD = /^[^\p{L}\p{N}]*(?:תי?זמון|תזמן)\s*[*_~]*\s*(?:[:\-–!！]\s*)?(?:(?:היום|מחר)(?![\p{L}])\s*)?(?:[:\-–]\s*)?(?:(?:לשעה|בשעה|ל-?|ב-?)\s*)?[([]?\s*\d{1,2}(?:\s*[:.]\s*\d{2})?\s*[)\]]?\s*(?:[*_~](?=\s|$))?\s*[:\-–]?\s*/u;
 function sameLineRest(line: string): string {
   const l = asciiDigits(line.replace(INVISIBLE, '').replace(/\u00A0/g, ' '));
   const head = HEAD.exec(l);

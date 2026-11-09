@@ -34,6 +34,8 @@ describe('!סטטוס', () => {
     assert.deepEqual(parseStatusCommand('! סטטוס\nשורה 1\nשורה 2'), { status: true, rest: 'שורה 1\nשורה 2' });
     assert.deepEqual(parseStatusCommand('!סטטוס: *מבזק*'), { status: true, rest: '*מבזק*' });
     assert.deepEqual(parseStatusCommand('!STATUS hello'), { status: true, rest: 'hello' });
+    assert.deepEqual(parseStatusCommand('סטטוס! בדיקה'), { status: true, rest: 'בדיקה' });
+    assert.equal(parseStatusCommand('סטטוסים! חדשים').status, false);
     assert.equal(parseStatusCommand('!סטטוסים חדשים').status, false);
     assert.equal(parseStatusCommand('מה הסטטוס? !סטטוס').status, false);
     assert.equal(parseStatusCommand(undefined).status, false);
