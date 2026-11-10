@@ -210,4 +210,20 @@ describe('own status messages', () => {
     }
     assert.equal(isOwnReport(msg('✅ Groupush · כתב מישהו אחר', { fromSelf: false })), false, 'only from the linked number');
   });
+
+  test('"(.)" or "{.}" at the end: the copy goes out without the signature and template, and without the mark', async () => {
+    const { renderCopy, stripBareMark } = await import('../src/routing/router.js');
+    const route = { filters: {}, control: { reportMode: 'summary' as const, signature: 'להצטרפות: https://chat.whatsapp.com/abc' } };
+    const target = { platform: 'wa' as const, accountId: 'a', chatId: 'g@g.us', title: 'קבוצה' };
+    const now = new Date();
+    assert.equal(renderCopy(route, undefined, { kind: 'text', text: 'מבזק' }, target, now)!.text, 'מבזק\n\nלהצטרפות: https://chat.whatsapp.com/abc');
+    assert.equal(renderCopy(route, undefined, { kind: 'text', text: 'מבזק (.)' }, target, now)!.text, 'מבזק');
+    assert.equal(renderCopy(route, undefined, { kind: 'text', text: 'מבזק\n{.}' }, target, now)!.text, 'מבזק');
+    assert.equal(renderCopy(route, { body: '🔴 {content}\nקישור', vars: {} }, { kind: 'text', text: 'מבזק ( . )  ' }, target, now)!.text, 'מבזק');
+    assert.equal(renderCopy(route, undefined, { kind: 'text', text: 'תזמון (12:00)\nמבזק (.)' }, target, now)!.text, 'מבזק');
+    assert.equal(renderCopy(route, undefined, { kind: 'text', text: '(.)' }, target, now), null, 'nothing left to send');
+    assert.equal(renderCopy(route, undefined, { kind: 'text', text: 'ראו (.) כאן' }, target, now)!.text, 'ראו (.) כאן\n\nלהצטרפות: https://chat.whatsapp.com/abc', 'only at the very end');
+    assert.equal(renderCopy({ filters: {} }, undefined, { kind: 'text', text: 'מבזק (.)' }, target, now)!.text, 'מבזק (.)', 'only in a control group');
+    assert.deepEqual(stripBareMark('שלום {.}'), { bare: true, rest: 'שלום' });
+  });
 });
