@@ -58,11 +58,19 @@ export function renderCopy(
     asStatus = st.status && isStatusTarget(target);
     body = st.rest;
   }
+  // "(.)" or "{.}" at the very end: this message goes out bare, without the signature or template
+  // (the links under it). The mark itself is never part of the copy.
+  let bare = false;
+  if (route.control) {
+    const b = stripBareMark(body);
+    bare = b.bare;
+    body = b.rest;
+  }
   if (route.filters.removeInviteLinks ?? true) body = removeInviteLinks(body);
   if (source.kind === 'text' && !body.trim()) return null;
   // The control group's fixed signature goes under the message (and under the template, if any).
-  const signature = route.control?.signature?.trim();
-  const tpl = signature ? { body: `${template?.body ?? '{content}'}\n\n${signature}`, vars: template?.vars ?? {} } : template;
+  const signature = bare ? undefined : route.control?.signature?.trim();
+  const tpl = bare ? undefined : signature ? { body: `${template?.body ?? '{content}'}\n\n${signature}`, vars: template?.vars ?? {} } : template;
   const rendered = renderTemplate(tpl, {
     content: body,
     groupName: target.title,
@@ -71,6 +79,14 @@ export function renderCopy(
     isCaption: source.kind !== 'text',
   });
   return { kind: source.kind, text: rendered.text, ...(source.media ? { media: source.media } : {}), ...(asStatus ? { asStatus: true } : {}) };
+}
+
+const BARE_MARK = /[\s\p{Cf}]*(?:\(\s*\.\s*\)|\{\s*\.\s*\})[\s\p{Cf}]*$/u;
+
+/** "(.)" / "{.}" at the end of a control-group message: send it without signature or template. */
+export function stripBareMark(text: string): { bare: boolean; rest: string } {
+  const m = BARE_MARK.exec(text);
+  return m ? { bare: true, rest: text.slice(0, m.index) } : { bare: false, rest: text };
 }
 
 /** Only WhatsApp groups have a group status. */
@@ -188,6 +204,7 @@ export class Router {
       let body = schedule.kind === 'scheduled' ? schedule.rest : msg.content.text ?? '';
       const statusCmd = route.control ? parseStatusCommand(body) : { status: false, rest: body };
       body = statusCmd.rest;
+      if (route.control) body = stripBareMark(body).rest;
       if (route.filters.removeInviteLinks ?? true) body = removeInviteLinks(body);
       if (msg.content.kind === 'text' && !body.trim()) {
         plan.skipped.push({ routeId: route.id, reason: 'empty_after_cleanup' });
