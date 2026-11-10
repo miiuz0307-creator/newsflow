@@ -219,7 +219,7 @@ describe('own status messages', () => {
     assert.equal(renderCopy(route, undefined, { kind: 'text', text: 'מבזק' }, target, now)!.text, 'מבזק\n\nלהצטרפות: https://chat.whatsapp.com/abc');
     assert.equal(renderCopy(route, undefined, { kind: 'text', text: 'מבזק (.)' }, target, now)!.text, 'מבזק');
     assert.equal(renderCopy(route, undefined, { kind: 'text', text: 'מבזק\n{.}' }, target, now)!.text, 'מבזק');
-    assert.equal(renderCopy(route, { body: '🔴 {content}\nקישור', vars: {} }, { kind: 'text', text: 'מבזק ( . )  ' }, target, now)!.text, 'מבזק');
+    assert.equal(renderCopy(route, { id: 'x', tenantId: 't', name: 'x', body: '🔴 {content}\nקישור', vars: {} }, { kind: 'text', text: 'מבזק ( . )  ' }, target, now)!.text, 'מבזק');
     assert.equal(renderCopy(route, undefined, { kind: 'text', text: 'תזמון (12:00)\nמבזק (.)' }, target, now)!.text, 'מבזק');
     assert.equal(renderCopy(route, undefined, { kind: 'text', text: '(.)' }, target, now), null, 'nothing left to send');
     assert.equal(renderCopy(route, undefined, { kind: 'text', text: 'ראו (.) כאן' }, target, now)!.text, 'ראו (.) כאן\n\nלהצטרפות: https://chat.whatsapp.com/abc', 'only at the very end');
