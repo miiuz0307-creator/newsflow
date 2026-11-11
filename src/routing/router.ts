@@ -66,7 +66,7 @@ export function renderCopy(
     bare = b.bare;
     body = b.rest;
   }
-  if (route.filters.removeInviteLinks ?? true) body = removeInviteLinks(body);
+  if (stripsInviteLinks(route)) body = removeInviteLinks(body);
   if (source.kind === 'text' && !body.trim()) return null;
   // The control group's fixed signature goes under the message (and under the template, if any).
   const signature = bare ? undefined : route.control?.signature?.trim();
@@ -87,6 +87,15 @@ const BARE_MARK = /[\s\p{Cf}]*(?:\(\s*\.\s*\)|\{\s*\.\s*\})[\s\p{Cf}]*$/u;
 export function stripBareMark(text: string): { bare: boolean; rest: string } {
   const m = BARE_MARK.exec(text);
   return m ? { bare: true, rest: text.slice(0, m.index) } : { bare: false, rest: text };
+}
+
+/**
+ * Group invite links are removed from copies of messages taken from other people's groups. In a
+ * control group the customer writes the message himself, so his links stay (the "(.)" mark is how
+ * he leaves out the signature under it).
+ */
+function stripsInviteLinks(route: Pick<Route, 'filters' | 'control'>): boolean {
+  return !route.control && (route.filters.removeInviteLinks ?? true);
 }
 
 /** Only WhatsApp groups have a group status. */
@@ -205,7 +214,7 @@ export class Router {
       const statusCmd = route.control ? parseStatusCommand(body) : { status: false, rest: body };
       body = statusCmd.rest;
       if (route.control) body = stripBareMark(body).rest;
-      if (route.filters.removeInviteLinks ?? true) body = removeInviteLinks(body);
+      if (stripsInviteLinks(route)) body = removeInviteLinks(body);
       if (msg.content.kind === 'text' && !body.trim()) {
         plan.skipped.push({ routeId: route.id, reason: 'empty_after_cleanup' });
         continue;
