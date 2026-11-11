@@ -210,6 +210,14 @@ export function mapSendError(err: any): SendError {
   return new SendError('transient', msg);
 }
 
+/** Per-number memory that outlives a single connection (see BaileysTransport.inboundKeys). */
+const MEMORY = new Map<string, { keys: Map<string, any>; secrets: Map<string, { secret: Uint8Array; senders: string[] }> }>();
+function memoryOf(accountId: string) {
+  let m = MEMORY.get(accountId);
+  if (!m) { m = { keys: new Map(), secrets: new Map() }; MEMORY.set(accountId, m); }
+  return m;
+}
+
 /** Background of a text group status (Groupush blue). */
 const STATUS_BACKGROUND = '#0A5BD3';
 
@@ -280,10 +288,14 @@ export class BaileysTransport implements WaTransport {
   private groupCache = new Map<string, any>();
   /** Message ids already handed on, so a message delivered twice (online, then offline catch-up) is processed once. */
   private seen = new Set<string>();
-  /** The original keys of recent inbound group messages, so Groupush can react to them (bounded). */
-  private inboundKeys = new Map<string, any>();
-  /** messageSecret of recent group messages: needed to open edits sent encrypted. */
-  private secrets = new Map<string, { secret: Uint8Array; senders: string[] }>();
+  /**
+   * The original keys of recent inbound group messages, so Groupush can react to them, and their
+   * messageSecret, needed to open edits sent encrypted. Kept per number, not per connection: a
+   * reconnect builds a new transport, and a message scheduled for later still needs its ✅ and
+   * its edits after it (bounded).
+   */
+  private get inboundKeys(): Map<string, any> { return memoryOf(this.accountId).keys; }
+  private get secrets(): Map<string, { secret: Uint8Array; senders: string[] }> { return memoryOf(this.accountId).secrets; }
   private listeners = new Map<string, Set<(...a: unknown[]) => void>>();
   private connected = false;
   private pairingRequested = false;
@@ -426,7 +438,7 @@ export class BaileysTransport implements WaTransport {
         const secret = msg.message?.messageContextInfo?.messageSecret;
         if (secret?.length && jid.endsWith('@g.us')) {
           this.secrets.set(`${jid}|${msg.key.id}`, { secret, senders: [msg.key.participant, msg.key.participantAlt, msg.key.participantPn].filter(Boolean) });
-          if (this.secrets.size > 5000) this.secrets.delete(this.secrets.keys().next().value as string);
+          if (this.secrets.size > 20_000) this.secrets.delete(this.secrets.keys().next().value as string);
         }
         const enc = msg.message?.secretEncryptedMessage;
         if (enc && jid.endsWith('@g.us')) {
@@ -447,7 +459,7 @@ export class BaileysTransport implements WaTransport {
         }
         const seenKey = `${jid}|${msg.key.id}`;
         this.inboundKeys.set(seenKey, { remoteJid: jid, id: msg.key.id, fromMe: !!msg.key.fromMe, ...(msg.key.participant ? { participant: msg.key.participant } : {}) });
-        if (this.inboundKeys.size > 3000) this.inboundKeys.delete(this.inboundKeys.keys().next().value as string);
+        if (this.inboundKeys.size > 20_000) this.inboundKeys.delete(this.inboundKeys.keys().next().value as string);
         if (this.seen.has(seenKey)) continue;
         this.seen.add(seenKey);
         if (this.seen.size > 5000) this.seen.delete(this.seen.values().next().value as string);
@@ -556,8 +568,9 @@ export class BaileysTransport implements WaTransport {
 
   async react(chatId: string, messageId: string, emoji: string): Promise<void> {
     if (!this.connected || !this.sock) throw new SendError('disconnected', 'not connected');
-    const key = this.inboundKeys.get(`${chatId}|${messageId}`);
-    if (!key) return; // a message from before a restart: no reaction rather than a wrong one
+    // Not seen since the server started (e.g. scheduled before a deploy): control-group messages are
+    // written from the customer's own phone, so the key is ours ("fromMe").
+    const key = this.inboundKeys.get(`${chatId}|${messageId}`) ?? { remoteJid: chatId, id: messageId, fromMe: true };
     try {
       await this.sock.sendMessage(chatId, { react: { text: emoji, key } });
     } catch (err: any) {
