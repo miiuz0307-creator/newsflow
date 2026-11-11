@@ -226,4 +226,15 @@ describe('own status messages', () => {
     assert.equal(renderCopy({ filters: {} }, undefined, { kind: 'text', text: 'מבזק (.)' }, target, now)!.text, 'מבזק (.)', 'only in a control group');
     assert.deepEqual(stripBareMark('שלום {.}'), { bare: true, rest: 'שלום' });
   });
+
+  test('a control group keeps the links the customer wrote; "(.)" only drops the signature', async () => {
+    const { renderCopy } = await import('../src/routing/router.js');
+    const route = { filters: {}, control: { reportMode: 'summary' as const, signature: 'הצטרפו: https://chat.whatsapp.com/SIG' } };
+    const target = { platform: 'wa' as const, accountId: 'a', chatId: 'g@g.us', title: 'קבוצה' };
+    const msg = 'מבזק https://ynet.co.il/a\nהצטרפו https://chat.whatsapp.com/ABC\nטלגרם https://t.me/xyz';
+    assert.equal(renderCopy(route, undefined, { kind: 'text', text: msg }, target, new Date())!.text, `${msg}\n\nהצטרפו: https://chat.whatsapp.com/SIG`);
+    assert.equal(renderCopy(route, undefined, { kind: 'text', text: `${msg} (.)` }, target, new Date())!.text, msg);
+    // Copies of other people's messages still lose group invite links.
+    assert.equal(renderCopy({ filters: {} }, undefined, { kind: 'text', text: 'שלום https://chat.whatsapp.com/ABC' }, target, new Date())!.text, 'שלום');
+  });
 });
