@@ -96,6 +96,8 @@ export class InboundPipeline {
       tenantId: msg.tenantId, messageId: msg.messageId, jobs: plan.jobs.length, inserted, skipped: plan.skipped.length,
       ...(plan.skipped.length ? { reasons: [...new Set(plan.skipped.map((s) => s.reason))].join(',') } : {}),
       ...(scheduledAt ? { scheduledAt: scheduledAt.toISOString() } : {}),
+      // Line structure only (never the words), to trace lost line breaks.
+      ...(msg.content.text?.includes('\n') || /[\u2028\u2029\r]/.test(msg.content.text ?? '') ? { shape: `${textShape(msg.content.text)} → ${textShape(plan.jobs[0]?.content.text)}` } : {}),
     });
     this.o.onPlanned?.(msg, plan, inserted);
     return { planned: plan.jobs.length, inserted, skipped: plan.skipped };
@@ -132,4 +134,13 @@ export class InboundPipeline {
       j.content = { ...j.content, media: { ...rest, mimeType, size: bytes.length, ref } };
     }
   }
+}
+
+/** "lines/blank lines" plus any unusual line-break or invisible characters, e.g. "5/1 u+2028". */
+export function textShape(text: string | undefined): string {
+  if (text === undefined) return '-';
+  const lines = text.split('\n');
+  const blank = lines.filter((l) => !l.trim()).length;
+  const odd = [...new Set([...text].filter((c) => /[\r\u2028\u2029\p{Cf}\u00a0]/u.test(c)).map((c) => `u+${c.codePointAt(0)!.toString(16).padStart(4, '0')}`))];
+  return `${lines.length}/${blank}${odd.length ? ` ${odd.join(',')}` : ''}`;
 }
