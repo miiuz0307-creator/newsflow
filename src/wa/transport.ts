@@ -54,6 +54,8 @@ export interface RawInbound {
   isForwarded: boolean;
   timestamp: Date;
   content: MessageContent;
+  /** A reply: the id of the message it answers, in the same chat. */
+  replyToMessageId?: string;
 }
 
 /** Someone edited a message (WhatsApp allows this for 15 minutes). */

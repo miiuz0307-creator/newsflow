@@ -5,6 +5,7 @@
  * Kept separate from the dispatcher so that receiving and sending can scale
  * independently (and a sending backlog never delays receiving).
  */
+import { chatKey } from '../core/types.js';
 import type { ChatRef, InboundMessage } from '../core/types.js';
 import type { MediaStore } from '../delivery/mediaStore.js';
 import type { JobQueue } from '../delivery/queue.js';
@@ -74,6 +75,7 @@ export class InboundPipeline {
       return { planned: 0, inserted: 0, skipped: routes.map((r) => ({ routeId: r.id, reason: 'own_forward' as const })) };
     }
     const plan = await this.o.router.plan(msg, routes);
+    if (msg.replyToMessageId && plan.jobs.length) await this.attachReplies(msg, plan);
     let inserted = 0;
     if (plan.jobs.length) this.o.onStart?.(msg, plan);
     try {
@@ -101,6 +103,31 @@ export class InboundPipeline {
     });
     this.o.onPlanned?.(msg, plan, inserted);
     return { planned: plan.jobs.length, inserted, skipped: plan.skipped };
+  }
+
+  /**
+   * A reply in the control group: each copy answers that group's copy of the quoted message, so the
+   * groups see the same thread. Groups where the quoted message has no copy (not sent there, or not
+   * yet sent) get the message as a normal one.
+   */
+  private async attachReplies(msg: InboundMessage, plan: RoutingPlan) {
+    try {
+      const copies = await this.o.queue.copiesOf(msg.tenantId, msg.source, msg.replyToMessageId!);
+      const byTarget = new Map<string, { messageId: string; text?: string }>();
+      for (const c of copies) {
+        if ((c.action ?? 'send') !== 'send' || !c.sentMessageId) continue;
+        const text = c.content?.text ? c.content.text.slice(0, 200) : undefined;
+        byTarget.set(chatKey(c.target), { messageId: c.sentMessageId, ...(text ? { text } : {}) });
+      }
+      let n = 0;
+      for (const j of plan.jobs) {
+        const r = byTarget.get(chatKey(j.target));
+        if (r) { j.content = { ...j.content, replyTo: r }; n++; }
+      }
+      this.log.info('reply', { tenantId: msg.tenantId, messageId: msg.messageId, quoted: msg.replyToMessageId, copies: n, of: plan.jobs.length });
+    } catch (err) {
+      this.log.warn('reply not linked; sent as a normal message', { err: String(err).slice(0, 200) });
+    }
   }
 
   /** Downloads (if needed) and stores the media once; every job then carries only the reference. */
