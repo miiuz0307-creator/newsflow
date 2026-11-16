@@ -47,7 +47,7 @@ export function mapDisconnect(statusCode: number | undefined): DisconnectReason 
 }
 
 /** Extracts our content shape from a Baileys WAMessage. Media bytes are fetched lazily by the caller. */
-export function extractContent(message: any): { content: MessageContent; isForwarded: boolean } | null {
+export function extractContent(message: any): { content: MessageContent; isForwarded: boolean; replyTo?: string } | null {
   if (!message) return null;
   // Disappearing, view-once, captioned-document and similar wrappers hold the real message inside.
   // Edits are not unwrapped here: they arrive separately (see parseMessageUpdate).
@@ -58,7 +58,7 @@ export function extractContent(message: any): { content: MessageContent; isForwa
     if (!inner?.message) break;
     m = inner.message;
   }
-  const pick = (kind: MessageKind, node: any): { content: MessageContent; isForwarded: boolean } => ({
+  const pick = (kind: MessageKind, node: any): { content: MessageContent; isForwarded: boolean; replyTo?: string } => ({
     content: {
       kind,
       ...(node.caption || node.text ? { text: node.caption ?? node.text } : {}),
@@ -67,6 +67,8 @@ export function extractContent(message: any): { content: MessageContent; isForwa
         : {}),
     },
     isForwarded: !!node.contextInfo?.isForwarded,
+    // A reply: the message it answers (WhatsApp "quoted" message).
+    ...(node.contextInfo?.stanzaId ? { replyTo: String(node.contextInfo.stanzaId) } : {}),
   });
   if (typeof m.conversation === 'string') return { content: { kind: 'text', text: m.conversation }, isForwarded: false };
   if (m.extendedTextMessage) return pick('text', m.extendedTextMessage);
@@ -472,6 +474,7 @@ export class BaileysTransport implements WaTransport {
           isForwarded: parsed.isForwarded,
           timestamp: new Date(Number(msg.messageTimestamp ?? Date.now() / 1000) * 1000),
           content: parsed.content,
+          ...(parsed.replyTo ? { replyToMessageId: parsed.replyTo } : {}),
         };
         if (raw.content.media && B.downloadMediaMessage) {
           // Media is fetched on demand so text routing isn't delayed by downloads.
@@ -587,7 +590,13 @@ export class BaileysTransport implements WaTransport {
         try { this.groupCache.set(chatId, await this.sock.groupMetadata(chatId)); } catch { /* Baileys tries again itself */ }
       }
       const started = Date.now();
-      const res = content.asStatus && chatId.endsWith('@g.us') ? await this.sendGroupStatus(chatId, payload) : await this.sock.sendMessage(chatId, payload);
+      // A reply in the control group is a reply here too, to this group's copy of that message.
+      const quoted = content.replyTo?.messageId
+        ? { key: { remoteJid: chatId, id: content.replyTo.messageId, fromMe: true }, message: { conversation: content.replyTo.text ?? '' } }
+        : undefined;
+      const res = content.asStatus && chatId.endsWith('@g.us')
+        ? await this.sendGroupStatus(chatId, payload)
+        : await this.sock.sendMessage(chatId, payload, ...(quoted ? [{ quoted }] : []));
       const ms = Date.now() - started;
       if (ms > 1500) this.log.info('slow send', { accountId: this.accountId, chatId, ms, members: this.groupCache.get(chatId)?.participants?.length ?? null });
       if (res?.key?.id && res.message) {

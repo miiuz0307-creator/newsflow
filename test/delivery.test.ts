@@ -91,6 +91,25 @@ describe('pipeline + dispatcher', () => {
     assert.equal((await h.dispatcher.tick()).sent, 3);
   });
 
+  test('a reply in the source is a reply in every target, to that target\'s own copy', async () => {
+    const h = harness();
+    await h.pipeline.handle(h.inbound('ראשוני: אירוע דריסה ביריחו', { messageId: 'orig' }));
+    await h.dispatcher.tick();
+    const firstIds = new Map(h.sender.sent.map((x, i) => [x.chatId, `out${i + 1}`]));
+    await h.pipeline.handle(h.inbound('מחבלים נסעו והתנגשו ברכב', { messageId: 'reply', replyToMessageId: 'orig' }));
+    await h.dispatcher.tick();
+    const replies = h.sender.sent.slice(5);
+    assert.equal(replies.length, 5);
+    for (const r of replies) {
+      assert.equal(r.content.replyTo?.messageId, firstIds.get(r.chatId), `reply in ${r.chatId} quotes its own copy`);
+      assert.equal(r.content.replyTo?.text, 'ראשוני: אירוע דריסה ביריחו');
+    }
+    // Replying to a message that was never distributed: a normal message.
+    await h.pipeline.handle(h.inbound('בלי ציטוט', { messageId: 'r2', replyToMessageId: 'unknown' }));
+    await h.dispatcher.tick();
+    assert.ok(h.sender.sent.slice(10).every((x) => !x.content.replyTo));
+  });
+
   test('media is stored once and sent to each target', async () => {
     const h = harness();
     const data = Buffer.from('fake-jpeg-bytes');
