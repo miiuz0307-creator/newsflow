@@ -97,3 +97,13 @@ describe('!סטטוס', () => {
     assert.match(finalReportText('send', s), /ההודעה נשלחה בהצלחה/);
   });
 });
+
+describe('replies', () => {
+  test('a WhatsApp reply carries the id of the message it answers', async () => {
+    const { extractContent } = await import('../src/wa/baileysTransport.js');
+    const r = extractContent({ extendedTextMessage: { text: 'המשך', contextInfo: { stanzaId: 'ABC123', participant: 'x@s.whatsapp.net' } } });
+    assert.equal(r?.replyTo, 'ABC123');
+    assert.equal(extractContent({ conversation: 'רגיל' })?.replyTo, undefined);
+    assert.equal(extractContent({ imageMessage: { caption: 'c', mimetype: 'image/jpeg', contextInfo: { stanzaId: 'IMG1' } } })?.replyTo, 'IMG1');
+  });
+});

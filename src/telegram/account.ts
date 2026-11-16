@@ -116,12 +116,12 @@ export class TelegramAccount implements ChannelSender {
     if (content.kind === 'text') {
       if (!content.text?.trim()) throw new SendError('invalid', 'empty text');
       const text = content.text;
-      res = await formatted(text, (t, mode) => this.o.api.sendMessage(chatId, t, mode));
+      res = await formatted(text, (t, mode) => this.o.api.sendMessage(chatId, t, mode, content.replyTo?.messageId));
     } else {
       const file = m?.data ?? m?.url;
       if (!file) throw new SendError('invalid', 'media missing');
       const kind = content.kind === 'image' ? 'photo' : content.kind === 'video' ? 'video' : content.kind === 'audio' ? 'audio' : 'document';
-      res = await formatted(content.text ?? '', (caption, parseMode) => this.o.api.sendMedia(kind, chatId, file, { caption, mimeType: m?.mimeType, fileName: m?.fileName, parseMode }));
+      res = await formatted(content.text ?? '', (caption, parseMode) => this.o.api.sendMedia(kind, chatId, file, { caption, mimeType: m?.mimeType, fileName: m?.fileName, parseMode, ...(content.replyTo ? { replyTo: content.replyTo.messageId } : {}) }));
     }
     return { messageId: String(res.message_id), sentAt: new Date(res.date * 1000) };
   }

@@ -43,6 +43,11 @@ export interface MessageContent {
    * chat message.
    */
   asStatus?: boolean;
+  /**
+   * The copy answers an earlier copy in the same target chat (the customer replied to a message in
+   * the control group): that copy's message id there, and a little of its text for the quote.
+   */
+  replyTo?: { messageId: string; text?: string };
 }
 
 /** A message received in a chat the account can see. */

@@ -149,18 +149,20 @@ export class TelegramBotApi {
     return this.call<number>('getChatMemberCount', { chat_id: chatId });
   }
 
-  sendMessage(chatId: string | number, text: string, parseMode?: 'HTML') {
-    return this.call<TgMessage>('sendMessage', { chat_id: chatId, text, link_preview_options: { is_disabled: false }, ...(parseMode ? { parse_mode: parseMode } : {}) });
+  sendMessage(chatId: string | number, text: string, parseMode?: 'HTML', replyTo?: string | number) {
+    return this.call<TgMessage>('sendMessage', { chat_id: chatId, text, link_preview_options: { is_disabled: false }, ...(parseMode ? { parse_mode: parseMode } : {}), ...replyParams(replyTo) });
   }
 
   /** Sends photo/video/audio/document either by uploading bytes or by file_id/URL. */
-  sendMedia(kind: 'photo' | 'video' | 'audio' | 'document', chatId: string | number, file: Buffer | string, opts: { caption?: string; mimeType?: string; fileName?: string; parseMode?: 'HTML' } = {}) {
+  sendMedia(kind: 'photo' | 'video' | 'audio' | 'document', chatId: string | number, file: Buffer | string, opts: { caption?: string; mimeType?: string; fileName?: string; parseMode?: 'HTML'; replyTo?: string | number } = {}) {
     const method = { photo: 'sendPhoto', video: 'sendVideo', audio: 'sendAudio', document: 'sendDocument' }[kind];
     if (typeof file === 'string') {
-      return this.call<TgMessage>(method, { chat_id: chatId, [kind]: file, ...(opts.caption ? { caption: opts.caption, ...(opts.parseMode ? { parse_mode: opts.parseMode } : {}) } : {}) });
+      return this.call<TgMessage>(method, { chat_id: chatId, [kind]: file, ...(opts.caption ? { caption: opts.caption, ...(opts.parseMode ? { parse_mode: opts.parseMode } : {}) } : {}), ...replyParams(opts.replyTo) });
     }
     const form = new FormData();
     form.set('chat_id', String(chatId));
+    const rp = replyParams(opts.replyTo).reply_parameters;
+    if (rp) form.set('reply_parameters', JSON.stringify(rp));
     if (opts.caption) form.set('caption', opts.caption);
     if (opts.caption && opts.parseMode) form.set('parse_mode', opts.parseMode);
     if (kind === 'video') form.set('supports_streaming', 'true');
@@ -214,4 +216,10 @@ export function mapTelegramError(method: string, code: number, description: stri
   if (code === 400) return new SendError('invalid', msg);
   if (code >= 500) return new SendError('transient', msg);
   return new SendError('invalid', msg);
+}
+
+/** Answer an earlier message; if it is gone, the message is still sent (as a normal one). */
+function replyParams(replyTo: string | number | undefined): { reply_parameters?: { message_id: number; allow_sending_without_reply: true } } {
+  const id = Number(replyTo);
+  return replyTo !== undefined && Number.isInteger(id) && id > 0 ? { reply_parameters: { message_id: id, allow_sending_without_reply: true } } : {};
 }

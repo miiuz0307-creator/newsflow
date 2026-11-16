@@ -256,6 +256,7 @@ export class ConnectionManager {
         isForwarded: raw.isForwarded,
         receivedAt: raw.timestamp,
         content: raw.content,
+        ...(raw.replyToMessageId ? { replyToMessageId: raw.replyToMessageId } : {}),
       };
       for (const fn of this.messageListeners) {
         try {
